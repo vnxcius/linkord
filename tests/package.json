@@ -1,0 +1,12 @@
+{
+  "name": "linkord-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "node --test --test-timeout=20000 api.test.mjs",
+    "ui": "node ui.e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}

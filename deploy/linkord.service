@@ -1,0 +1,14 @@
+# systemd *user* unit. Install with deploy/install-service.sh
+[Unit]
+Description=Linkord server
+After=network-online.target docker.service
+
+[Service]
+WorkingDirectory=%h/repositories/linkord/server
+ExecStart=%h/repositories/linkord/server/target/release/linkord-server
+Restart=on-failure
+RestartSec=3
+Environment=RUST_LOG=linkord_server=info
+
+[Install]
+WantedBy=default.target

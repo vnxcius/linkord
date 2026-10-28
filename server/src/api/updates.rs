@@ -1,0 +1,129 @@
+//! Desktop auto-update feed for the Tauri updater. `app/publish-windows.sh` drops the signed
+//! installer and `latest.json` into `<data>/updates/`; installers are served from /api/updates/download.
+//! `app/publish-linux.sh` adds the signed Linux packages and `linux.json`; Linux apps get both as one static
+//! manifest (`linux-x86_64-deb` / `-rpm`) and the updater picks the one it was installed from. /api/downloads
+//! lists what the web client's "Download the app" offers.
+
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::{Json, Router};
+use serde::Deserialize;
+use serde_json::json;
+
+use crate::direct::PublicBase;
+use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new().route("/updates/{target}/{arch}/{current}", get(check)).route("/downloads", get(downloads))
+}
+
+#[derive(Deserialize)]
+struct Platform {
+    signature: String,
+    file: String,
+}
+
+#[derive(Deserialize)]
+struct Latest {
+    version: String,
+    #[serde(default)]
+    notes: String,
+    pub_date: String,
+    platforms: std::collections::HashMap<String, Platform>,
+}
+
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let mut it = v.trim_start_matches('v').split(['.', '-', '+']).map(|p| p.parse::<u64>());
+    Some((it.next()?.ok()?, it.next()?.ok()?, it.next()?.ok()?))
+}
+
+async fn check(State(st): State<AppState>, base: PublicBase, Path((target, arch, current)): Path<(String, String, String)>) -> Response {
+    if target == "linux" {
+        return check_linux(&st, &base, &arch, &current).await;
+    }
+    let Ok(raw) = tokio::fs::read(st.cfg.data_dir.join("updates/latest.json")).await else {
+        return StatusCode::NO_CONTENT.into_response();
+    };
+    let Ok(latest) = serde_json::from_slice::<Latest>(&raw) else {
+        tracing::warn!("updates/latest.json is malformed");
+        return StatusCode::NO_CONTENT.into_response();
+    };
+    let newer = matches!((parse_version(&latest.version), parse_version(&current)), (Some(l), Some(c)) if l > c);
+    let Some(p) = latest.platforms.get(&format!("{target}-{arch}")).filter(|_| newer) else {
+        return StatusCode::NO_CONTENT.into_response();
+    };
+    Json(json!({
+        "version": latest.version,
+        "notes": latest.notes,
+        "pub_date": latest.pub_date,
+        "url": format!("{base}/api/updates/download/{}", urlencoding::encode(&p.file)),
+        "signature": p.signature,
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct LinuxPackages {
+    version: String,
+    #[serde(default)]
+    notes: String,
+    #[serde(default)]
+    pub_date: Option<String>,
+    deb: Option<String>,
+    deb_signature: Option<String>,
+    rpm: Option<String>,
+    rpm_signature: Option<String>,
+}
+
+async fn check_linux(st: &AppState, base: &PublicBase, arch: &str, current: &str) -> Response {
+    let Some(linux) = tokio::fs::read(st.cfg.data_dir.join("updates/linux.json")).await.ok().and_then(|raw| serde_json::from_slice::<LinuxPackages>(&raw).ok()) else {
+        return StatusCode::NO_CONTENT.into_response();
+    };
+    let newer = matches!((parse_version(&linux.version), parse_version(current)), (Some(l), Some(c)) if l > c);
+    let mut platforms = serde_json::Map::new();
+    for (kind, file, signature) in [("deb", &linux.deb, &linux.deb_signature), ("rpm", &linux.rpm, &linux.rpm_signature)] {
+        if let (Some(file), Some(signature)) = (file, signature) {
+            let url = format!("{base}/api/updates/download/{}", urlencoding::encode(file));
+            platforms.insert(format!("linux-{arch}-{kind}"), json!({ "url": url, "signature": signature }));
+        }
+    }
+    if !newer || arch != "x86_64" || platforms.is_empty() {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    let mut out = json!({ "version": linux.version, "notes": linux.notes, "platforms": platforms });
+    if let Some(date) = linux.pub_date {
+        out["pub_date"] = date.into();
+    }
+    Json(out).into_response()
+}
+
+/// Latest installers per platform, for the web client's download buttons. Missing ones are omitted.
+async fn downloads(State(st): State<AppState>, base: PublicBase) -> Json<serde_json::Value> {
+    let dir = st.cfg.data_dir.join("updates");
+    let url = |file: &str| format!("{base}/api/updates/download/{}", urlencoding::encode(file));
+    let mut out = serde_json::Map::new();
+    if let Some(latest) = tokio::fs::read(dir.join("latest.json")).await.ok().and_then(|raw| serde_json::from_slice::<Latest>(&raw).ok()) {
+        if let Some(p) = latest.platforms.get("windows-x86_64") {
+            out.insert("windows".into(), json!({ "version": latest.version, "url": url(&p.file) }));
+        }
+    }
+    if let Some(linux) = tokio::fs::read(dir.join("linux.json")).await.ok().and_then(|raw| serde_json::from_slice::<LinuxPackages>(&raw).ok()) {
+        for (kind, file) in [("deb", &linux.deb), ("rpm", &linux.rpm)] {
+            if let Some(file) = file {
+                out.insert(kind.into(), json!({ "version": linux.version, "url": url(file) }));
+            }
+        }
+    }
+    Json(out.into())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn versions() {
+        assert!(super::parse_version("0.1.10") > super::parse_version("0.1.9"));
+        assert_eq!(super::parse_version("v1.2.3"), Some((1, 2, 3)));
+    }
+}

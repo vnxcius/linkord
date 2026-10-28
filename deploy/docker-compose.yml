@@ -1,0 +1,23 @@
+# Infrastructure for linkord: just Postgres. Voice is relayed by the linkord server itself,
+# which runs as a native binary (see linkord.service).
+name: linkord
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: linkord
+      POSTGRES_DB: linkord
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkord"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

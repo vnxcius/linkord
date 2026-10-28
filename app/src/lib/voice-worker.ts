@@ -1,0 +1,390 @@
+// Voice transport: owns the voice websocket and the Opus codecs, so audio never waits on the UI thread.
+
+import { Application, createDecoder, createEncoder, Signal, type OpusDecoderHandle, type OpusEncoderHandle } from 'libopus-wasm';
+import type { Denoiser, DenoiseKind } from './denoise';
+import { EchoCanceller } from './echo-canceller';
+
+export type WorkerIn =
+  | { type: 'connect'; url: string; token: string; channelId: string; capture: MessagePort | null; playback: MessagePort }
+  | { type: 'screen_audio'; port: MessagePort | null }
+  | { type: 'screen_audio_native'; on: boolean }
+  | { type: 'screen_audio_pcm'; data: ArrayBuffer }
+  | { type: 'echo_cancel'; on: boolean }
+  | { type: 'mute'; muted: boolean }
+  | { type: 'deafen'; deafened: boolean }
+  | { type: 'state'; self_mute: boolean; self_deaf: boolean }
+  | { type: 'video'; kind: 2 | 3; data: ArrayBuffer }
+  | { type: 'video_stop'; source: string }
+  | { type: 'watch'; user_id: string; on: boolean }
+  | { type: 'request_keyframe'; user_id: string; source: string }
+  | { type: 'gain'; id: string; gain: number }
+  | { type: 'vad'; threshold: number; auto: boolean; ptt: boolean }
+  | { type: 'ptt'; active: boolean }
+  | { type: 'denoise'; kind: DenoiseKind | null };
+
+export type WorkerOut =
+  | { type: 'ready' }
+  | { type: 'closed'; code: number }
+  | { type: 'speaking'; id: string; on: boolean }
+  | { type: 'video'; id: string; source: 'camera' | 'screen'; data: ArrayBuffer }
+  | { type: 'video_stop'; id: string; source: string }
+  | { type: 'video_dropped'; kind: number }
+  | { type: 'keyframe'; source: string }
+  | { type: 'level'; rms: number; threshold: number }
+  | { type: 'muted_talking' }
+  | { type: 'ping'; ms: number }
+  | { type: 'denoiser'; kind: DenoiseKind | null }
+  | { type: 'stream_audio'; stats: StreamAudioStats };
+
+/** Once a second while streaming audio: what the capture delivers and what the echo canceller does with it. */
+export interface StreamAudioStats {
+  /** Captured frames per second (48000 when the capture keeps up) and reference (our playback) frames per second. */
+  rate: number;
+  refRate: number;
+  /** Levels in dBFS: captured, after cancelling, and our playback. */
+  inDb: number;
+  outDb: number;
+  refDb: number;
+  /** Captured vs cancelled level over chunks while the voice chat was playing; null when it was silent. */
+  suppressionDb: number | null;
+  canceller: { locked: boolean; delayMs: number; confidence: number; realigns: number; rejects: number; tries: number; misses: number } | null;
+}
+
+const post = (m: WorkerOut, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(m, transfer);
+
+// Voice activity gate: only frames louder than the threshold (after the browser's noise suppression) are sent.
+const VAD_HANGOVER_MS = 350;
+const MUTED_HINT_EVERY_MS = 4000;
+const SPEAKING_TIMEOUT_MS = 250;
+/** Voice is dropped (not queued) beyond this, so a slow uplink never adds delay to speech. */
+const MAX_VOICE_BUFFER = 256 * 1024;
+/**
+ * Video has its own socket, but its queue still has to stay short: anything that can't go out within about
+ * a second is stale. One 1080p keyframe fits; a backlog doesn't.
+ */
+const MAX_VIDEO_BUFFER = 768 * 1024;
+
+const KIND_VOICE = 1;
+const KIND_SCREEN_AUDIO = 4;
+
+let ws: WebSocket | null = null;
+/** Second connection for video and stream audio, so they never delay voice. */
+let media: WebSocket | null = null;
+let connectMsg: Extract<WorkerIn, { type: 'connect' }> | null = null;
+let encoder: OpusEncoderHandle | null = null;
+let screenEncoder: OpusEncoderHandle | null = null;
+const decoders = new Map<string, Promise<OpusDecoderHandle>>();
+let playback: MessagePort | null = null;
+let muted = false;
+let deafened = false;
+let gateUntil = 0;
+let selfSpeaking = false;
+let threshold = 0.01;
+let autoThreshold = true;
+let pushToTalk = false;
+let pttActive = false;
+// Auto sensitivity tracks the background noise floor and opens the gate well above it.
+let noiseFloor = 0.003;
+let frameCount = 0;
+let lastMutedHint = 0;
+const lastHeard = new Map<string, number>();
+/** Streamers we're watching; stream audio from anyone else is dropped. */
+const watched = new Set<string>();
+// Advanced noise suppression (RNNoise) and its speech probability for the current frame.
+let denoiser: Denoiser | null = null;
+let denoiseKind: DenoiseKind | null = null;
+// Windows 10 stream audio contains our own playback; this removes it (see echo-canceller.ts).
+let canceller: EchoCanceller | null = null;
+
+function sumSquares(frame: Float32Array) {
+  let sum = 0;
+  for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+  return sum;
+}
+
+function rms(frame: Float32Array) {
+  return Math.sqrt(sumSquares(frame) / frame.length);
+}
+
+const dbfs = (sq: number, n: number) => (n ? Math.max(-100, Math.round(10 * Math.log10(sq / n + 1e-10))) : -100);
+
+// Stream-audio diagnostics (Windows 10 echo): sums over the current one-second window.
+const REF_ACTIVE_MS = 300;
+const emptyDiag = () => ({ since: performance.now(), frames: 0, refFrames: 0, inSq: 0, outSq: 0, refSq: 0, echoInSq: 0, echoOutSq: 0 });
+let diag = emptyDiag();
+let lastLoudRef = -Infinity;
+
+function onReference(chunk: Float32Array) {
+  const sq = sumSquares(chunk);
+  diag.refFrames += chunk.length / 2;
+  diag.refSq += sq;
+  if (sq / chunk.length > 1e-6) lastLoudRef = performance.now();
+  canceller?.pushReference(chunk);
+}
+
+function reportStreamAudio() {
+  const d = diag;
+  diag = emptyDiag();
+  if (!screenEncoder) return;
+  const secs = (diag.since - d.since) / 1000;
+  const c = canceller;
+  post({
+    type: 'stream_audio',
+    stats: {
+      rate: Math.round(d.frames / secs),
+      refRate: Math.round(d.refFrames / secs),
+      inDb: dbfs(d.inSq, d.frames * 2),
+      outDb: dbfs(d.outSq, d.frames * 2),
+      refDb: dbfs(d.refSq, d.refFrames * 2),
+      suppressionDb: d.echoInSq > 1e-6 ? Math.round(10 * Math.log10((d.echoInSq + 1e-10) / (d.echoOutSq + 1e-10))) : null,
+      canceller: c && { locked: c.locked, delayMs: Math.round(c.delay / 48), confidence: Math.round(c.confidence), realigns: c.realigns, rejects: c.alignRejects, tries: c.alignTries, misses: c.alignMisses },
+    },
+  });
+}
+setInterval(reportStreamAudio, 1000);
+
+function setSelfSpeaking(on: boolean) {
+  if (on !== selfSpeaking) post({ type: 'speaking', id: 'me', on: (selfSpeaking = on) });
+}
+
+function currentThreshold() {
+  return autoThreshold ? Math.min(0.08, Math.max(0.006, noiseFloor * 4)) : threshold;
+}
+
+function sendPacket(kind: number, packet: Uint8Array, limit: number) {
+  const sock = kind === KIND_VOICE ? ws : media;
+  if (sock?.readyState !== WebSocket.OPEN || sock.bufferedAmount > limit) return false;
+  const msg = new Uint8Array(packet.length + 1);
+  msg[0] = kind;
+  msg.set(packet, 1);
+  sock.send(msg);
+  return true;
+}
+
+function onCapture(frame: Float32Array) {
+  const now = performance.now();
+  const speech = denoiser ? denoiser.process(frame) : -1;
+  const level = rms(frame);
+  noiseFloor = level < noiseFloor ? noiseFloor * 0.9 + level * 0.1 : noiseFloor + (level - noiseFloor) * 0.002;
+  if (++frameCount % 5 === 0) post({ type: 'level', rms: level, threshold: currentThreshold() });
+  if (muted || deafened) {
+    if (!pushToTalk && level > currentThreshold() * 1.5 && now - lastMutedHint > MUTED_HINT_EVERY_MS && !deafened) {
+      lastMutedHint = now;
+      post({ type: 'muted_talking' });
+    }
+    return setSelfSpeaking(false);
+  }
+  // With RNNoise and automatic sensitivity, its speech detection decides; otherwise the level threshold does.
+  const talking = speech >= 0 && autoThreshold ? speech > 0.55 && level > 0.002 : level > currentThreshold();
+  if (pushToTalk ? pttActive : talking) gateUntil = now + (pushToTalk ? 0 : VAD_HANGOVER_MS);
+  const open = pushToTalk ? pttActive : now < gateUntil;
+  setSelfSpeaking(open);
+  if (open && encoder) sendPacket(KIND_VOICE, encoder.encodeFloat(frame), MAX_VOICE_BUFFER);
+}
+
+/** Screen-share audio: stereo, music quality, sent continuously (silence is skipped). */
+function onScreenAudio(frame: Float32Array) {
+  // Every chunk goes through the canceller, silent or not, so its sample counts stay aligned.
+  let inSq = sumSquares(frame);
+  if (canceller) {
+    frame = canceller.process(frame);
+    // The output lags the input (see HOLD_CHUNKS): compare it with the chunk it came from.
+    inSq = canceller.lastInput ? sumSquares(canceller.lastInput) : 0;
+  }
+  const outSq = canceller ? sumSquares(frame) : inSq;
+  diag.frames += frame.length / 2;
+  diag.inSq += inSq;
+  diag.outSq += outSq;
+  if (performance.now() - lastLoudRef < REF_ACTIVE_MS) {
+    diag.echoInSq += inSq;
+    diag.echoOutSq += outSq;
+  }
+  if (!screenEncoder || rms(frame) < 0.0002) return;
+  sendPacket(KIND_SCREEN_AUDIO, screenEncoder.encodeFloat(frame), MAX_VIDEO_BUFFER);
+}
+
+function decoderFor(key: string, channels: 1 | 2) {
+  let d = decoders.get(key);
+  if (!d) decoders.set(key, (d = createDecoder({ sampleRate: 48000, channels })));
+  return d;
+}
+
+async function onAudio(id: string, packet: Uint8Array) {
+  if (deafened) return;
+  const pcm = (await decoderFor(id, 1)).decodeFloat(packet);
+  playback?.postMessage({ id, pcm, channels: 1 }, [pcm.buffer]);
+  if (!lastHeard.has(id)) post({ type: 'speaking', id, on: true });
+  lastHeard.set(id, performance.now());
+}
+
+async function onStreamAudio(id: string, packet: Uint8Array) {
+  // Only streams we chose to watch, even if the server still sends one (older servers kept old viewers).
+  if (deafened || !watched.has(id)) return;
+  const key = `${id}:screen`;
+  const pcm = (await decoderFor(key, 2)).decodeFloat(packet);
+  playback?.postMessage({ id: key, pcm, channels: 2 }, [pcm.buffer]);
+}
+
+function onBinary(buf: ArrayBuffer) {
+  const view = new DataView(buf);
+  const kind = view.getUint8(0);
+  const id = view.getBigUint64(1).toString();
+  if (kind === KIND_VOICE) void onAudio(id, new Uint8Array(buf, 9));
+  else if (kind === KIND_SCREEN_AUDIO) void onStreamAudio(id, new Uint8Array(buf, 9));
+  else if (kind === 2 || kind === 3) {
+    const data = buf.slice(9);
+    post({ type: 'video', id, source: kind === 2 ? 'camera' : 'screen', data }, [data]);
+  }
+}
+
+function sendJson(msg: object) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+function openMedia() {
+  const msg = connectMsg;
+  if (!msg || ws?.readyState !== WebSocket.OPEN) return;
+  const sock = new WebSocket(msg.url.replace('/voice/connect', '/voice/media'));
+  media = sock;
+  sock.binaryType = 'arraybuffer';
+  sock.onopen = () => sock.send(JSON.stringify({ token: msg.token, channel_id: msg.channelId }));
+  sock.onmessage = (e) => typeof e.data !== 'string' && onBinary(e.data);
+  sock.onclose = () => {
+    if (media !== sock) return;
+    media = null;
+    // Keep video flowing after network blips, as long as voice itself is still connected.
+    setTimeout(openMedia, 1000);
+  };
+}
+
+let pingTimer: ReturnType<typeof setInterval> | undefined;
+
+async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
+  connectMsg = msg;
+  playback = msg.playback;
+  playback.onmessage = (e) => onReference(e.data);
+  encoder = await createEncoder({ sampleRate: 48000, channels: 1, application: Application.Voip, signal: Signal.Voice, bitrate: 40000, complexity: 8 });
+  if (msg.capture) msg.capture.onmessage = (e) => onCapture(e.data);
+
+  const sock = new WebSocket(msg.url);
+  ws = sock;
+  sock.binaryType = 'arraybuffer';
+  sock.onopen = () => sock.send(JSON.stringify({ token: msg.token, channel_id: msg.channelId }));
+  sock.onmessage = (e) => {
+    if (typeof e.data !== 'string') return onBinary(e.data);
+    const m = JSON.parse(e.data);
+    if (m.op === 'ready') {
+      post({ type: 'ready' });
+      openMedia();
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => sendJson({ op: 'ping', t: performance.now() }), 2000);
+      sendJson({ op: 'ping', t: performance.now() });
+    } else if (m.op === 'pong') post({ type: 'ping', ms: Math.round(performance.now() - m.t) });
+    else if (m.op === 'video_stop') {
+      // Drop whatever stream audio is still buffered, so it stops right away.
+      if (m.source === 'screen') playback?.postMessage({ id: `${m.user_id}:screen`, remove: true });
+      post({ type: 'video_stop', id: m.user_id, source: m.source });
+    } else if (m.op === 'keyframe') post({ type: 'keyframe', source: m.source });
+  };
+  sock.onclose = (e) => {
+    clearInterval(pingTimer);
+    const m = media;
+    media = null;
+    m?.close();
+    post({ type: 'closed', code: e.code });
+  };
+}
+
+setInterval(() => {
+  const now = performance.now();
+  for (const [id, t] of lastHeard) {
+    if (now - t > SPEAKING_TIMEOUT_MS) {
+      lastHeard.delete(id);
+      post({ type: 'speaking', id, on: false });
+    }
+  }
+}, 100);
+
+self.onmessage = async (e: MessageEvent<WorkerIn>) => {
+  const m = e.data;
+  switch (m.type) {
+    case 'connect':
+      return void connect(m);
+    case 'screen_audio':
+      if (!m.port) {
+        screenEncoder?.free();
+        screenEncoder = null;
+        return;
+      }
+      screenEncoder ??= await createEncoder({ sampleRate: 48000, channels: 2, application: Application.Audio, signal: Signal.Music, bitrate: 128000, complexity: 8 });
+      diag = emptyDiag();
+      m.port.onmessage = (ev) => onScreenAudio(ev.data);
+      return;
+    case 'screen_audio_native':
+      if (m.on) {
+        screenEncoder ??= await createEncoder({ sampleRate: 48000, channels: 2, application: Application.Audio, signal: Signal.Music, bitrate: 128000, complexity: 8 });
+        diag = emptyDiag();
+      } else {
+        screenEncoder?.free();
+        screenEncoder = null;
+      }
+      return;
+    case 'screen_audio_pcm':
+      return onScreenAudio(new Float32Array(m.data));
+    case 'echo_cancel':
+      canceller = m.on ? new EchoCanceller(2) : null;
+      playback?.postMessage({ captureRef: m.on });
+      return;
+    case 'mute':
+      muted = m.muted;
+      return;
+    case 'deafen':
+      deafened = m.deafened;
+      return;
+    case 'state':
+      return sendJson({ op: 'state', self_mute: m.self_mute, self_deaf: m.self_deaf });
+    case 'video':
+      // Dropping a frame breaks the decode chain; the sender restarts it with a keyframe.
+      if (!sendPacket(m.kind, new Uint8Array(m.data), MAX_VIDEO_BUFFER)) post({ type: 'video_dropped', kind: m.kind });
+      return;
+    case 'video_stop':
+      return sendJson({ op: 'video_stop', source: m.source });
+    case 'watch':
+      if (m.on) watched.add(m.user_id);
+      else {
+        watched.delete(m.user_id);
+        playback?.postMessage({ id: `${m.user_id}:screen`, remove: true });
+      }
+      return sendJson({ op: 'watch', user_id: m.user_id, on: m.on });
+    case 'request_keyframe':
+      return sendJson({ op: 'request_keyframe', user_id: m.user_id, source: m.source });
+    case 'gain':
+      playback?.postMessage({ id: m.id, gain: m.gain });
+      return;
+    case 'vad':
+      threshold = m.threshold;
+      autoThreshold = m.auto;
+      pushToTalk = m.ptt;
+      return;
+    case 'ptt':
+      pttActive = m.active;
+      return;
+    case 'denoise': {
+      if (m.kind === denoiseKind) return;
+      denoiseKind = m.kind;
+      const old = denoiser;
+      denoiser = null;
+      old?.dispose();
+      if (m.kind) {
+        const kind = m.kind;
+        const { createDenoiser } = await import('./denoise');
+        const d = await createDenoiser(kind).catch((e) => (console.warn('noise suppression unavailable', e), null));
+        // Ignore if the setting changed again while loading.
+        if (denoiseKind === kind) denoiser = d;
+        else d?.dispose();
+      }
+      post({ type: 'denoiser', kind: denoiser ? denoiseKind : null });
+      return;
+    }
+  }
+};

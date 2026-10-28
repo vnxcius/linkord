@@ -1,0 +1,239 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use sqlx::types::Json;
+use sqlx::{FromRow, PgPool};
+
+use crate::error::{ApiError, ApiResult};
+use crate::id::Id;
+
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, accent_color, bio, status";
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct User {
+    pub id: Id,
+    pub username: String,
+    pub display_name: Option<String>,
+    pub avatar: Option<String>,
+    pub banner: Option<String>,
+    pub accent_color: Option<i32>,
+    pub bio: String,
+    /// The user's chosen status. Only sent to the user themselves; others see presence.
+    #[serde(skip)]
+    pub status: String,
+}
+
+/// Same as [`User`] but includes the private status field (for the user's own client).
+#[derive(Serialize)]
+pub struct SelfUser<'a> {
+    #[serde(flatten)]
+    pub user: &'a User,
+    pub status: &'a str,
+}
+
+impl User {
+    pub fn me(&self) -> SelfUser<'_> {
+        SelfUser { user: self, status: &self.status }
+    }
+
+    pub async fn get(db: &PgPool, id: Id) -> ApiResult<User> {
+        sqlx::query_as::<_, User>(&format!("SELECT {USER_COLS} FROM users WHERE id = $1"))
+            .bind(id)
+            .fetch_optional(db)
+            .await?
+            .ok_or(ApiError::NotFound)
+    }
+
+    pub async fn get_many(db: &PgPool, ids: &[Id]) -> ApiResult<Vec<User>> {
+        Ok(sqlx::query_as::<_, User>(&format!("SELECT {USER_COLS} FROM users WHERE id = ANY($1)"))
+            .bind(ids)
+            .fetch_all(db)
+            .await?)
+    }
+}
+
+/// Prefixes each column in a comma-separated list, for joins.
+pub fn prefixed(cols: &str, alias: &str) -> String {
+    cols.split(", ").map(|c| format!("{alias}.{c}")).collect::<Vec<_>>().join(", ")
+}
+
+/// Discord-style username: 2-32 chars of a-z, 0-9, `_` and `.`, no consecutive dots.
+pub fn validate_username(name: &str) -> Result<(), &'static str> {
+    if !(2..=32).contains(&name.len()) {
+        return Err("username must be 2-32 characters");
+    }
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') {
+        return Err("username may only contain lowercase letters, numbers, '_' and '.'");
+    }
+    if name.contains("..") {
+        return Err("username cannot contain consecutive dots");
+    }
+    Ok(())
+}
+
+pub mod kind {
+    pub const TEXT: i16 = 0;
+    pub const DM: i16 = 1;
+    pub const VOICE: i16 = 2;
+    pub const GROUP_DM: i16 = 3;
+    pub const CATEGORY: i16 = 4;
+    pub const THREAD: i16 = 11;
+
+    pub fn is_private(k: i16) -> bool {
+        k == DM || k == GROUP_DM
+    }
+
+    pub fn has_messages(k: i16) -> bool {
+        matches!(k, TEXT | DM | GROUP_DM | THREAD)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct Channel {
+    pub id: Id,
+    pub guild_id: Option<Id>,
+    pub kind: i16,
+    pub name: String,
+    pub topic: String,
+    pub position: i32,
+    pub parent_id: Option<Id>,
+    pub last_message_id: Option<Id>,
+    pub owner_id: Option<Id>,
+    pub thread_message_id: Option<Id>,
+    pub archived: bool,
+    pub message_count: i32,
+}
+
+pub const CHANNEL_COLS: &str =
+    "id, guild_id, kind, name, topic, position, parent_id, last_message_id, owner_id, thread_message_id, archived, message_count";
+
+impl Channel {
+    pub async fn get(db: &PgPool, id: Id) -> ApiResult<Channel> {
+        sqlx::query_as::<_, Channel>(&format!("SELECT {CHANNEL_COLS} FROM channels WHERE id = $1"))
+            .bind(id)
+            .fetch_optional(db)
+            .await?
+            .ok_or(ApiError::NotFound)
+    }
+}
+
+/// DM or group DM with its participants.
+#[derive(Serialize)]
+pub struct DmChannel {
+    #[serde(flatten)]
+    pub channel: Channel,
+    pub recipients: Vec<User>,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct GuildRow {
+    pub id: Id,
+    pub name: String,
+    pub icon: Option<String>,
+    pub owner_id: Id,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct Role {
+    pub id: Id,
+    pub guild_id: Id,
+    pub name: String,
+    pub color: Option<i32>,
+    pub permissions: i64,
+    pub position: i32,
+    pub hoist: bool,
+    pub mentionable: bool,
+}
+
+pub const ROLE_COLS: &str = "id, guild_id, name, color, permissions, position, hoist, mentionable";
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct Emoji {
+    pub id: Id,
+    pub guild_id: Id,
+    pub name: String,
+    pub animated: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Member {
+    pub user: User,
+    pub nickname: Option<String>,
+    pub joined_at: DateTime<Utc>,
+    pub roles: Vec<Id>,
+}
+
+#[derive(Serialize)]
+pub struct Guild {
+    #[serde(flatten)]
+    pub guild: GuildRow,
+    pub channels: Vec<Channel>,
+    pub members: Vec<Member>,
+    pub roles: Vec<Role>,
+    pub emojis: Vec<Emoji>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Attachment {
+    pub id: Id,
+    pub filename: String,
+    pub url: String,
+    pub size: u64,
+    pub content_type: String,
+    /// Voice messages: length in seconds and a base64 waveform (one byte of loudness per bar), like Discord's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waveform: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct MessageRow {
+    pub id: Id,
+    pub channel_id: Id,
+    pub author_id: Id,
+    pub content: String,
+    pub reply_to: Option<Id>,
+    pub attachments: Json<Vec<Attachment>>,
+    pub embeds: Json<serde_json::Value>,
+    pub mention_everyone: bool,
+    pub pinned_at: Option<DateTime<Utc>>,
+    pub thread_id: Option<Id>,
+    pub edited_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+pub const MESSAGE_COLS: &str =
+    "id, channel_id, author_id, content, reply_to, attachments, embeds, mention_everyone, pinned_at, thread_id, edited_at, created_at";
+
+#[derive(Serialize, Clone)]
+pub struct Reaction {
+    pub emoji: String,
+    pub users: Vec<Id>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct MessageRef {
+    pub id: Id,
+    pub author: User,
+    pub content: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Message {
+    pub id: Id,
+    pub channel_id: Id,
+    pub author: User,
+    pub content: String,
+    pub reply_to: Option<Id>,
+    pub referenced_message: Option<MessageRef>,
+    pub attachments: Vec<Attachment>,
+    pub embeds: serde_json::Value,
+    pub reactions: Vec<Reaction>,
+    pub mention_everyone: bool,
+    pub pinned: bool,
+    pub thread_id: Option<Id>,
+    pub edited_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+}

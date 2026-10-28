@@ -1,0 +1,64 @@
+[package]
+name = "linkord"
+version = "0.1.30"
+description = "Linkord desktop client"
+edition = "2021"
+publish = false
+
+[lib]
+name = "linkord_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-autostart = "2"
+# Used by the code tauri::generate_context! / generate_handler! expand to.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# WebKitGTK ships with microphone/camera access disabled; voice needs it switched on.
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.18"
+webkit2gtk = { version = "2.0", features = ["v2_38"] }
+
+# WebView2 remembers a "Block" on the mic prompt forever; the app grants its own media requests instead.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-capture = "2.0"
+xcap = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+rayon = "1"
+base64 = "0.22"
+# The #[implement] COM macro expands to paths in windows-core.
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_Media_MediaFoundation",
+  "Win32_Media_DirectShow",
+  "Win32_Media_Audio",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_Security",
+  "Win32_System_SystemInformation",
+  "Wdk_System_SystemServices",
+] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

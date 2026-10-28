@@ -1,0 +1,9 @@
+node_modules
+dist
+out
+src-tauri/target
+src-tauri/gen/schemas
+*.Dockerfile
+build-windows.sh
+build-linux.sh
+publish-linux.sh
