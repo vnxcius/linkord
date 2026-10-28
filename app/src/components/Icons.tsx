@@ -103,7 +103,9 @@ export const Compass = icon(LCompass);
 export const Logout = icon(LogOut);
 export const Minimize = icon(Minus);
 export const Maximize = icon(Square);
-export const Pin = icon(LPin);
+const PinIcon = icon(LPin);
+// Tilted like Discord's pin.
+export const Pin = (p: P) => <PinIcon style={{ rotate: '40deg' }} {...p} />;
 export const Search = icon(LSearch);
 export const Thread = icon(MessagesSquare);
 export const Bell = icon(LBell);
