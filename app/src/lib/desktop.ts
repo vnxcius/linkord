@@ -9,6 +9,7 @@ import { isTauri } from './platform';
 import { prefs } from './prefs';
 import { state, totalMentions } from './store';
 import { voiceUi } from './voice';
+import { initZoom } from './zoom';
 
 export const isWindows = navigator.userAgent.includes('Windows');
 
@@ -30,7 +31,12 @@ function trayState(): string {
   return state.me && voiceUi.speaking[state.me.id] ? 'speaking' : 'connected';
 }
 
-const TRAY_TIPS: Record<string, string> = { speaking: msg('Linkord — speaking'), muted: msg('Linkord — muted'), deafened: msg('Linkord — deafened'), connected: msg('Linkord — in voice') };
+const TRAY_TIPS: Record<string, string> = {
+  speaking: msg('Linkord — speaking'),
+  muted: msg('Linkord — muted'),
+  deafened: msg('Linkord — deafened'),
+  connected: msg('Linkord — in voice'),
+};
 
 /** A red count badge for the taskbar button (Windows overlay icon). */
 function badgePng(count: number): Promise<Uint8Array> {
@@ -46,12 +52,15 @@ function badgePng(count: number): Promise<Uint8Array> {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillText(count > 99 ? '99+' : String(count), 16, 17);
-  return new Promise((resolve) => c.toBlob((b) => b!.arrayBuffer().then((a) => resolve(new Uint8Array(a))), 'image/png'));
+  return new Promise((resolve) =>
+    c.toBlob((b) => b!.arrayBuffer().then((a) => resolve(new Uint8Array(a))), 'image/png'),
+  );
 }
 
 export async function initDesktop() {
   void initKeybinds();
   if (!isTauri) return;
+  void initZoom();
   const { invoke } = await import('@tauri-apps/api/core');
   const { getCurrentWindow, UserAttentionType } = await import('@tauri-apps/api/window');
   const win = getCurrentWindow();
@@ -59,15 +68,20 @@ export async function initDesktop() {
   createRoot(() => {
     createEffect(() => {
       const tray = trayState();
-      void invoke('set_tray_state', { state: tray, tooltip: TRAY_TIPS[tray] ? t(TRAY_TIPS[tray]) : 'Linkord' }).catch(() => {});
+      void invoke('set_tray_state', { state: tray, tooltip: TRAY_TIPS[tray] ? t(TRAY_TIPS[tray]) : 'Linkord' }).catch(
+        () => {},
+      );
     });
-    createEffect(() => void invoke('set_tray_menu', { open: t('Open Linkord'), quit: t('Quit Linkord') }).catch(() => {}));
+    createEffect(
+      () => void invoke('set_tray_menu', { open: t('Open Linkord'), quit: t('Quit Linkord') }).catch(() => {}),
+    );
     createEffect(() => void invoke('set_close_to_tray', { enabled: prefs.closeToTray }).catch(() => {}));
     createEffect(() => void invoke('set_start_minimized', { enabled: prefs.startMinimized }).catch(() => {}));
     createEffect(
       on(totalMentions, async (count, prev) => {
         if (isWindows) await win.setOverlayIcon(count ? await badgePng(count) : undefined).catch(() => {});
-        if (count > (prev ?? 0) && !document.hasFocus()) await win.requestUserAttention(UserAttentionType.Informational).catch(() => {});
+        if (count > (prev ?? 0) && !document.hasFocus())
+          await win.requestUserAttention(UserAttentionType.Informational).catch(() => {});
       }),
     );
   });

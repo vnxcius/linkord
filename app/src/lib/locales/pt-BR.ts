@@ -311,6 +311,7 @@ export const UI: Record<string, string> = {
   "Leave voice to test your microphone": "Saia da chamada de voz para testar seu microfone",
   "You are hearing your own mic. Use headphones to avoid feedback.": "Você está ouvindo seu próprio microfone. Use fones de ouvido para evitar microfonia.",
   "Your live mic level in voice.": "O nível do seu microfone na chamada, ao vivo.",
+  "Zoom: {n}%": "Zoom: {n}%",
   "Talk to see your mic level.": "Fale para ver o nível do microfone.",
   "Input mode": "Modo de entrada",
   "Voice Activity": "Detecção de voz",

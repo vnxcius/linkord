@@ -41,6 +41,8 @@ export interface Prefs {
   hiddenGames: string[];
   /** UI language; 'system' follows the Windows (or browser) language. */
   language: 'system' | 'en' | 'pt-BR';
+  /** Desktop app zoom (Ctrl + / Ctrl -), 1 = 100%. */
+  zoom: number;
 }
 
 const DEFAULTS: Prefs = {
@@ -67,6 +69,7 @@ const DEFAULTS: Prefs = {
   customGames: [],
   hiddenGames: [],
   language: 'system',
+  zoom: 1,
 };
 
 const KEY = 'linkord.prefs';
@@ -79,7 +82,10 @@ function load(): Prefs {
     delete saved.noiseSuppression;
     // Up to 0.1.8 there was a single push-to-talk key.
     if (saved.keybinds === undefined && saved.pttKey) {
-      saved.keybinds = [...DEFAULT_KEYBINDS, { id: 'ptt', action: 'ptt', combo: { vk: saved.pttKey, mods: 0, label: saved.pttLabel || 'Key' } }];
+      saved.keybinds = [
+        ...DEFAULT_KEYBINDS,
+        { id: 'ptt', action: 'ptt', combo: { vk: saved.pttKey, mods: 0, label: saved.pttLabel || 'Key' } },
+      ];
     }
     delete saved.pttKey;
     delete saved.pttLabel;
