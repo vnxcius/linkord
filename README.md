@@ -1,119 +1,88 @@
 # Linkord
 
-A self-hosted, Discord-style chat app for you and your friends: servers, text channels, threads, DMs, group DMs, voice, video and screen share. You sign in with your Discord account.
+A self-hosted, Discord-style chat app for a small group of friends: servers, channels, threads, DMs, voice, video
+and screen share. Login is Discord OAuth only.
 
-## Stack
+- **Server:** Rust (axum, sqlx) + PostgreSQL. REST API, a websocket gateway, and a voice/video relay, all on one
+  HTTPS origin, so voice needs no port forwarding, TURN or media server.
+- **Client:** SolidJS + Vite (web), wrapped in a Tauri 2 desktop app (Windows first, Linux packages too) with
+  native screen capture, global keybinds, tray and signed auto-updates.
 
-| Piece | Tech | Why |
-| --- | --- | --- |
-| Server | Rust · axum · tokio · sqlx | Single small binary, low memory, handles thousands of websockets |
-| Database | PostgreSQL 16 (Docker, port 5433) | Reliable, runs separately from the system Postgres |
-| Realtime | WebSocket gateway (`/api/gateway`) with session resume | Server pushes `{s, t, d}` events; reconnects replay only what was missed |
-| Voice/video | Opus (WASM) + WebCodecs VP8, relayed by the server over a websocket | Works anywhere the app loads. No ports, TURN or media server to configure |
-| Client UI | SolidJS · Vite · TypeScript | Fine-grained reactivity, small bundle |
-| Desktop | Tauri 2 | Uses the OS webview instead of bundling Chromium, so RAM use is a fraction of Electron's |
-
-## Features
-
-**Servers and roles**
-- Roles and permissions, using Discord's permission model: admin, manage server, channels, roles, emoji, kick, nicknames, messages, threads, mention @everyone, connect, speak.
-- Role hierarchy, role colors, and roles shown as separate groups in the member list.
-- Invites with expiry, nicknames, custom emoji (static and animated), server icon.
-
-**Chat**
-- Markdown, @user, @role and @everyone/@here mentions, replies, edits (↑ edits your last message), reactions with custom emoji, attachments (drag-drop and paste).
-- Link previews and GIF/image embeds, threads started from a message, pins.
-- Search with `from:`, `has:image`, `has:file` and `has:link` filters; jump to any message and back to the present.
-- Typing indicators, unread markers, mention badges, desktop notifications, and per-server or per-channel mutes.
-
-**People**
-- Friends: requests by username, plus pending and blocked lists.
-- Blocking hides a person's messages and stops their DMs.
-- DMs need a shared server or a friendship. Group DMs hold up to 10 friends.
-- Profiles show roles, a bio and a banner.
-
-**Voice**
-- Join a channel by clicking it. Speaking indicators, mute and deafen, camera and screen share.
-- Input and output device selection, and a voice-activity threshold (automatic, or manual with a live meter).
-- Noise suppression and echo cancellation, push-to-talk with a release delay, per-user volume (right-click someone), join/leave sounds, and a "you're muted" hint.
-
-**Desktop app (Windows)**
-- Tray icon that shows a green ring while you speak and red when muted or deafened.
-- Taskbar mention badge, close-to-tray, start with Windows.
-- Global push-to-talk that also works in games without swallowing the key.
-- Signed auto-updates.
-
-**Server hardening**
-- Rate limits on logins, messages, reactions, friend requests and search.
-- Per-user upload quota (`LINKORD_UPLOAD_QUOTA_MB`, default 2048). Deleted attachments free their space.
-- Link previews never reach private or local addresses.
-
-Usernames follow Discord's rules: 2–32 characters, lowercase `a-z`, `0-9`, `_` and `.`, with no consecutive dots.
-
-## Running it
-
-```bash
-# Postgres. Its password lives in deploy/.env (see .env.example)
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
-
-# Build everything and run the server as a systemd user service
-deploy/install-service.sh
-sudo loginctl enable-linger $USER     # keep it running when you're logged out (once)
+```
+server/   Rust backend (src/api REST, gateway.rs, voice.rs, migrations/)
+app/      SolidJS client; app/src-tauri = desktop shell
+deploy/   Postgres docker-compose, systemd user unit, install script
+tests/    API, browser (Playwright) and unit tests
 ```
 
-Re-run `deploy/install-service.sh` after pulling changes. It rebuilds and restarts the server. Logs: `journalctl --user -u linkord -f`.
+## Prerequisites
 
-Configuration lives in `server/.env` (see `server/.env.example`):
+Rust (stable), Node 20+ with pnpm, Docker. Desktop builds also run in Docker, so no Tauri toolchain is needed locally.
+
+## Develop
+
+1. **Start Postgres** (listens on `127.0.0.1:5433`):
+   ```bash
+   cp deploy/.env.example deploy/.env        # set POSTGRES_PASSWORD
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+   ```
+2. **Configure the server:**
+   ```bash
+   cp server/.env.example server/.env
+   ```
+   Set `DATABASE_URL` to the password above. For local work set `LINKORD_DEV_LOGIN=true` (passwordless login,
+   **never in production**), or fill `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` with redirect URI
+   `<LINKORD_PUBLIC_URL>/api/auth/discord/callback`.
+3. **Run the server** (migrations run on startup):
+   ```bash
+   cd server && cargo run
+   ```
+4. **Run the web client** with hot reload on http://localhost:1420 (proxies `/api` to the server on :7700):
+   ```bash
+   cd app && pnpm install && pnpm dev
+   ```
+5. **Test:**
+   ```bash
+   tests/run-local.sh                # everything, on a throwaway server (:7701, DB linkord_test)
+   tests/run-local.sh --api          # API only (~10 s)
+   tests/run-local.sh --ui 'regex'   # matching browser steps only
+   cd server && cargo test           # server unit tests
+   cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs
+   ```
+   New UI strings need a pt-BR entry in `app/src/lib/locales/pt-BR.ts` or `i18n.test.mjs` fails.
+6. **Try the desktop app:** `app/build-windows.sh` cross-compiles a Windows installer into `app/out/`.
+
+## Deploy
+
+Production runs as a systemd user service on `127.0.0.1:7700`, published through a Cloudflare tunnel.
+
+1. **Run the full test suite:** `tests/run-local.sh`.
+2. **Deploy the server and web client** (builds both, then installs/restarts the `linkord` user service):
+   ```bash
+   deploy/install-service.sh
+   journalctl --user -u linkord -f                 # logs
+   ```
+   Once per machine: `sudo loginctl enable-linger $USER` so the service survives logout.
+3. **Publish the desktop app** (bumps the patch version, signed build, published to the update feed):
+   ```bash
+   app/publish-windows.sh "What changed"
+   app/publish-linux.sh                            # optional: .deb/.rpm for the same version
+   ```
+   Installed apps update themselves within 30 minutes. Deploy the server first when the client depends on new
+   server behaviour, and keep the server compatible with the previous client during that window.
+
+**Updater signing key:** `~/.config/linkord/updater.key` (outside the repo). Back it up: without it, installed apps
+can't verify updates and everyone has to reinstall.
+
+### Configuration (`server/.env`)
 
 | Variable | Purpose |
 | --- | --- |
-| `LINKORD_PUBLIC_URL` | Public https URL. Discord's redirect is `<this>/api/auth/discord/callback` |
-| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | From discord.com/developers → your app → OAuth2 |
-| `LINKORD_DEV_LOGIN` | Passwordless test login. **Keep `false` in production** |
+| `LINKORD_PUBLIC_URL` | Public https URL (OAuth redirects are built from it) |
+| `DATABASE_URL` | Postgres connection string |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth app |
+| `LINKORD_DEV_LOGIN` | Passwordless test login. Keep `false` in production |
 | `LINKORD_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
-| `GIPHY_API_KEY` | Optional. Enables GIF search; without it the picker shows your favorite GIFs |
-
-The server listens on `127.0.0.1:7700` behind the Cloudflare tunnel. Voice needs nothing extra.
-
-## Desktop releases
-
-```bash
-cd app
-./build-windows.sh                  # quick test build -> app/out/ (about 20 s after the first build)
-./publish-windows.sh "What changed" # bump version, optimized signed build, publish to the update feed
-```
-
-- **How updates reach people:** installed apps check `https://old.example.com/api/updates/...` every 30 minutes and show an "Update & restart" banner.
-- **Releases:** the feed lives in `server/data/updates/`. Commit the version bump after publishing.
-- **Signing key:** updates are signed with `~/.config/linkord/updater.key`, which is created once with `pnpm tauri signer generate`. Back it up. Without it, installed apps can't verify future updates and everyone would need to reinstall.
-- **Windows setup:** the installer installs per-user. Windows SmartScreen warns because the build isn't code-signed: click *More info → Run anyway*.
-- **CI:** `.github/workflows/desktop.yml` also builds installers on tag push.
-
-## Tests
-
-```bash
-tests/run-local.sh   # throwaway server on :7701 with its own database; runs API + browser tests
-```
-
-- `tests/api.test.mjs` covers permissions, roles, threads, pins, search, emoji, friends, blocks, group DMs, settings, session resume, rate limits and the update feed.
-- `tests/ui.e2e.mjs` drives two browser users through the real UI, including two-way voice.
-- `cargo test` in `server/` covers parsing and safety checks.
-- CI runs all of it on every push (`.github/workflows/test.yml`).
-
-## Layout
-
-```
-server/        Rust backend: src/api/* REST, gateway.rs websocket, voice.rs voice/video relay,
-               perms.rs, embeds.rs (link previews), ratelimit.rs
-app/           SolidJS client + Tauri shell (app/src-tauri: tray, push-to-talk hook, updater)
-deploy/        docker-compose (Postgres), systemd unit, install script
-tests/         API and browser test suites
-assets/        Original Linkord emblem (SVG)
-```
-
-## Later
-
-- "Playing X" status from running games
-- Nightly database backups
-
-Branding note: the emblem, tray icons, sounds and theme are original works inspired by classic fantasy-adventure aesthetics. No Nintendo or Discord artwork is used.
+| `GIPHY_API_KEY` | Optional GIF search |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional Spotify connection (redirect `<public_url>/api/connections/spotify/callback`) |
+| `LINKORD_DIRECT_BIND` / `LINKORD_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |
