@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Windows installer, cross-compiled on Linux with cargo-xwin. Use ./build-windows.sh rather than calling this directly.
-# Cache mounts keep crates, compiled dependencies, the MSVC SDK and the pnpm store between builds.
+# Cache mounts keep crates, compiled dependencies, the MSVC SDK and the bun cache between builds.
 
 # trixie: Tauri's installer script needs NSIS >= 3.09 (bookworm ships 3.08)
 FROM rust:1-trixie AS base
@@ -8,7 +8,7 @@ FROM rust:1-trixie AS base
 RUN apt-get update && apt-get install -y --no-install-recommends nsis lld llvm clang libayatana-appindicator3-dev \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && npm i -g pnpm@11
+    && npm i -g bun@1
 RUN rustup target add x86_64-pc-windows-msvc && cargo install --locked cargo-xwin
 
 FROM base AS build
@@ -17,9 +17,9 @@ ARG VITE_DEFAULT_SERVER=""
 ARG PROFILE=fast
 ENV VITE_DEFAULT_SERVER=${VITE_DEFAULT_SERVER} CI=true
 WORKDIR /src
-COPY package.json pnpm-lock.yaml ./
-RUN --mount=type=cache,id=linkord-pnpm,target=/pnpm-store \
-    pnpm install --frozen-lockfile --store-dir /pnpm-store
+COPY package.json bun.lock ./
+RUN --mount=type=cache,id=linkord-bun,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 COPY . .
 # The updater signing key comes in as a build secret so it never lands in an image layer.
 RUN --mount=type=secret,id=tauri_key,required=true \
@@ -32,7 +32,7 @@ RUN --mount=type=secret,id=tauri_key,required=true \
       export CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
              CARGO_PROFILE_RELEASE_INCREMENTAL=true CARGO_PROFILE_RELEASE_OPT_LEVEL=1; \
     fi \
-    && pnpm tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
+    && bun tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
     && mkdir -p /out && cp src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe* /out/
 
 FROM scratch

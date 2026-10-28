@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.cargo/bin:$PATH"
 
-(cd "$root/app" && pnpm install --frozen-lockfile && pnpm build)
+(cd "$root/app" && bun install --frozen-lockfile && bun run build)
 (cd "$root/server" && cargo build --release)
 
 mkdir -p "$HOME/.config/systemd/user"

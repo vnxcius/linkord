@@ -18,7 +18,7 @@ pg_pass=$(grep POSTGRES_PASSWORD "$root/deploy/.env" | cut -d= -f2)
 data=$(mktemp -d)
 
 docker exec linkord-postgres-1 createdb -U linkord linkord_test 2>/dev/null || true
-[[ $mode == api ]] || (cd "$root/app" && pnpm build >/dev/null)
+[[ $mode == api ]] || (cd "$root/app" && bun run build >/dev/null)
 (cd "$root/server" && cargo build -q)
 (cd "$root/tests" && [ -d node_modules ] || npm ci --silent)
 

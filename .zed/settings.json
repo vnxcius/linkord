@@ -1,0 +1,44 @@
+// Needs the Oxc extension (zed.dev/extensions/oxc) and `bun install` in app/.
+// editor::Format (ctrl+shift+i) applies oxlint's safe fixes, then formats with oxfmt.
+{
+  "lsp": {
+    "oxlint": {
+      "binary": {
+        "path": "node",
+        "arguments": ["app/node_modules/oxlint/bin/oxlint", "--lsp"]
+      },
+      "initialization_options": {
+        "settings": {
+          "configPath": "app/.oxlintrc.json",
+          "run": "onType",
+          "fixKind": "safe_fix"
+        }
+      }
+    },
+    "oxfmt": {
+      "binary": {
+        "path": "node",
+        "arguments": ["app/node_modules/oxfmt/bin/oxfmt", "--lsp"]
+      },
+      "initialization_options": {
+        "settings": {
+          "fmt.configPath": "app/.oxfmtrc.json"
+        }
+      }
+    }
+  },
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["oxlint", "oxfmt", "!eslint", "..."],
+      "format_on_save": "off",
+      "prettier": { "allowed": false },
+      "formatter": [{ "code_action": "source.fixAll.oxc" }, { "language_server": { "name": "oxfmt" } }]
+    },
+    "TSX": {
+      "language_servers": ["oxlint", "oxfmt", "!eslint", "..."],
+      "format_on_save": "off",
+      "prettier": { "allowed": false },
+      "formatter": [{ "code_action": "source.fixAll.oxc" }, { "language_server": { "name": "oxfmt" } }]
+    }
+  }
+}

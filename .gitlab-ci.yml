@@ -27,18 +27,18 @@ test:
     POSTGRES_PASSWORD: linkord
     POSTGRES_DB: linkord_test
     CARGO_HOME: $CI_PROJECT_DIR/.cargo
-    PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
+    BUN_INSTALL_CACHE_DIR: $CI_PROJECT_DIR/.bun-cache
     PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.playwright
     DATA: /tmp/linkord-data
   cache:
     key:
-      files: [server/Cargo.lock, app/pnpm-lock.yaml]
-    paths: [.cargo/registry, .cargo/git, server/target, .pnpm-store, .playwright]
+      files: [server/Cargo.lock, app/bun.lock]
+    paths: [.cargo/registry, .cargo/git, server/target, .bun-cache, .playwright]
   before_script:
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs
-    - npm i -g pnpm@11
+    - npm i -g bun@1
   script:
-    - (cd app && pnpm install --frozen-lockfile --store-dir "$PNPM_STORE_DIR" && pnpm build)
+    - (cd app && bun install --frozen-lockfile && bun run build)
     - (cd server && cargo test && cargo build)
     - (cd tests && npm ci && npx -y playwright@1 install --with-deps chromium)
     - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs)

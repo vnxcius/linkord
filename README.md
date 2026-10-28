@@ -17,7 +17,7 @@ tests/    API, browser (Playwright) and unit tests
 
 ## Prerequisites
 
-Rust (stable), Node 20+ with pnpm, Docker. Desktop builds also run in Docker, so no Tauri toolchain is needed locally.
+Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no Tauri toolchain is needed locally.
 
 ## Develop
 
@@ -39,7 +39,7 @@ Rust (stable), Node 20+ with pnpm, Docker. Desktop builds also run in Docker, so
    ```
 4. **Run the web client** with hot reload on http://localhost:1420 (proxies `/api` to the server on :7700):
    ```bash
-   cd app && pnpm install && pnpm dev
+   cd app && bun install && bun run dev
    ```
 5. **Test:**
    ```bash
@@ -47,6 +47,7 @@ Rust (stable), Node 20+ with pnpm, Docker. Desktop builds also run in Docker, so
    tests/run-local.sh --api          # API only (~10 s)
    tests/run-local.sh --ui 'regex'   # matching browser steps only
    cd server && cargo test           # server unit tests
+   cd app && bun run lint && bun run fmt:check   # oxlint + oxfmt on the client
    cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs
    ```
    New UI strings need a pt-BR entry in `app/src/lib/locales/pt-BR.ts` or `i18n.test.mjs` fails.

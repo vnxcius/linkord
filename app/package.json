@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "lint": "oxlint src vite.config.ts",
+    "fmt": "oxfmt 'src/**/*.{ts,tsx}' vite.config.ts",
+    "fmt:check": "oxfmt --check 'src/**/*.{ts,tsx}' vite.config.ts",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -33,6 +36,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
     "twemoji-colr-font": "15.0.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",

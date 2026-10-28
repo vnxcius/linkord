@@ -8,7 +8,7 @@ profile=fast
 [[ "${1:-}" == "--release" ]] && profile=release
 server="${LINKORD_SERVER_URL:-https://old.example.com}"
 key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
-[[ -f "$key" ]] || { echo "Updater signing key not found at $key (generate with: pnpm tauri signer generate --ci -w $key)"; exit 1; }
+[[ -f "$key" ]] || { echo "Updater signing key not found at $key (generate with: bun tauri signer generate --ci -w $key)"; exit 1; }
 rm -f out/*-setup.exe out/*-setup.exe.sig
 
 start=$SECONDS
