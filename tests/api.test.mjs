@@ -369,6 +369,64 @@ test('bulk delete: own messages, or anyone\'s with Manage Messages; all or nothi
   assert.equal((await call(owner.token, 'POST', `/channels/${general.id}/messages/bulk-delete`, { messages: [] })).status, 400);
 });
 
+test('forwarding: a copy that outlives the original, to channels and DMs, with a comment; all or nothing', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.append('payload_json', JSON.stringify({ content: 'forward me' }));
+  fd.append('file', new Blob([png], { type: 'image/png' }), 'f.png');
+  const orig = await ok(owner.token, 'POST', `/channels/${general.id}/messages`, fd);
+  const url = orig.attachments[0].url;
+  const file = () => fetch(`${BASE}${url}`).then((r) => r.status);
+  const path = `/channels/${general.id}/messages/${orig.id}/forward`;
+  const latest = async () => (await ok(owner.token, 'GET', `/channels/${general.id}/messages?limit=1`))[0].id;
+
+  // Every destination is checked first: one you can't post in stops them all. You must be able to read the original.
+  const other = await ok(outsider.token, 'POST', '/guilds', { name: `Other ${run}` });
+  const otherCh = other.channels.find((c) => c.kind === 0);
+  assert.equal((await call(member.token, 'POST', path, { channel_ids: [general.id, otherCh.id] })).status, 404);
+  assert.equal(await latest(), orig.id);
+  assert.equal((await call(outsider.token, 'POST', path, { channel_ids: [otherCh.id] })).status, 404);
+  assert.equal((await call(member.token, 'POST', path, {})).status, 400);
+  assert.equal((await call(member.token, 'POST', path, { channel_ids: Array(6).fill(general.id) })).status, 400);
+
+  // To a channel and to someone (their DM is opened), each followed by the comment.
+  const sent = await ok(member.token, 'POST', path, { channel_ids: [general.id], user_ids: [owner.id], content: 'look' });
+  assert.equal(sent.length, 4);
+  const [fwd, comment, dmFwd, dmComment] = sent;
+  assert.equal(fwd.content, '');
+  assert.equal(fwd.author.id, member.id);
+  assert.equal(fwd.forwarded.message_id, orig.id);
+  assert.equal(fwd.forwarded.channel_id, general.id);
+  assert.equal(fwd.forwarded.guild_id, guild.id);
+  assert.equal(fwd.forwarded.content, 'forward me');
+  assert.equal(fwd.forwarded.attachments[0].url, url);
+  assert.equal(comment.content, 'look');
+  assert.equal(comment.forwarded, undefined);
+  assert.notEqual(dmFwd.channel_id, general.id);
+  assert.equal(dmComment.channel_id, dmFwd.channel_id);
+  const dmPage = await ok(owner.token, 'GET', `/channels/${dmFwd.channel_id}/messages`);
+  assert.deepEqual(dmPage.map((m) => m.id), [dmFwd.id, dmComment.id]);
+
+  // Forwards can't be edited; forwarding a forward passes the original on; replies preview the forwarded text.
+  assert.equal((await call(member.token, 'PATCH', `/channels/${general.id}/messages/${fwd.id}`, { content: 'x' })).status, 400);
+  const [again] = await ok(owner.token, 'POST', `/channels/${dmFwd.channel_id}/messages/${dmFwd.id}/forward`, { channel_ids: [general.id] });
+  assert.equal(again.forwarded.message_id, orig.id);
+  const reply = await ok(owner.token, 'POST', `/channels/${general.id}/messages`, { content: 'nice', reply_to: fwd.id });
+  assert.equal(reply.referenced_message.content, 'forward me');
+
+  // The copy stays as it was when the original is edited or deleted, and so do its files, until nothing shows them.
+  await ok(owner.token, 'PATCH', `/channels/${general.id}/messages/${orig.id}`, { content: 'changed' });
+  await ok(owner.token, 'DELETE', `/channels/${general.id}/messages/${orig.id}`);
+  const page = await ok(owner.token, 'GET', `/channels/${general.id}/messages?limit=10`);
+  assert.equal(page.find((m) => m.id === fwd.id).forwarded.content, 'forward me');
+  assert.equal(await file(), 200);
+  await ok(member.token, 'DELETE', `/channels/${general.id}/messages/${fwd.id}`);
+  await ok(owner.token, 'DELETE', `/channels/${general.id}/messages/${again.id}`);
+  assert.equal(await file(), 200, 'the DM copy still shows it');
+  await ok(member.token, 'DELETE', `/channels/${dmFwd.channel_id}/messages/${dmFwd.id}`);
+  assert.equal(await file(), 404);
+});
+
 test('channel reordering needs Manage Channels and every channel once', async () => {
   const g = await ok(owner.token, 'POST', '/guilds', { name: `Order ${run}` });
   const inv = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});

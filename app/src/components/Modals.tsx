@@ -10,6 +10,7 @@ import { attempt, setUi, toast, ui, type Modal } from '../lib/ui';
 import { Avatar, GuildIcon } from './Avatar';
 import * as I from './Icons';
 import { CustomStatusModal } from './CustomStatus';
+import { ForwardModal } from './Forward';
 import { accentCss, ProfileModal } from './Profile';
 import { railEntries, updateFolder } from './Rail';
 import { Settings } from './Settings';
@@ -75,6 +76,7 @@ export function ModalHost() {
               <Match when={m().type === 'create-group'}>
                 <CreateGroup />
               </Match>
+              <Match when={m().type === 'forward' && (m() as Extract<Modal, { type: 'forward' }>)}>{(x) => <ForwardModal message={x().message} />}</Match>
               <Match when={m().type === 'nickname' && (m() as Extract<Modal, { type: 'nickname' }>)}>
                 {(x) => <MemberEditor guildId={x().guildId} userId={x().userId} />}
               </Match>

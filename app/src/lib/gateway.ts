@@ -238,7 +238,8 @@ function onMessage(m: Message) {
   const author = nameOf(m.author.id, ch.guild_id);
   const where = ch.guild_id ? `${author} (#${ch.name})` : author;
   const body =
-    m.content.replace(/<@&?(\d+)>/g, (_, id) => '@' + nameOf(id, ch.guild_id)).replace(/<a?:(\w+):\d+>/g, ':$1:') || t('Sent an attachment');
+    m.content.replace(/<@&?(\d+)>/g, (_, id) => '@' + nameOf(id, ch.guild_id)).replace(/<a?:(\w+):\d+>/g, ':$1:') ||
+    (m.forwarded ? t('Forwarded a message') : t('Sent an attachment'));
   void notify(where, body.slice(0, 200), media(m.author.avatar));
 }
 

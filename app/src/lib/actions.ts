@@ -196,7 +196,7 @@ export async function sendMessage(channelId: string, content: string, replyTo?: 
 
 function referenced(channelId: string, id: string) {
   const m = state.messages[channelId]?.list.find((x) => x.id === id);
-  return m ? { id: m.id, author: m.author, content: m.content } : null;
+  return m ? { id: m.id, author: m.author, content: m.content || m.forwarded?.content || '' } : null;
 }
 
 /** Inserts a message, replacing the optimistic copy with the same nonce. */
@@ -236,6 +236,11 @@ export async function startThread(m: Message, name?: string) {
   const thread = await api<Channel>('POST', `/channels/${m.channel_id}/messages/${m.id}/threads`, { name });
   setState('channels', thread.id, thread);
   selectChannel(thread.id);
+}
+
+/** Forwards a message to channels/DMs and to friends (their DM is opened if needed), with an optional comment. */
+export async function forwardMessage(m: Message, to: { channelIds: string[]; userIds: string[] }, content: string) {
+  await api('POST', `/channels/${m.channel_id}/messages/${m.id}/forward`, { channel_ids: to.channelIds, user_ids: to.userIds, content });
 }
 
 let lastTyping = 0;

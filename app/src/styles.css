@@ -66,6 +66,9 @@
   --glow-soft: rgba(227, 179, 65, 0.13);
 
   --online: #3ba55d;
+  /* Voice activity is green like Discord's, not the gold accent. */
+  --speaking: #3ba55d;
+  --speaking-soft: rgba(59, 165, 93, 0.18);
   --idle: #f0b232;
   --dnd: #d83c3e;
   --offline: #80848e;
@@ -263,6 +266,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .voice-user:hover { background: var(--bg-hover); }
 .voice-user > span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .voice-flags { color: var(--text-3); display: flex; }
+.voice-channel .channel-item, .voice-user { font-weight: 500; }
 
 .voice-panel {
   padding: 8px 10px; display: flex; align-items: center; gap: 8px;
@@ -306,7 +310,7 @@ input, textarea, select { font: inherit; color: inherit; }
   display: grid; place-items: center; background: var(--bg-4);
   color: var(--text); font-family: var(--font-display); font-weight: 600;
 }
-.avatar.speaking img, .avatar.speaking .avatar-fallback { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--glow); }
+.avatar.speaking img, .avatar.speaking .avatar-fallback { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--speaking); }
 .presence {
   position: absolute; right: -2px; bottom: -2px; width: 34%; height: 34%; border-radius: 50%;
   --presence-ring: var(--bg-1); border: var(--ring) solid var(--presence-ring); background: var(--offline); box-sizing: content-box; transform: translate(12%, 12%);
@@ -405,6 +409,20 @@ input, textarea, select { font: inherit; color: inherit; }
 .reply-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reply-text br { display: none; }
 .reply-ref:hover .reply-text { color: var(--text); }
+
+/* Forwarded messages: a bar on the left, "Forwarded", the original's content, then where it came from. */
+.forwarded { border-left: 4px solid var(--line-strong); border-radius: 4px; padding: 2px 0 2px 12px; margin: 2px 0; min-width: 0; }
+.forwarded-label { display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 13px; font-style: italic; margin-bottom: 2px; }
+.forwarded-origin { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; margin-top: 4px; min-width: 0; }
+.forwarded-link { color: var(--text-2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forwarded-link:hover { color: var(--text); text-decoration: underline; }
+.forward-footer { display: flex; gap: 8px; width: 100%; }
+.forward-footer .filter-input { flex: 1; }
+.forward-preview { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--text-3); font-size: 13px; min-width: 0; }
+.forward-preview svg { flex: none; }
+.forward-preview-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.forward-preview-text br { display: none; }
+.pick-row .group-icon { width: 32px; height: 32px; flex: none; }
 
 .message-actions {
   position: absolute; right: 16px; top: -16px; display: none; align-items: center; gap: 2px; padding: 2px;
@@ -538,7 +556,7 @@ input, textarea, select { font: inherit; color: inherit; }
   width: 180px; height: 140px; border-radius: 16px; background: var(--bg-3); display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px; border: 2px solid transparent; transition: border-color 0.12s, box-shadow 0.12s;
 }
-.voice-tile.speaking { border-color: var(--glow); box-shadow: 0 0 24px var(--glow-soft); }
+.voice-tile.speaking { border-color: var(--speaking); box-shadow: 0 0 24px var(--speaking-soft); }
 .voice-tile-name { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--text-2); max-width: calc(100% - 16px); }
 .voice-tile-name .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .video-label { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 6px; font-size: 12.5px; }

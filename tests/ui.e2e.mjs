@@ -124,6 +124,24 @@ await step('pin a message and see it in the pins panel', async () => {
   await a.page.click('.side-panel [aria-label="Close"]');
 });
 
+await step('forward a message with a comment; the copy links back to the original', async () => {
+  await b.page.click('.message:has-text("Map of the ruins") >> nth=0', { button: 'right' });
+  await b.page.click('.context-menu button:has-text("Forward")');
+  await b.page.waitForSelector('.modal h2:has-text("Forward To")');
+  await b.page.fill('.modal-body .filter-input', 'general');
+  await b.page.click('.forward-list .pick-row:has-text("#general") input');
+  await b.page.fill('.forward-footer .filter-input', 'look at this');
+  await b.page.click('.forward-footer button.primary');
+  await b.page.waitForSelector('.modal', { state: 'detached' });
+  const copy = a.page.locator('.message:has(.forwarded:has-text("Map of the ruins"))');
+  await copy.waitFor();
+  await a.page.waitForSelector('.message .content:has-text("look at this")');
+  assert.equal(await copy.locator('.forwarded-label').innerText(), 'Forwarded');
+  await shot(a.page, 'e2e-forward');
+  await copy.locator('.forwarded-link').click();
+  await a.page.waitForSelector('.message.highlight:has-text("Map of the ruins")');
+});
+
 await step('hover toolbar draws over the message above it', async () => {
   await a.page.fill('.composer textarea', 'Second message for the toolbar');
   await a.page.keyboard.press('Enter');

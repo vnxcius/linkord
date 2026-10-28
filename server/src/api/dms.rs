@@ -76,7 +76,7 @@ async fn open_dm(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body):
     }
 }
 
-async fn open_direct(st: &AppState, me: Id, other: Id) -> ApiResult<Json<DmChannel>> {
+pub async fn open_direct(st: &AppState, me: Id, other: Id) -> ApiResult<Json<DmChannel>> {
     User::get(&st.db, other).await?;
     let existing = sqlx::query_as::<_, Channel>(&format!(
         "SELECT {} FROM channels c

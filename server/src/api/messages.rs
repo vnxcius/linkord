@@ -8,12 +8,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::api::channels::{channel_for, Access};
+use crate::api::dms::open_direct;
 use crate::api::relationships::blocked_between;
 use crate::auth::AuthUser;
 use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::channel_audience;
 use crate::id::Id;
-use crate::models::{kind, Attachment, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
+use crate::models::{kind, Attachment, Forwarded, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
 use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::{embeds, uploads};
@@ -21,6 +22,7 @@ use crate::{embeds, uploads};
 const MAX_CONTENT: usize = 4000;
 const MAX_ATTACHMENTS: usize = 10;
 const MAX_PINS: i64 = 50;
+const MAX_FORWARD_TARGETS: usize = 5;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -28,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/channels/{id}/messages/search", get(search_channel))
         .route("/channels/{id}/messages/bulk-delete", post(bulk_delete))
         .route("/channels/{id}/messages/{mid}", patch(edit_message).delete(delete_message))
+        .route("/channels/{id}/messages/{mid}/forward", post(forward_message))
         .route("/channels/{id}/messages/{mid}/reactions/{emoji}", put(add_reaction).delete(remove_reaction))
         .route("/channels/{id}/pins", get(list_pins))
         .route("/channels/{id}/pins/{mid}", put(pin).delete(unpin))
@@ -43,7 +46,9 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
     }
     let ids: Vec<Id> = rows.iter().map(|r| r.id).collect();
     let ref_ids: Vec<Id> = rows.iter().filter_map(|r| r.reply_to).collect();
-    let refs: Vec<(Id, Id, String)> = sqlx::query_as("SELECT id, author_id, content FROM messages WHERE id = ANY($1)")
+    // A reply to a forward previews the forwarded text.
+    let refs: Vec<(Id, Id, String)> =
+        sqlx::query_as("SELECT id, author_id, COALESCE(NULLIF(content, ''), forwarded->>'content', '') FROM messages WHERE id = ANY($1)")
         .bind(&ref_ids)
         .fetch_all(&st.db)
         .await?;
@@ -86,6 +91,7 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
                 thread_id: r.thread_id,
                 edited_at: r.edited_at,
                 created_at: r.created_at,
+                forwarded: r.forwarded.map(|f| f.0),
                 nonce: None,
             })
         })
@@ -181,18 +187,7 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
         return Err(bad("cannot send messages in this channel"));
     }
     a.require(perms::SEND_MESSAGES)?;
-    if a.ch.kind == kind::DM {
-        let other: Option<Id> = sqlx::query_scalar("SELECT user_id FROM dm_recipients WHERE channel_id = $1 AND user_id <> $2")
-            .bind(id)
-            .bind(me)
-            .fetch_optional(&st.db)
-            .await?;
-        if let Some(other) = other {
-            if blocked_between(&st.db, me, other).await? {
-                return Err(bad("you can't message this user"));
-            }
-        }
-    }
+    check_not_blocked(&st, &a, me).await?;
 
     let multipart = req.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("multipart/"));
     let mut attachments = Vec::new();
@@ -247,21 +242,59 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
         Some(r) => load_message(&st, a.ch.id, r).await.ok().map(|m| m.id),
         None => None,
     };
-    let mention_everyone =
-        a.ch.guild_id.is_some() && a.has(perms::MENTION_EVERYONE) && (content.contains("@everyone") || content.contains("@here"));
+    let mention_everyone = mentions_everyone(&a, &content);
+    let draft = Draft { content, reply_to, attachments, mention_everyone, forwarded: None, nonce: body.nonce };
+    Ok(Json(post_message(&st, &a, me, draft).await?))
+}
 
+/// No DMs between people where one blocked the other.
+async fn check_not_blocked(st: &AppState, a: &Access, me: Id) -> ApiResult<()> {
+    if a.ch.kind != kind::DM {
+        return Ok(());
+    }
+    let other: Option<Id> = sqlx::query_scalar("SELECT user_id FROM dm_recipients WHERE channel_id = $1 AND user_id <> $2")
+        .bind(a.ch.id)
+        .bind(me)
+        .fetch_optional(&st.db)
+        .await?;
+    if let Some(other) = other {
+        if blocked_between(&st.db, me, other).await? {
+            return Err(bad("you can't message this user"));
+        }
+    }
+    Ok(())
+}
+
+fn mentions_everyone(a: &Access, content: &str) -> bool {
+    a.ch.guild_id.is_some() && a.has(perms::MENTION_EVERYONE) && (content.contains("@everyone") || content.contains("@here"))
+}
+
+/// A checked message, ready to store.
+#[derive(Default)]
+struct Draft {
+    content: String,
+    reply_to: Option<Id>,
+    attachments: Vec<Attachment>,
+    mention_everyone: bool,
+    forwarded: Option<Forwarded>,
+    nonce: Option<String>,
+}
+
+/// Stores a message, moves the channel (and the author's read state) to it and sends MESSAGE_CREATE.
+async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<Message> {
     let mid = Id::new();
     let row = sqlx::query_as::<_, MessageRow>(&format!(
-        "INSERT INTO messages (id, channel_id, author_id, content, reply_to, attachments, mention_everyone)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {MESSAGE_COLS}"
+        "INSERT INTO messages (id, channel_id, author_id, content, reply_to, attachments, mention_everyone, forwarded)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {MESSAGE_COLS}"
     ))
     .bind(mid)
     .bind(a.ch.id)
     .bind(me)
-    .bind(&content)
-    .bind(reply_to)
-    .bind(sqlx::types::Json(&attachments))
-    .bind(mention_everyone)
+    .bind(&d.content)
+    .bind(d.reply_to)
+    .bind(sqlx::types::Json(&d.attachments))
+    .bind(d.mention_everyone)
+    .bind(d.forwarded.as_ref().map(sqlx::types::Json))
     .fetch_one(&st.db)
     .await?;
     // Posting in an archived thread brings it back, like Discord.
@@ -272,18 +305,106 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
     .bind(mid)
     .fetch_one(&st.db)
     .await?;
-    upsert_read_state(&st, me, a.ch.id, mid).await?;
+    upsert_read_state(st, me, a.ch.id, mid).await?;
 
     let audience = channel_audience(&st.db, &ch).await?;
     if ch.kind == kind::THREAD && (a.ch.archived || a.ch.message_count % 5 == 4) {
         // Keep sidebars' thread state (unarchive, reply count) roughly current without an event per message.
         st.hub.send(&audience, "CHANNEL_UPDATE", &ch);
     }
-    let mut msg = hydrate(&st, vec![row]).await?.pop().ok_or(ApiError::NotFound)?;
-    msg.nonce = body.nonce;
+    let mut msg = hydrate(st, vec![row]).await?.pop().ok_or(ApiError::NotFound)?;
+    msg.nonce = d.nonce;
     st.hub.send(&audience, "MESSAGE_CREATE", &msg);
-    embeds::spawn(st.clone(), ch, mid, content);
-    Ok(Json(msg))
+    if !d.content.is_empty() {
+        embeds::spawn(st.clone(), ch, mid, d.content);
+    }
+    Ok(msg)
+}
+
+#[derive(Deserialize)]
+struct Forward {
+    /// Server channels, threads, DMs and group DMs.
+    #[serde(default)]
+    channel_ids: Vec<Id>,
+    /// People to forward to in a 1:1 DM, opened if there isn't one yet.
+    #[serde(default)]
+    user_ids: Vec<Id>,
+    /// Optional comment, sent as a normal message right after the forward (like Discord).
+    #[serde(default)]
+    content: String,
+}
+
+/// Forwards a message to up to 5 places. Each gets a copy that stays as it was when the original is edited or
+/// deleted; forwarding a forward passes the original copy on. Every destination is checked before anything is
+/// sent, so it goes everywhere or nowhere.
+async fn forward_message(
+    State(st): State<AppState>,
+    AuthUser(me): AuthUser,
+    Path((id, mid)): Path<(Id, Id)>,
+    Json(body): Json<Forward>,
+) -> ApiResult<Json<Vec<Message>>> {
+    st.limits.check(format!("forward:{me}"), 5.0, 0.5)?;
+    let src = channel_for(&st, id, me).await?;
+    let row = load_message(&st, id, mid).await?;
+    let snapshot = match row.forwarded {
+        Some(f) => f.0,
+        None => Forwarded {
+            message_id: row.id,
+            channel_id: row.channel_id,
+            guild_id: src.ch.guild_id,
+            content: row.content,
+            attachments: row.attachments.0,
+            embeds: row.embeds.0,
+            created_at: row.created_at,
+            edited_at: row.edited_at,
+        },
+    };
+    let comment = body.content.trim().to_string();
+    if comment.chars().count() > MAX_CONTENT {
+        return Err(bad(format!("message must be at most {MAX_CONTENT} characters")));
+    }
+    let users: Vec<Id> = body.user_ids.into_iter().filter(|u| *u != me).collect();
+    if body.channel_ids.is_empty() && users.is_empty() {
+        return Err(bad("pick somewhere to forward to"));
+    }
+    if body.channel_ids.len() + users.len() > MAX_FORWARD_TARGETS {
+        return Err(bad(format!("you can forward to up to {MAX_FORWARD_TARGETS} places at once")));
+    }
+
+    let mut channels = body.channel_ids;
+    for u in users {
+        channels.push(open_direct(&st, me, u).await?.0.channel.id);
+    }
+    channels.sort();
+    channels.dedup();
+    let mut targets = Vec::with_capacity(channels.len());
+    for c in channels {
+        let a = channel_for(&st, c, me).await?;
+        if !kind::has_messages(a.ch.kind) {
+            return Err(bad("cannot send messages in this channel"));
+        }
+        a.require(perms::SEND_MESSAGES)?;
+        if !snapshot.attachments.is_empty() {
+            a.require(perms::ATTACH_FILES)?;
+        }
+        check_not_blocked(&st, &a, me).await?;
+        targets.push(a);
+    }
+
+    let mut sent = Vec::new();
+    for a in &targets {
+        sent.push(post_message(&st, a, me, Draft { forwarded: Some(snapshot.clone()), ..Default::default() }).await?);
+        if !comment.is_empty() {
+            let draft = Draft { mention_everyone: mentions_everyone(a, &comment), content: comment.clone(), ..Default::default() };
+            sent.push(post_message(&st, a, me, draft).await?);
+        }
+    }
+    Ok(Json(sent))
+}
+
+/// Files a message shows: its own attachments and those of the copy it forwards.
+fn files(row: &MessageRow) -> impl Iterator<Item = &Attachment> {
+    row.attachments.0.iter().chain(row.forwarded.iter().flat_map(|f| f.0.attachments.iter()))
 }
 
 #[derive(Deserialize)]
@@ -296,6 +417,9 @@ async fn edit_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path((
     let row = load_message(&st, id, mid).await?;
     if row.author_id != me {
         return Err(ApiError::Forbidden);
+    }
+    if row.forwarded.is_some() {
+        return Err(bad("forwarded messages can't be edited"));
     }
     let content = body.content.trim().to_string();
     if content.is_empty() && row.attachments.0.is_empty() {
@@ -324,7 +448,7 @@ async fn delete_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
     }
     sqlx::query("DELETE FROM messages WHERE id = $1").bind(mid).execute(&st.db).await?;
     let freed: u64 = row.attachments.0.iter().map(|x| x.size).sum();
-    for att in &row.attachments.0 {
+    for att in files(&row) {
         uploads::delete_attachment(&st, &att.url).await;
     }
     uploads::release(&st, row.author_id, freed).await;
@@ -355,7 +479,7 @@ async fn bulk_delete(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
     let ids: Vec<Id> = rows.iter().map(|r| r.id).collect();
     sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(&ids).execute(&st.db).await?;
     for row in &rows {
-        for att in &row.attachments.0 {
+        for att in files(row) {
             uploads::delete_attachment(&st, &att.url).await;
         }
         uploads::release(&st, row.author_id, row.attachments.0.iter().map(|x| x.size).sum()).await;

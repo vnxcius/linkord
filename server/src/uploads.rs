@@ -122,12 +122,28 @@ pub async fn remux_voice(st: &AppState, user: Id, att: &mut crate::models::Attac
     att.size = new;
 }
 
-/// Removes an attachment's files (its random directory under attachments/).
+/// Removes an attachment's files (its random directory under attachments/), unless a message still shows them:
+/// forwards share the original's files, so call this after deleting the message row.
 pub async fn delete_attachment(st: &AppState, url: &str) {
     let Some(rel) = url.strip_prefix("/uploads/attachments/") else { return };
     let mut parts = rel.split('/');
     if let (Some(ch), Some(dir)) = (parts.next(), parts.next()) {
-        if ch.chars().all(|c| c.is_ascii_digit()) && !dir.is_empty() && !dir.contains("..") {
+        let Ok(ch_id) = ch.parse::<i64>() else { return };
+        if !ch.chars().all(|c| c.is_ascii_digit()) || dir.is_empty() || dir.contains("..") {
+            return;
+        }
+        // The directory is named after the original's channel, so its own row is found through messages_channel.
+        let probe = serde_json::json!([{ "url": url }]);
+        let used: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE (channel_id = $1 AND attachments @> $2)
+                OR (forwarded IS NOT NULL AND forwarded->'attachments' @> $2))",
+        )
+        .bind(ch_id)
+        .bind(&probe)
+        .fetch_one(&st.db)
+        .await
+        .unwrap_or(true);
+        if !used {
             let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join("attachments").join(ch).join(dir)).await;
         }
     }

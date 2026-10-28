@@ -52,6 +52,7 @@ const SERVER_PATTERNS: [RegExp, string][] = [
   [/^message must be at most (\d+) characters$/, msg('message must be at most {0} characters')],
   [/^servers can have up to (\d+) emoji$/, msg('servers can have up to {0} emoji')],
   [/^unknown setting (.+)$/, msg('unknown setting {0}')],
+  [/^you can forward to up to (\d+) places at once$/, msg('you can forward to up to {0} places at once')],
 ];
 
 export function serverError(text: string): string {

@@ -200,10 +200,26 @@ pub struct MessageRow {
     pub thread_id: Option<Id>,
     pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub forwarded: Option<Json<Forwarded>>,
 }
 
 pub const MESSAGE_COLS: &str =
-    "id, channel_id, author_id, content, reply_to, attachments, embeds, mention_everyone, pinned_at, thread_id, edited_at, created_at";
+    "id, channel_id, author_id, content, reply_to, attachments, embeds, mention_everyone, pinned_at, thread_id, edited_at, created_at, forwarded";
+
+/// A forwarded message's copy of the original (Discord's message snapshot): content, attachments and embeds as
+/// they were, plus where the original was so people who can see that channel can jump to it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Forwarded {
+    pub message_id: Id,
+    pub channel_id: Id,
+    pub guild_id: Option<Id>,
+    pub content: String,
+    pub attachments: Vec<Attachment>,
+    pub embeds: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<DateTime<Utc>>,
+}
 
 #[derive(Serialize, Clone)]
 pub struct Reaction {
@@ -234,6 +250,8 @@ pub struct Message {
     pub thread_id: Option<Id>,
     pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forwarded: Option<Forwarded>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
 }

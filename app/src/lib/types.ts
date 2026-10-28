@@ -109,6 +109,17 @@ export interface Reaction {
   users: string[];
 }
 
+export interface Forwarded {
+  message_id: string;
+  channel_id: string;
+  guild_id?: string | null;
+  content: string;
+  attachments: Attachment[];
+  embeds: Embed[];
+  created_at: string;
+  edited_at?: string | null;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
@@ -124,6 +135,8 @@ export interface Message {
   thread_id?: string | null;
   edited_at?: string | null;
   created_at: string;
+  /** A forward: the original as it was when it was forwarded, and where it came from. */
+  forwarded?: Forwarded | null;
   nonce?: string;
   /** Client-only: optimistic message not yet confirmed by the server. */
   pending?: boolean;

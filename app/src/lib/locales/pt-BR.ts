@@ -844,6 +844,17 @@ export const UI: Record<string, string> = {
   "Restore the {game} window to stream it": "Restaure a janela de {game} para transmitir",
   "Stream Your Game": "Transmitir seu jogo",
   "Goes live with the game you are playing right away, or ends your stream.": "Começa a transmitir o jogo que você está jogando na hora, ou encerra sua transmissão.",
+  "Forward": "Encaminhar",
+  "Forwarded": "Encaminhada",
+  "Forwarded a message": "Encaminhou uma mensagem",
+  "Forward To": "Encaminhar para",
+  "Select where you want to share this message.": "Escolha onde você quer compartilhar esta mensagem.",
+  "Add an optional message...": "Adicione uma mensagem (opcional)...",
+  "Send ({n})": "Enviar ({n})",
+  "No results": "Nenhum resultado",
+  "Attachment": "Anexo",
+  "Message forwarded to {n} place": "Mensagem encaminhada para {n} lugar",
+  "Message forwarded to {n} places": "Mensagem encaminhada para {n} lugares",
 };
 
 /** Error messages from the server (server/src), shown as they arrive. */
@@ -931,6 +942,9 @@ export const SERVER: Record<string, string> = {
   "Game name must be 1-128 characters": "O nome do jogo precisa ter de 1 a 128 caracteres",
   "Custom status must be at most 128 characters": "O status personalizado deve ter no máximo 128 caracteres",
   "Unknown emoji": "Emoji desconhecido",
+  "pick somewhere to forward to": "escolha para onde encaminhar",
+  "forwarded messages can't be edited": "mensagens encaminhadas não podem ser editadas",
+  "you can forward to up to {0} places at once": "você pode encaminhar para até {0} lugares de uma vez",
 };
 
 export default { ...UI, ...SERVER } as Record<string, string>;

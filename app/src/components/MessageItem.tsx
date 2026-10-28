@@ -7,8 +7,8 @@ import { dateLocale, plural, t } from '../lib/i18n';
 import { isJumbo, renderMarkdown } from '../lib/markdown';
 import { can, P } from '../lib/perms';
 import { openExternal } from '../lib/platform';
-import { findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/store';
-import type { Attachment, Embed, Message } from '../lib/types';
+import { dmName, findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/store';
+import type { Attachment, Channel, Embed, Forwarded, Message } from '../lib/types';
 import { videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
 import { isPrivate, Kind } from '../lib/types';
 import { attempt, focusComposer, openMenu, openProfile, replyTo, setUi, toast, ui, type MenuEntry } from '../lib/ui';
@@ -67,7 +67,7 @@ export function ReactionEmoji(p: { emoji: string }) {
 }
 
 /** Messages that are nothing but one image/GIF link show just the image, like Discord. */
-function linkOnlyImage(m: Message): boolean {
+function linkOnlyImage(m: Pick<Message, 'content' | 'embeds'>): boolean {
   const c = m.content.trim();
   return /^https?:\/\/\S+$/.test(c) && m.embeds.length === 1 && m.embeds[0].type !== 'link' && m.embeds[0].url === c;
 }
@@ -78,6 +78,10 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   const author = () => state.users[m().author.id] ?? m().author;
   const mine = () => m().author.id === me();
   const isVoice = () => !!m().attachments[0]?.waveform;
+  // Forwards can't be edited, like Discord.
+  const canEdit = () => mine() && !isVoice() && !m().forwarded;
+  const text = () => m().content || m().forwarded?.content || '';
+  const forward = () => setUi('modal', { type: 'forward', message: m() });
   const channel = () => state.channels[m().channel_id];
   const [picker, setPicker] = createSignal(false);
   const [pickerStyle, setPickerStyle] = createSignal<JSX.CSSProperties>({});
@@ -164,11 +168,12 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
       });
     }
     items.push({ label: t('Reply'), icon: () => <I.Reply size={16} />, run: () => replyTo(m().channel_id, m().id) });
-    if (mine() && !isVoice()) items.push({ label: t('Edit Message'), icon: () => <I.Edit size={16} />, run: startEdit });
+    items.push({ label: t('Forward'), icon: () => <I.Forward size={16} />, run: forward });
+    if (canEdit()) items.push({ label: t('Edit Message'), icon: () => <I.Edit size={16} />, run: startEdit });
     if (canThread()) items.push({ label: t('Create Thread'), icon: () => <I.Thread size={16} />, run: () => attempt(() => startThread(m())) });
     if (canPin()) items.push({ label: m().pinned ? t('Unpin Message') : t('Pin Message'), icon: () => <I.Pin size={16} />, run: () => attempt(() => togglePin(m())) });
     items.push('separator');
-    if (m().content) items.push({ label: t('Copy Text'), icon: () => <I.Copy size={16} />, run: () => copy(m().content, t('Text copied')) });
+    if (text()) items.push({ label: t('Copy Text'), icon: () => <I.Copy size={16} />, run: () => copy(text(), t('Text copied')) });
     items.push({ label: t('Copy Message ID'), icon: () => <I.Copy size={16} />, run: () => copy(m().id, t('ID copied')) });
     if (mine() || canManage()) {
       items.push('separator');
@@ -305,6 +310,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                 <span class="small muted">{t('escape to cancel • enter to save')}</span>
               </div>
             </Show>
+            <Show when={m().forwarded}>{(f) => <ForwardedView f={f()} m={m()} />}</Show>
             <For each={m().attachments}>{(a) => (a.waveform ? <VoiceMessage a={a} src={media(a.url)!} author={m().author} channelId={m().channel_id} messageId={m().id} /> : <AttachmentView a={a} />)}</For>
             <For each={inviteCodes(m().content)}>{(code) => <InviteCard code={code} mine={mine()} />}</For>
             <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
@@ -360,12 +366,15 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
             <button class="icon-btn" data-tip={t('Reply')} onClick={() => replyTo(m().channel_id, m().id)}>
               <I.Reply size={18} />
             </button>
+            <button class="icon-btn" data-tip={t('Forward')} onClick={forward}>
+              <I.Forward size={18} />
+            </button>
             <Show when={canThread()}>
               <button class="icon-btn" data-tip={t('Create thread')} onClick={() => void attempt(() => startThread(m()))}>
                 <I.Thread size={18} />
               </button>
             </Show>
-            <Show when={mine() && !isVoice()}>
+            <Show when={canEdit()}>
               <button class="icon-btn" data-tip={t('Edit')} onClick={startEdit}>
                 <I.Edit size={18} />
               </button>
@@ -408,6 +417,48 @@ function toggleSelected(m: Message, range: boolean, deletable: (m: Message) => b
     ids = sel.ids.includes(m.id) ? sel.ids.filter((id) => id !== m.id) : [...sel.ids, m.id];
   }
   setUi('selection', { ...sel, ids: ids.slice(0, 200), anchor: m.id });
+}
+
+/** Where a forward came from, if you can see that channel. */
+function originName(ch: Channel): string {
+  if (!ch.guild_id) return dmName(ch);
+  const guild = state.guilds[ch.guild_id]?.name;
+  return guild ? `#${ch.name} • ${guild}` : `#${ch.name}`;
+}
+
+/** A forwarded message: "Forwarded", the original as it was, and a link back to it for people who can see it. */
+function ForwardedView(p: { f: Forwarded; m: Message }) {
+  const guildId = () => p.f.guild_id;
+  const origin = () => state.channels[p.f.channel_id];
+  return (
+    <div class="forwarded">
+      <div class="forwarded-label">
+        <I.Forward size={14} />
+        <span>{t('Forwarded')}</span>
+      </div>
+      <Show when={p.f.content && !linkOnlyImage(p.f)}>
+        <div class="content" classList={{ jumbo: isJumbo(p.f.content) }} onClick={(e) => onContentClick(e, guildId())}>
+          <span innerHTML={renderContent(p.f.content, guildId())} />
+        </div>
+      </Show>
+      <For each={p.f.attachments}>{(a) => (a.waveform ? <VoiceMessage a={a} src={media(a.url)!} author={p.m.author} channelId={p.m.channel_id} messageId={p.m.id} /> : <AttachmentView a={a} />)}</For>
+      <For each={inviteCodes(p.f.content)}>{(code) => <InviteCard code={code} mine={false} />}</For>
+      <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
+      <div class="forwarded-origin">
+        <Show when={origin()}>
+          {(ch) => (
+            <>
+              <button class="forwarded-link" onClick={() => void jumpToMessage(ch().id, p.f.message_id)}>
+                {originName(ch())}
+              </button>
+              <span aria-hidden="true">•</span>
+            </>
+          )}
+        </Show>
+        <time title={new Date(p.f.created_at).toLocaleString(dateLocale())}>{formatTime(p.f.created_at)}</time>
+      </div>
+    </div>
+  );
 }
 
 export function formatSize(n: number) {

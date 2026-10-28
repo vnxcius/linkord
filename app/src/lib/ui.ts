@@ -1,6 +1,7 @@
 import type { JSX } from 'solid-js';
 import { createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
+import type { Message } from './types';
 
 export type Modal =
   | { type: 'add-server' }
@@ -17,6 +18,7 @@ export type Modal =
   | { type: 'go-live'; update?: boolean; switchSource?: boolean }
   | { type: 'nickname'; guildId: string; userId: string }
   | { type: 'custom-status' }
+  | { type: 'forward'; message: Message }
   | { type: 'confirm'; title: string; body: string; action: string; run: () => Promise<unknown> };
 
 export interface MenuItem {

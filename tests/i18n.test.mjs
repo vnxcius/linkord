@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { SERVER, UI } from '../app/src/lib/locales/pt-BR.ts';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 
 function files(dir, ext) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
