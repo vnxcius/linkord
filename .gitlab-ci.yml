@@ -1,0 +1,100 @@
+# CI for linkord on GitLab. Mirrors tests/run-local.sh (tests on every push / merge request) and
+# app/build-*.sh (desktop installers on v* tags or when started by hand).
+#
+# CI/CD variables (Settings → CI/CD → Variables):
+#   TAURI_SIGNING_KEY    type "File", protected + masked: contents of ~/.config/linkord/updater.key
+#   LINKORD_SERVER_URL   optional, default server baked into desktop builds
+
+stages: [test, build]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+test:
+  stage: test
+  image: rust:1-trixie
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: linkord
+    POSTGRES_PASSWORD: linkord
+    POSTGRES_DB: linkord_test
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+    PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
+    PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.playwright
+    DATA: /tmp/linkord-data
+  cache:
+    key:
+      files: [server/Cargo.lock, app/pnpm-lock.yaml]
+    paths: [.cargo/registry, .cargo/git, server/target, .pnpm-store, .playwright]
+  before_script:
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs
+    - npm i -g pnpm@11
+  script:
+    - (cd app && pnpm install --frozen-lockfile --store-dir "$PNPM_STORE_DIR" && pnpm build)
+    - (cd server && cargo test && cargo build)
+    - (cd tests && npm ci && npx -y playwright@1 install --with-deps chromium)
+    - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs)
+    # Throwaway server, same settings as tests/run-local.sh
+    - mkdir -p "$DATA"
+    - node tests/spotify-mock.mjs 7702 &
+    - >
+      cd server &&
+      SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=500
+      SPOTIFY_ACCOUNTS_URL=http://localhost:7702 SPOTIFY_API_URL=http://localhost:7702
+      LINKORD_DETECTABLE_URL=http://localhost:7702/detectable
+      LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701
+      LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off
+      DATABASE_URL=postgres://linkord:linkord@postgres:5432/linkord_test
+      LINKORD_DATA_DIR="$DATA" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID= DISCORD_CLIENT_SECRET=
+      ./target/debug/linkord-server > "$DATA/server.log" 2>&1 &
+      cd "$CI_PROJECT_DIR"
+    - for i in $(seq 1 60); do curl -sf localhost:7701/api/health && break; sleep 1; done
+    - cd tests
+    - export LINKORD_TEST_URL=http://localhost:7701 LINKORD_TEST_DATA_DIR="$DATA"
+    - export CHROMIUM=$(ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome | tail -1)
+    - node --test --test-timeout=20000 api.test.mjs
+    - node ui.e2e.mjs
+  after_script:
+    - '[ "$CI_JOB_STATUS" = success ] || cat /tmp/linkord-data/server.log'
+
+# Desktop installers, built with the same Dockerfiles as app/build-windows.sh / app/build-linux.sh.
+.desktop:
+  stage: build
+  image: docker:27
+  services: [docker:27-dind]
+  variables:
+    DOCKER_BUILDKIT: "1"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+      allow_failure: true
+  script:
+    - cd app
+    - docker build -f "$DOCKERFILE" $BUILD_ARGS
+        --build-arg VITE_DEFAULT_SERVER="${LINKORD_SERVER_URL:-https://old.example.com}"
+        --secret id=tauri_key,src="$TAURI_SIGNING_KEY"
+        --output out .
+  artifacts:
+    paths: [app/out/]
+    expire_in: 30 days
+
+desktop:windows:
+  extends: .desktop
+  variables:
+    DOCKERFILE: desktop.Dockerfile
+    BUILD_ARGS: --build-arg PROFILE=release
+
+desktop:linux:
+  extends: .desktop
+  variables:
+    DOCKERFILE: desktop-linux.Dockerfile
+    BUILD_ARGS: ""

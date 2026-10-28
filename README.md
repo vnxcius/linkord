@@ -50,6 +50,7 @@ Rust (stable), Node 20+ with pnpm, Docker. Desktop builds also run in Docker, so
    cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs
    ```
    New UI strings need a pt-BR entry in `app/src/lib/locales/pt-BR.ts` or `i18n.test.mjs` fails.
+   GitLab CI (`.gitlab-ci.yml`) runs the same suite on every push and merge request.
 6. **Try the desktop app:** `app/build-windows.sh` cross-compiles a Windows installer into `app/out/`.
 
 ## Deploy
@@ -70,6 +71,8 @@ Production runs as a systemd user service on `127.0.0.1:7700`, published through
    ```
    Installed apps update themselves within 30 minutes. Deploy the server first when the client depends on new
    server behaviour, and keep the server compatible with the previous client during that window.
+   GitLab CI also builds both installers as job artifacts on `v*` tags (needs a `TAURI_SIGNING_KEY` File variable);
+   publishing to the update feed stays local.
 
 **Updater signing key:** `~/.config/linkord/updater.key` (outside the repo). Back it up: without it, installed apps
 can't verify updates and everyone has to reinstall.
