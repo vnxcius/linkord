@@ -12,7 +12,12 @@ import { friendItems } from './Profile';
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add';
 
-const STATUS_LABEL: Record<string, string> = { online: msg('Online'), idle: msg('Idle'), dnd: msg('Do Not Disturb'), offline: msg('Offline') };
+const STATUS_LABEL: Record<string, string> = {
+  online: msg('Online'),
+  idle: msg('Idle'),
+  dnd: msg('Do Not Disturb'),
+  offline: msg('Offline'),
+};
 
 export function Friends() {
   const [tab, setTab] = createSignal<Tab>('online');
@@ -66,36 +71,36 @@ export function Friends() {
         </nav>
       </header>
       <div class="friends-main">
-      <div class="friends-body">
-        <Show when={tab() !== 'add'} fallback={<AddFriend />}>
-          <div class="group-title">{title()}</div>
-          <For
-            each={list()}
-            fallback={
-              <div class="friends-empty">
-                <p class="muted">
-                  <Switch>
-                    <Match when={tab() === 'pending'}>{t('No pending friend requests.')}</Match>
-                    <Match when={tab() === 'blocked'}>{t("You haven't blocked anyone.")}</Match>
-                    <Match when={tab() === 'online'}>{t('None of your friends are online right now.')}</Match>
-                    <Match when={true}>{t('No friends yet. Add someone by their Discord username.')}</Match>
-                  </Switch>
-                </p>
-                <Show when={tab() !== 'blocked'}>
-                  <button class="btn primary" onClick={() => setTab('add')}>
-                    {t('Add Friend')}
-                  </button>
-                </Show>
-              </div>
-            }
-          >
-            {(id) => <FriendRow id={id} />}
-          </For>
+        <div class="friends-body">
+          <Show when={tab() !== 'add'} fallback={<AddFriend />}>
+            <div class="group-title">{title()}</div>
+            <For
+              each={list()}
+              fallback={
+                <div class="friends-empty">
+                  <p class="muted">
+                    <Switch>
+                      <Match when={tab() === 'pending'}>{t('No pending friend requests.')}</Match>
+                      <Match when={tab() === 'blocked'}>{t("You haven't blocked anyone.")}</Match>
+                      <Match when={tab() === 'online'}>{t('None of your friends are online right now.')}</Match>
+                      <Match when={true}>{t('No friends yet. Add someone by their Discord username.')}</Match>
+                    </Switch>
+                  </p>
+                  <Show when={tab() !== 'blocked'}>
+                    <button class="btn primary" onClick={() => setTab('add')}>
+                      {t('Add Friend')}
+                    </button>
+                  </Show>
+                </div>
+              }
+            >
+              {(id) => <FriendRow id={id} />}
+            </For>
+          </Show>
+        </div>
+        <Show when={!isNarrow()}>
+          <ActiveNow />
         </Show>
-      </div>
-      <Show when={!isNarrow()}>
-        <ActiveNow />
-      </Show>
       </div>
     </div>
   );
@@ -116,7 +121,9 @@ function ActiveNow() {
         fallback={
           <div class="active-empty">
             <strong>{t("It's quiet for now…")}</strong>
-            <p class="muted small">{t("When a friend starts playing a game or listening to Spotify, you'll see it here.")}</p>
+            <p class="muted small">
+              {t("When a friend starts playing a game or listening to Spotify, you'll see it here.")}
+            </p>
           </div>
         }
       >
@@ -156,7 +163,11 @@ function FriendRow(p: { id: string }) {
     return t(STATUS_LABEL[presenceOf(p.id)]);
   };
   return (
-    <div class="friend-row" onContextMenu={(e) => openMenu(e, friendItems(p.id))} onClick={() => rel() === Rel.Friend && void attempt(() => openDm(p.id))}>
+    <div
+      class="friend-row"
+      onContextMenu={(e) => openMenu(e, friendItems(p.id))}
+      onClick={() => rel() === Rel.Friend && void attempt(() => openDm(p.id))}
+    >
       <Avatar user={u()} size={36} presence={rel() === Rel.Friend} />
       <div class="friend-names">
         <strong>{nameOf(p.id)}</strong>
@@ -175,15 +186,27 @@ function FriendRow(p: { id: string }) {
             </button>
           </Match>
           <Match when={rel() === Rel.Incoming}>
-            <button class="round-icon accept" data-tip={t('Accept')} onClick={() => void attempt(() => friendRequest(p.id), t('Friend added'))}>
+            <button
+              class="round-icon accept"
+              data-tip={t('Accept')}
+              onClick={() => void attempt(() => friendRequest(p.id), t('Friend added'))}
+            >
               ✓
             </button>
-            <button class="round-icon decline" data-tip={t('Ignore')} onClick={() => void attempt(() => removeRelationship(p.id))}>
+            <button
+              class="round-icon decline"
+              data-tip={t('Ignore')}
+              onClick={() => void attempt(() => removeRelationship(p.id))}
+            >
               <I.Close size={16} />
             </button>
           </Match>
           <Match when={rel() === Rel.Outgoing}>
-            <button class="round-icon decline" data-tip={t('Cancel')} onClick={() => void attempt(() => removeRelationship(p.id))}>
+            <button
+              class="round-icon decline"
+              data-tip={t('Cancel')}
+              onClick={() => void attempt(() => removeRelationship(p.id))}
+            >
               <I.Close size={16} />
             </button>
           </Match>
@@ -216,9 +239,16 @@ function AddFriend() {
   return (
     <div class="add-friend">
       <h3>{t('Add Friend')}</h3>
-      <p class="muted">{t('You can add friends with their Discord username. They need to have signed in to Linkord once.')}</p>
+      <p class="muted">
+        {t('You can add friends with their Discord username. They need to have signed in to Linkord once.')}
+      </p>
       <form class="add-friend-box" classList={{ ok: result()?.ok, err: result()?.ok === false }} onSubmit={submit}>
-        <input value={name()} onInput={(e) => (setName(e.currentTarget.value), setResult(null))} placeholder={t('You can add friends with their username.')} autofocus />
+        <input
+          value={name()}
+          onInput={(e) => (setName(e.currentTarget.value), setResult(null))}
+          placeholder={t('You can add friends with their username.')}
+          autofocus
+        />
         <button class="btn primary" disabled={!name().trim()}>
           {t('Send Friend Request')}
         </button>

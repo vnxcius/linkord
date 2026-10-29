@@ -2,7 +2,7 @@ import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch, ty
 import { Portal } from 'solid-js/web';
 import { api, emojiUrl, media } from '../lib/api';
 import { filenameFromUrl } from '../lib/download';
-import { jumpToMessage, retryMessage, selectChannel, startThread, toggleFavoriteGif, togglePin, toggleReaction } from '../lib/actions';
+import { jumpToMessage, retryMessage, selectChannel, startThread, togglePin, toggleReaction } from '../lib/actions';
 import { dateLocale, plural, t } from '../lib/i18n';
 import { isJumbo, renderMarkdown } from '../lib/markdown';
 import { can, P } from '../lib/perms';
@@ -11,7 +11,18 @@ import { dmName, findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/s
 import type { Attachment, Channel, Embed, Forwarded, Message } from '../lib/types';
 import { videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
 import { isPrivate, Kind } from '../lib/types';
-import { attempt, focusComposer, openMenu, openProfile, replyTo, setUi, toast, ui, type MenuEntry } from '../lib/ui';
+import {
+  attempt,
+  focusComposer,
+  isMobile,
+  openMenu,
+  openProfile,
+  replyTo,
+  setUi,
+  toast,
+  ui,
+  type MenuEntry,
+} from '../lib/ui';
 import { Avatar } from './Avatar';
 import { EmojiPicker, QUICK_REACTIONS } from './EmojiPicker';
 import * as I from './Icons';
@@ -61,7 +72,14 @@ export function ReactionEmoji(p: { emoji: string }) {
   const custom = () => p.emoji.match(/^(\w+):(\d+)$/);
   return (
     <Show when={custom()} fallback={<span class="reaction-emoji">{p.emoji}</span>}>
-      {(m) => <img class="emoji custom reaction-img" src={emojiUrl(m()[2], findEmoji(m()[2])?.animated)} alt={`:${m()[1]}:`} title={`:${m()[1]}:`} />}
+      {(m) => (
+        <img
+          class="emoji custom reaction-img"
+          src={emojiUrl(m()[2], findEmoji(m()[2])?.animated)}
+          alt={`:${m()[1]}:`}
+          title={`:${m()[1]}:`}
+        />
+      )}
     </Show>
   );
 }
@@ -134,7 +152,8 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   const saveEdit = async () => {
     const content = editText().trim();
     cancelEdit();
-    if (content && content !== m().content) await attempt(() => api('PATCH', `/channels/${m().channel_id}/messages/${m().id}`, { content }));
+    if (content && content !== m().content)
+      await attempt(() => api('PATCH', `/channels/${m().channel_id}/messages/${m().id}`, { content }));
   };
   const remove = (e?: MouseEvent) => {
     const run = () => api('DELETE', `/channels/${m().channel_id}/messages/${m().id}`);
@@ -157,11 +176,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
         render: () => (
           <div class="menu-reactions">
             <For each={QUICK_REACTIONS}>
-              {(r) => (
-                <button onClick={() => (setUi('menu', null), void toggleReaction(m(), r))}>
-                  {r}
-                </button>
-              )}
+              {(r) => <button onClick={() => (setUi('menu', null), void toggleReaction(m(), r))}>{r}</button>}
             </For>
           </div>
         ),
@@ -170,14 +185,37 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
     items.push({ label: t('Reply'), icon: () => <I.Reply size={16} />, run: () => replyTo(m().channel_id, m().id) });
     items.push({ label: t('Forward'), icon: () => <I.Forward size={16} />, run: forward });
     if (canEdit()) items.push({ label: t('Edit Message'), icon: () => <I.Edit size={16} />, run: startEdit });
-    if (canThread()) items.push({ label: t('Create Thread'), icon: () => <I.Thread size={16} />, run: () => attempt(() => startThread(m())) });
-    if (canPin()) items.push({ label: m().pinned ? t('Unpin Message') : t('Pin Message'), icon: () => <I.Pin size={16} />, run: () => attempt(() => togglePin(m())) });
+    if (canThread())
+      items.push({
+        label: t('Create Thread'),
+        icon: () => <I.Thread size={16} />,
+        run: () => attempt(() => startThread(m())),
+      });
+    if (canPin())
+      items.push({
+        label: m().pinned ? t('Unpin Message') : t('Pin Message'),
+        icon: () => <I.Pin size={16} />,
+        run: () => attempt(() => togglePin(m())),
+      });
     items.push('separator');
-    if (text()) items.push({ label: t('Copy Text'), icon: () => <I.Copy size={16} />, run: () => copy(text(), t('Text copied')) });
-    items.push({ label: t('Copy Message ID'), icon: () => <I.Copy size={16} />, run: () => copy(m().id, t('ID copied')) });
+    if (text())
+      items.push({
+        label: t('Copy Text'),
+        icon: () => <I.Copy size={16} />,
+        run: () => copy(text(), t('Text copied')),
+      });
+    items.push({
+      label: t('Copy Message ID'),
+      icon: () => <I.Copy size={16} />,
+      run: () => copy(m().id, t('ID copied')),
+    });
     if (mine() || canManage()) {
       items.push('separator');
-      items.push({ label: t('Select Messages'), icon: () => <I.Check size={16} />, run: () => setUi('selection', { channelId: m().channel_id, ids: [m().id], anchor: m().id }) });
+      items.push({
+        label: t('Select Messages'),
+        icon: () => <I.Check size={16} />,
+        run: () => setUi('selection', { channelId: m().channel_id, ids: [m().id], anchor: m().id }),
+      });
       items.push({ label: t('Delete Message'), danger: true, icon: () => <I.Trash size={16} />, run: () => remove(e) });
     }
     return items;
@@ -211,7 +249,10 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
       when={!isBlocked(m().author.id) || showBlocked()}
       fallback={
         <div class="blocked-message">
-          {t('1 blocked message')} — <button class="link-btn" onClick={() => setShowBlocked(true)}>{t('Show')}</button>
+          {t('1 blocked message')} —{' '}
+          <button class="link-btn" onClick={() => setShowBlocked(true)}>
+            {t('Show')}
+          </button>
         </div>
       }
     >
@@ -236,6 +277,12 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
         onTouchCancel={cancelPress}
         ref={(el) => el.addEventListener('click', onSelectClick, true)}
       >
+        <Show when={isMobile()}>
+          {/* Revealed when the message is swiped left to reply (lib/swipe.ts). */}
+          <span class="swipe-reply" aria-hidden="true">
+            <I.Reply size={20} />
+          </span>
+        </Show>
         <Show when={m().referenced_message}>
           {(ref) => (
             <div class="reply-ref" onClick={() => void jumpToMessage(m().channel_id, ref().id)}>
@@ -243,7 +290,10 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               <span class="reply-author" style={{ color: nameColor(p.guildId, ref().author.id) }}>
                 {nameOf(ref().author.id, p.guildId)}
               </span>
-              <span class="reply-text" innerHTML={renderContent(ref().content.split('\n')[0] || t('Click to see attachment'), p.guildId)} />
+              <span
+                class="reply-text"
+                innerHTML={renderContent(ref().content.split('\n')[0] || t('Click to see attachment'), p.guildId)}
+              />
             </div>
           )}
         </Show>
@@ -265,7 +315,11 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
           <div class="message-body">
             <Show when={!p.grouped}>
               <div class="message-head">
-                <button class="author" style={{ color: nameColor(p.guildId, author().id) }} onClick={(e) => openProfile(author().id, e, p.guildId ?? undefined)}>
+                <button
+                  class="author"
+                  style={{ color: nameColor(p.guildId, author().id) }}
+                  onClick={(e) => openProfile(author().id, e, p.guildId ?? undefined)}
+                >
                   {nameOf(author().id, p.guildId)}
                 </button>
                 <time title={new Date(m().created_at).toLocaleString(dateLocale())}>{formatTime(m().created_at)}</time>
@@ -280,10 +334,17 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               when={editing()}
               fallback={
                 <Show when={m().content && !linkOnlyImage(m())}>
-                  <div class="content" classList={{ jumbo: isJumbo(m().content) }} onClick={(e) => onContentClick(e, p.guildId)}>
+                  <div
+                    class="content"
+                    classList={{ jumbo: isJumbo(m().content) }}
+                    onClick={(e) => onContentClick(e, p.guildId)}
+                  >
                     <span innerHTML={renderContent(m().content, p.guildId)} />
                     <Show when={m().edited_at}>
-                      <span class="edited" title={new Date(m().edited_at!).toLocaleString(dateLocale())}> ({t('edited')})</span>
+                      <span class="edited" title={new Date(m().edited_at!).toLocaleString(dateLocale())}>
+                        {' '}
+                        ({t('edited')})
+                      </span>
                     </Show>
                   </div>
                 </Show>
@@ -311,7 +372,21 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               </div>
             </Show>
             <Show when={m().forwarded}>{(f) => <ForwardedView f={f()} m={m()} />}</Show>
-            <For each={m().attachments}>{(a) => (a.waveform ? <VoiceMessage a={a} src={media(a.url)!} author={m().author} channelId={m().channel_id} messageId={m().id} /> : <AttachmentView a={a} />)}</For>
+            <For each={m().attachments}>
+              {(a) =>
+                a.waveform ? (
+                  <VoiceMessage
+                    a={a}
+                    src={media(a.url)!}
+                    author={m().author}
+                    channelId={m().channel_id}
+                    messageId={m().id}
+                  />
+                ) : (
+                  <AttachmentView a={a} />
+                )
+              }
+            </For>
             <For each={inviteCodes(m().content)}>{(code) => <InviteCard code={code} mine={mine()} />}</For>
             <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
             <Show when={m().thread_id ? state.channels[m().thread_id!] : undefined}>
@@ -319,15 +394,16 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                 <button class="thread-chip" onClick={() => selectChannel(th().id)}>
                   <I.Thread size={16} />
                   <strong>{th().name}</strong>
-                  <span class="muted">
-                    {plural(th().message_count ?? 0, '{n} message', '{n} messages')}
-                  </span>
+                  <span class="muted">{plural(th().message_count ?? 0, '{n} message', '{n} messages')}</span>
                 </button>
               )}
             </Show>
             <Show when={m().failed}>
               <div class="failed-note">
-                {t('Failed to send.')} <button class="link-btn" onClick={() => retryMessage(m())}>{t('Retry')}</button>
+                {t('Failed to send.')}{' '}
+                <button class="link-btn" onClick={() => retryMessage(m())}>
+                  {t('Retry')}
+                </button>
               </div>
             </Show>
             <Show when={m().reactions.length}>
@@ -370,7 +446,11 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               <I.Forward size={18} />
             </button>
             <Show when={canThread()}>
-              <button class="icon-btn" data-tip={t('Create thread')} onClick={() => void attempt(() => startThread(m()))}>
+              <button
+                class="icon-btn"
+                data-tip={t('Create thread')}
+                onClick={() => void attempt(() => startThread(m()))}
+              >
                 <I.Thread size={18} />
               </button>
             </Show>
@@ -410,7 +490,9 @@ function toggleSelected(m: Message, range: boolean, deletable: (m: Message) => b
   const list = state.messages[m.channel_id]?.list ?? [];
   let ids: string[];
   if (range && sel.anchor) {
-    const [a, b] = [list.findIndex((x) => x.id === sel.anchor), list.findIndex((x) => x.id === m.id)].sort((x, y) => x - y);
+    const [a, b] = [list.findIndex((x) => x.id === sel.anchor), list.findIndex((x) => x.id === m.id)].sort(
+      (x, y) => x - y,
+    );
     const span = a < 0 ? [m] : list.slice(a, b + 1).filter((x) => !x.pending && deletable(x));
     ids = [...new Set([...sel.ids, ...span.map((x) => x.id)])];
   } else {
@@ -441,7 +523,15 @@ function ForwardedView(p: { f: Forwarded; m: Message }) {
           <span innerHTML={renderContent(p.f.content, guildId())} />
         </div>
       </Show>
-      <For each={p.f.attachments}>{(a) => (a.waveform ? <VoiceMessage a={a} src={media(a.url)!} author={p.m.author} channelId={p.m.channel_id} messageId={p.m.id} /> : <AttachmentView a={a} />)}</For>
+      <For each={p.f.attachments}>
+        {(a) =>
+          a.waveform ? (
+            <VoiceMessage a={a} src={media(a.url)!} author={p.m.author} channelId={p.m.channel_id} messageId={p.m.id} />
+          ) : (
+            <AttachmentView a={a} />
+          )
+        }
+      </For>
       <For each={inviteCodes(p.f.content)}>{(code) => <InviteCard code={code} mine={false} />}</For>
       <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
       <div class="forwarded-origin">
@@ -469,30 +559,20 @@ export function formatSize(n: number) {
   return `${num(n / 1024 ** 3)} GB`;
 }
 
-function FavoriteStar(p: { url: string }) {
-  const fav = () => state.settings.favorite_gifs?.includes(p.url);
-  return (
-    <button
-      class="fav-star"
-      classList={{ on: fav() }}
-      title={fav() ? t('Remove from favorites') : t('Add to favorites')}
-      onClick={(e) => {
-        e.stopPropagation();
-        void attempt(() => toggleFavoriteGif(p.url));
-      }}
-    >
-      <I.Star size={18} />
-    </button>
-  );
-}
-
 function AttachmentView(p: { a: Attachment }) {
   const url = () => media(p.a.url)!;
   const kind = () => p.a.content_type.split('/')[0];
   return (
     <Switch
       fallback={
-        <a class="file-card" href={url()} onClick={(e) => { e.preventDefault(); void openExternal(url()); }}>
+        <a
+          class="file-card"
+          href={url()}
+          onClick={(e) => {
+            e.preventDefault();
+            void openExternal(url());
+          }}
+        >
           <I.Paperclip size={22} />
           <span class="file-info">
             <span class="file-name">{p.a.filename}</span>
@@ -504,10 +584,13 @@ function AttachmentView(p: { a: Attachment }) {
     >
       <Match when={kind() === 'image'}>
         <div class="media-wrap">
-          <img class="attachment-media" src={url()} alt={p.a.filename} loading="lazy" onClick={() => setUi('lightbox', url())} />
-          <Show when={p.a.content_type === 'image/gif'}>
-            <FavoriteStar url={url()} />
-          </Show>
+          <img
+            class="attachment-media"
+            src={url()}
+            alt={p.a.filename}
+            loading="lazy"
+            onClick={() => setUi('lightbox', url())}
+          />
         </div>
       </Match>
       <Match when={kind() === 'video'}>
@@ -521,15 +604,18 @@ function AttachmentView(p: { a: Attachment }) {
 }
 
 function EmbedView(p: { e: Embed }) {
-  const isGif = () => /\.gif(\?|$)/i.test(p.e.url) || p.e.url.includes('giphy.com/media');
   return (
     <Switch>
       <Match when={p.e.type === 'image'}>
         <div class="media-wrap">
-          <img class="attachment-media" src={p.e.url} alt="" loading="lazy" referrerpolicy="no-referrer" onClick={() => setUi('lightbox', p.e.url)} />
-          <Show when={isGif()}>
-            <FavoriteStar url={p.e.url} />
-          </Show>
+          <img
+            class="attachment-media"
+            src={p.e.url}
+            alt=""
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            onClick={() => setUi('lightbox', p.e.url)}
+          />
         </div>
       </Match>
       <Match when={p.e.type === 'video'}>
@@ -539,13 +625,23 @@ function EmbedView(p: { e: Embed }) {
         {(player) => <VideoLinkEmbed e={p.e} player={player()} />}
       </Match>
       <Match when={p.e.type === 'link'}>
-        <div class="embed" style={{ 'border-left-color': p.e.color != null ? `#${p.e.color.toString(16).padStart(6, '0')}` : undefined }}>
+        <div
+          class="embed"
+          style={{ 'border-left-color': p.e.color != null ? `#${p.e.color.toString(16).padStart(6, '0')}` : undefined }}
+        >
           <div class="embed-text">
             <Show when={p.e.site_name}>
               <div class="embed-site">{p.e.site_name}</div>
             </Show>
             <Show when={p.e.title}>
-              <a class="embed-title" href={p.e.url} onClick={(ev) => { ev.preventDefault(); void openExternal(p.e.url); }}>
+              <a
+                class="embed-title"
+                href={p.e.url}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  void openExternal(p.e.url);
+                }}
+              >
                 {p.e.title}
               </a>
             </Show>
@@ -553,11 +649,25 @@ function EmbedView(p: { e: Embed }) {
               <div class="embed-desc">{p.e.description}</div>
             </Show>
             <Show when={p.e.image && p.e.large_image}>
-              <img class="embed-image large" src={p.e.image!} alt="" loading="lazy" referrerpolicy="no-referrer" onClick={() => setUi('lightbox', p.e.image!)} />
+              <img
+                class="embed-image large"
+                src={p.e.image!}
+                alt=""
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                onClick={() => setUi('lightbox', p.e.image!)}
+              />
             </Show>
           </div>
           <Show when={p.e.image && !p.e.large_image}>
-            <img class="embed-image thumb" src={p.e.image!} alt="" loading="lazy" referrerpolicy="no-referrer" onClick={() => setUi('lightbox', p.e.image!)} />
+            <img
+              class="embed-image thumb"
+              src={p.e.image!}
+              alt=""
+              loading="lazy"
+              referrerpolicy="no-referrer"
+              onClick={() => setUi('lightbox', p.e.image!)}
+            />
           </Show>
         </div>
       </Match>
@@ -580,7 +690,13 @@ function VideoLinkEmbed(p: { e: Embed; player: LinkPlayer }) {
             {p.e.site_name ?? p.player.provider}
             <Show when={p.e.author}> · {p.e.author}</Show>
           </span>
-          <a class="video-external" href={p.e.url} title={t('Open on {site}', { site: p.player.provider })} aria-label={t('Open on {site}', { site: p.player.provider })} onClick={open}>
+          <a
+            class="video-external"
+            href={p.e.url}
+            title={t('Open on {site}', { site: p.player.provider })}
+            aria-label={t('Open on {site}', { site: p.player.provider })}
+            onClick={open}
+          >
             <I.External size={15} />
           </a>
         </div>

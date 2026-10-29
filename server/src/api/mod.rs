@@ -1,7 +1,6 @@
 pub mod channels;
 pub mod dms;
 pub mod emojis;
-pub mod gifs;
 pub mod guilds;
 pub mod invites;
 pub mod messages;
@@ -28,7 +27,6 @@ pub fn routes() -> Router<AppState> {
         .merge(dms::routes())
         .merge(relationships::routes())
         .merge(settings::routes())
-        .merge(gifs::routes())
         .merge(updates::routes())
         .merge(templates::routes())
 }

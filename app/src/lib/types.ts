@@ -206,9 +206,9 @@ export interface GuildFolder {
 export interface Settings {
   muted_guilds?: string[];
   muted_channels?: string[];
-  favorite_gifs?: string[];
   guild_folders?: GuildFolder[];
   collapsed_categories?: string[];
 }
 
-export const displayName = (u?: Pick<User, 'username' | 'display_name'> | null) => u?.display_name || u?.username || t('Unknown');
+export const displayName = (u?: Pick<User, 'username' | 'display_name'> | null) =>
+  u?.display_name || u?.username || t('Unknown');

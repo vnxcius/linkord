@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Releases a new desktop version: bumps the patch version, builds an optimized signed installer,
 # and publishes it to the server's update feed. Running apps pick it up within 30 minutes.
-#   ./publish-windows.sh "What changed"
+#   ./publish-windows.sh "What changed"   (one change per line; they become the patch notes page's bullets)
 set -euo pipefail
 cd "$(dirname "$0")"
 notes="${1:-Bug fixes and improvements}"
@@ -31,5 +31,14 @@ node -e "
     pub_date: new Date().toISOString(),
     platforms: { 'windows-x86_64': { signature: fs.readFileSync('$exe.sig', 'utf8'), file: require('path').basename('$exe') } },
   }, null, 2));
+" "$notes"
+# Patch notes page: newest first, one entry per version.
+node -e "
+  const fs = require('fs');
+  const f = '$updates/changelog.json';
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
+  list = [{ version: '$next', date: new Date().toISOString(), notes: process.argv[1] }, ...list.filter((r) => r.version !== '$next')];
+  fs.writeFileSync(f, JSON.stringify(list, null, 2));
 " "$notes"
 echo "Published $next. Commit the version bump: git commit -am 'Release $next'"

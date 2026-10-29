@@ -9,7 +9,14 @@ export function Avatar(p: { user?: User | null; size?: number; presence?: boolea
   const initials = () => displayName(p.user).slice(0, 2).toUpperCase();
   return (
     <div class="avatar" classList={{ speaking: p.speaking }} style={{ width: `${size()}px`, height: `${size()}px` }}>
-      <Show when={media(p.user?.avatar)} fallback={<div class="avatar-fallback" style={{ 'font-size': `${size() * 0.38}px` }}>{initials()}</div>}>
+      <Show
+        when={media(p.user?.avatar)}
+        fallback={
+          <div class="avatar-fallback" style={{ 'font-size': `${size() * 0.38}px` }}>
+            {initials()}
+          </div>
+        }
+      >
         {(src) => <img src={src()} alt="" loading="lazy" draggable={false} />}
       </Show>
       <Show when={p.presence && p.user}>

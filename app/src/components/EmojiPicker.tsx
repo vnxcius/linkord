@@ -13,7 +13,10 @@ export interface Picked {
   reaction: string;
 }
 
-export const customPick = (e: Emoji): Picked => ({ text: `<${e.animated ? 'a' : ''}:${e.name}:${e.id}>`, reaction: `${e.name}:${e.id}` });
+export const customPick = (e: Emoji): Picked => ({
+  text: `<${e.animated ? 'a' : ''}:${e.name}:${e.id}>`,
+  reaction: `${e.name}:${e.id}`,
+});
 const unicodePick = (c: string): Picked => ({ text: c, reaction: c });
 
 export function useOutsideClose(el: () => HTMLElement, onClose: () => void) {
@@ -22,7 +25,13 @@ export function useOutsideClose(el: () => HTMLElement, onClose: () => void) {
   onCleanup(() => document.removeEventListener('mousedown', onDoc));
 }
 
-export function EmojiPicker(p: { onPick: (e: Picked) => void; onClose: () => void; class?: string; style?: JSX.CSSProperties; guildId?: string | null }) {
+export function EmojiPicker(p: {
+  onPick: (e: Picked) => void;
+  onClose: () => void;
+  class?: string;
+  style?: JSX.CSSProperties;
+  guildId?: string | null;
+}) {
   const [query, setQuery] = createSignal('');
   let root!: HTMLDivElement;
   useOutsideClose(() => root, p.onClose);
@@ -34,11 +43,25 @@ export function EmojiPicker(p: { onPick: (e: Picked) => void; onClose: () => voi
       .sort(([a], [b]) => (a === p.guildId ? -1 : b === p.guildId ? 1 : 0))
       .map(([gid, list]) => ({ name: state.guilds[gid]?.name ?? t('Server'), list }));
   const q = () => query().trim().toLowerCase().replace(/^:/, '');
-  const customMatches = () => servers().flatMap((s) => s.list).filter((e) => e.name.toLowerCase().includes(q()));
+  const customMatches = () =>
+    servers()
+      .flatMap((s) => s.list)
+      .filter((e) => e.name.toLowerCase().includes(q()));
 
   return (
-    <div class={`emoji-picker ${p.class ?? ''}`} style={p.style} ref={root} onKeyDown={(e) => e.key === 'Escape' && p.onClose()}>
-      <input class="emoji-search" placeholder={t('Find the perfect emoji')} value={query()} onInput={(e) => setQuery(e.currentTarget.value)} autofocus />
+    <div
+      class={`emoji-picker ${p.class ?? ''}`}
+      style={p.style}
+      ref={root}
+      onKeyDown={(e) => e.key === 'Escape' && p.onClose()}
+    >
+      <input
+        class="emoji-search"
+        placeholder={t('Find the perfect emoji')}
+        value={query()}
+        onInput={(e) => setQuery(e.currentTarget.value)}
+        autofocus
+      />
       <div class="emoji-scroll">
         <Show
           when={!q()}

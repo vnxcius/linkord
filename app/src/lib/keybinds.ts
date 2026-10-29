@@ -9,7 +9,17 @@ import { ACTIONS, keyFromEvent, keyFromMouse, modifierOf, modsFromEvent, type Ke
 import { isTauri } from './platform';
 import { prefs } from './prefs';
 import { setUi, toast } from './ui';
-import { canShareScreen, leaveVoice, setPtt, setPushToMute, stopScreenShare, toggleCamera, toggleDeafen, toggleMute, voiceUi } from './voice';
+import {
+  canShareScreen,
+  leaveVoice,
+  setPtt,
+  setPushToMute,
+  stopScreenShare,
+  toggleCamera,
+  toggleDeafen,
+  toggleMute,
+  voiceUi,
+} from './voice';
 
 export const nativeKeybinds = isTauri && navigator.userAgent.includes('Windows');
 
@@ -93,7 +103,8 @@ function onWindowDown(key: { vk: number } | null, mods: number, e: Event) {
     const hold = ACTIONS[b.action].hold;
     if (hold ? (mods & c.mods) !== c.mods : mods !== c.mods) continue;
     // A bare letter while typing a message is just typing (the native hook decides on desktop).
-    if (!nativeKeybinds && c.mods === 0 && typingIn(e) && key.vk >= 0x20 && key.vk <= 0xe2 && !modifierOf(key.vk)) continue;
+    if (!nativeKeybinds && c.mods === 0 && typingIn(e) && key.vk >= 0x20 && key.vk <= 0xe2 && !modifierOf(key.vk))
+      continue;
     trigger(b, true, 'window');
   }
 }

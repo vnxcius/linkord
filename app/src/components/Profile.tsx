@@ -6,9 +6,10 @@ import { can, P, topPosition } from '../lib/perms';
 import { gameOf, memberRoles, nameOf, spotifyOf, state } from '../lib/store';
 import { openExternal } from '../lib/platform';
 import { displayName, Rel, type User } from '../lib/types';
-import { attempt, setUi, ui, type MenuEntry } from '../lib/ui';
+import { attempt, isMobile, setUi, ui, type MenuEntry } from '../lib/ui';
 import { GameCard, SpotifyCard, SpotifyIcon, StatusBubble } from './Activity';
 import { Avatar, GuildIcon } from './Avatar';
+import { MyStatusBubble } from './CustomStatus';
 import * as I from './Icons';
 import { volumeMenu } from './Sidebar';
 import { voiceUi } from '../lib/voice';
@@ -17,16 +18,26 @@ export function accentCss(color?: number | null) {
   return color != null ? `#${color.toString(16).padStart(6, '0')}` : undefined;
 }
 
-
 /** Friend actions for someone, based on your relationship. */
 export function friendItems(userId: string): MenuEntry[] {
   if (userId === state.me?.id) return [];
   const rel = state.relationships[userId];
   const items: MenuEntry[] = [];
-  if (rel === Rel.Friend) items.push({ label: t('Remove Friend'), danger: true, run: () => attempt(() => removeRelationship(userId)) });
-  else if (rel === Rel.Incoming) items.push({ label: t('Accept Friend Request'), run: () => attempt(() => friendRequest(userId), t('Friend added')) });
-  else if (rel === Rel.Outgoing) items.push({ label: t('Cancel Friend Request'), run: () => attempt(() => removeRelationship(userId)) });
-  else if (rel !== Rel.Blocked) items.push({ label: t('Add Friend'), icon: () => <I.UserPlus size={16} />, run: () => attempt(() => friendRequest(userId), t('Friend request sent')) });
+  if (rel === Rel.Friend)
+    items.push({ label: t('Remove Friend'), danger: true, run: () => attempt(() => removeRelationship(userId)) });
+  else if (rel === Rel.Incoming)
+    items.push({
+      label: t('Accept Friend Request'),
+      run: () => attempt(() => friendRequest(userId), t('Friend added')),
+    });
+  else if (rel === Rel.Outgoing)
+    items.push({ label: t('Cancel Friend Request'), run: () => attempt(() => removeRelationship(userId)) });
+  else if (rel !== Rel.Blocked)
+    items.push({
+      label: t('Add Friend'),
+      icon: () => <I.UserPlus size={16} />,
+      run: () => attempt(() => friendRequest(userId), t('Friend request sent')),
+    });
   items.push(
     rel === Rel.Blocked
       ? { label: t('Unblock'), run: () => attempt(() => removeRelationship(userId)) }
@@ -47,7 +58,11 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
     const outranks = topPosition(guildId) > topPosition(guildId, userId);
     const canNick = userId === me ? can(guildId, P.CHANGE_NICKNAME) : can(guildId, P.MANAGE_NICKNAMES) && outranks;
     if (canNick || (can(guildId, P.MANAGE_ROLES) && (outranks || userId === me))) {
-      items.push('separator', { label: t('Edit Nickname & Roles'), icon: () => <I.Edit size={16} />, run: () => setUi('modal', { type: 'nickname', guildId, userId }) });
+      items.push('separator', {
+        label: t('Edit Nickname & Roles'),
+        icon: () => <I.Edit size={16} />,
+        run: () => setUi('modal', { type: 'nickname', guildId, userId }),
+      });
     }
     if (userId !== me && can(guildId, P.KICK_MEMBERS) && outranks && state.guilds[guildId]?.owner_id !== userId) {
       items.push({
@@ -66,7 +81,11 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   }
   const friends = friendItems(userId);
   if (friends.length) items.push('separator', ...friends);
-  items.push('separator', { label: t('Copy User ID'), icon: () => <I.Copy size={16} />, run: () => navigator.clipboard.writeText(userId) });
+  items.push('separator', {
+    label: t('Copy User ID'),
+    icon: () => <I.Copy size={16} />,
+    run: () => navigator.clipboard.writeText(userId),
+  });
   return items;
 }
 
@@ -105,13 +124,22 @@ export function MemberRoles(p: { guildId: string; userId: string }) {
       <For each={roles()}>
         {(r) => (
           <span class="role-pill" classList={{ removable: canAssign(p.guildId, r.id) }}>
-            <Show when={canAssign(p.guildId, r.id)} fallback={<i style={{ background: accentCss(r.color) ?? 'var(--text-3)' }} />}>
+            <Show
+              when={canAssign(p.guildId, r.id)}
+              fallback={<i style={{ background: accentCss(r.color) ?? 'var(--text-3)' }} />}
+            >
               <button
                 class="role-remove"
                 style={{ background: accentCss(r.color) ?? 'var(--text-3)' }}
                 aria-label={t('Remove role {role}', { role: r.name })}
                 title={t('Remove role')}
-                onClick={() => void setMemberRoles(p.guildId, p.userId, held().filter((x) => x !== r.id))}
+                onClick={() =>
+                  void setMemberRoles(
+                    p.guildId,
+                    p.userId,
+                    held().filter((x) => x !== r.id),
+                  )
+                }
               >
                 <I.Close size={9} stroke-width={3.5} />
               </button>
@@ -129,13 +157,30 @@ export function MemberRoles(p: { guildId: string; userId: string }) {
   );
 }
 
+/** Eats the click that follows a mousedown/tap (it fires on whatever is under the finger). */
+function swallowNextClick() {
+  const stop = (e: Event) => {
+    e.stopPropagation();
+    e.preventDefault();
+  };
+  document.addEventListener('click', stop, { capture: true, once: true });
+  setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 600);
+}
+
 export function ProfilePopout() {
   let el!: HTMLDivElement;
   const [pos, setPos] = createSignal({ x: 0, y: 0 });
   const p = () => ui.profile!;
   const user = () => state.users[p().userId];
   const close = () => setUi('profile', null);
-  const onDoc = (e: MouseEvent) => !el.contains(e.target as Node) && !(e.target as HTMLElement).closest('.context-menu') && close();
+  const onDoc = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (el.contains(target) || target.closest('.context-menu')) return;
+    // On phones (a sheet over a dimmed page) and over the member drawer, tapping outside only closes the card:
+    // the click mustn't also land on what's underneath (the drawer's backdrop would close the member list).
+    if (isMobile() || target.closest('.drawer-backdrop')) swallowNextClick();
+    close();
+  };
   onMount(() => setTimeout(() => document.addEventListener('mousedown', onDoc)));
   onCleanup(() => document.removeEventListener('mousedown', onDoc));
 
@@ -144,7 +189,11 @@ export function ProfilePopout() {
     const { x, y } = p();
     const w = 320;
     const h = el.offsetHeight || 380;
-    setPos({ x: x + w > innerWidth - 12 ? Math.max(12, x - w - 60) : x, y: Math.max(12, Math.min(y, innerHeight - h - 12)) });
+    const bottom = p().bottom;
+    setPos({
+      x: x + w > innerWidth - 12 ? Math.max(12, x - w - 60) : x,
+      y: Math.max(12, Math.min(bottom !== undefined ? bottom - h : y, innerHeight - h - 12)),
+    });
   });
 
   const gid = () => p().guildId;
@@ -154,7 +203,12 @@ export function ProfilePopout() {
   const rel = () => state.relationships[p().userId];
 
   return (
-    <div class="profile-card" ref={el} style={{ left: `${pos().x}px`, top: `${pos().y}px` }} onKeyDown={(e) => e.key === 'Escape' && close()}>
+    <div
+      class="profile-card"
+      ref={el}
+      style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+      onKeyDown={(e) => e.key === 'Escape' && close()}
+    >
       <Show when={user()}>
         {(u) => (
           <>
@@ -174,7 +228,9 @@ export function ProfilePopout() {
                 <Avatar user={u()} size={84} presence />
                 <span class="profile-avatar-hint">{t('View profile')}</span>
               </button>
-              <StatusBubble userId={u().id} />
+              <Show when={isMe()} fallback={<StatusBubble userId={u().id} />}>
+                <MyStatusBubble />
+              </Show>
             </div>
             <div class="profile-body">
               <h3>{nameOf(u().id, gid())}</h3>
@@ -207,7 +263,13 @@ export function ProfilePopout() {
               <Show when={joined()}>
                 <div class="profile-section">
                   <div class="label">{t('Member since')}</div>
-                  <p>{new Date(joined()!).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                  <p>
+                    {new Date(joined()!).toLocaleDateString(dateLocale(), {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </p>
                 </div>
               </Show>
               <Show when={gid() && (roles().length || can(gid(), P.MANAGE_ROLES))}>
@@ -232,7 +294,12 @@ export function ProfilePopout() {
                     <button
                       class="btn"
                       title={rel() === Rel.Incoming ? t('Accept friend request') : t('Add friend')}
-                      onClick={() => void attempt(() => friendRequest(u().id), rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'))}
+                      onClick={() =>
+                        void attempt(
+                          () => friendRequest(u().id),
+                          rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'),
+                        )
+                      }
                     >
                       <I.UserPlus size={18} />
                     </button>
@@ -265,12 +332,16 @@ interface FullProfile {
   created_at: string;
 }
 
-const longDate = (d: string) => new Date(d).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' });
+const longDate = (d: string) =>
+  new Date(d).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' });
 
 /** The full profile (Discord's profile modal): opened from the avatar on a user card. */
 export function ProfileModal(p: { userId: string; guildId?: string }) {
   const [tab, setTab] = createSignal<'about' | 'servers' | 'friends'>('about');
-  const [full] = createResource(() => p.userId, (id) => api<FullProfile>('GET', `/users/${id}/profile`));
+  const [full] = createResource(
+    () => p.userId,
+    (id) => api<FullProfile>('GET', `/users/${id}/profile`),
+  );
   const user = () => state.users[p.userId] ?? full()?.user;
   const isMe = () => p.userId === state.me?.id;
   const rel = () => state.relationships[p.userId];
@@ -309,7 +380,15 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                     {t('Message')}
                   </button>
                   <Show when={rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
-                    <button class="btn" onClick={() => void attempt(() => friendRequest(u().id), rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'))}>
+                    <button
+                      class="btn"
+                      onClick={() =>
+                        void attempt(
+                          () => friendRequest(u().id),
+                          rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'),
+                        )
+                      }
+                    >
                       <I.UserPlus size={16} /> {rel() === Rel.Incoming ? t('Accept friend request') : t('Add friend')}
                     </button>
                   </Show>
@@ -381,7 +460,10 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                           <div class="label">{t('Member since')}</div>
                           <p>
                             <span class="profile-server-icon">
-                              <GuildIcon name={state.guilds[p.guildId!]?.name ?? ''} icon={state.guilds[p.guildId!]?.icon} />
+                              <GuildIcon
+                                name={state.guilds[p.guildId!]?.name ?? ''}
+                                icon={state.guilds[p.guildId!]?.icon}
+                              />
                             </span>
                             {longDate(joined()!)}
                           </p>
@@ -400,7 +482,12 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                         <div class="profile-connections">
                           <For each={full()!.connections}>
                             {(c) => (
-                              <button class="profile-connection" onClick={() => void openExternal(`https://open.spotify.com/user/${encodeURIComponent(c.id)}`)}>
+                              <button
+                                class="profile-connection"
+                                onClick={() =>
+                                  void openExternal(`https://open.spotify.com/user/${encodeURIComponent(c.id)}`)
+                                }
+                              >
                                 <SpotifyIcon size={22} />
                                 <span class="grow">{c.name}</span>
                                 <I.External size={14} />
@@ -431,10 +518,14 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                   <Match when={tab() === 'friends'}>
                     <For each={friends()} fallback={<p class="empty-hint">{t('No friends in common.')}</p>}>
                       {(f) => (
-                        <button class="profile-list-row" onClick={() => setUi('modal', { type: 'user-profile', userId: f.id })}>
+                        <button
+                          class="profile-list-row"
+                          onClick={() => setUi('modal', { type: 'user-profile', userId: f.id })}
+                        >
                           <Avatar user={state.users[f.id] ?? f} size={36} presence />
                           <span class="grow">
-                            <strong>{displayName(state.users[f.id] ?? f)}</strong> <span class="muted small">{f.username}</span>
+                            <strong>{displayName(state.users[f.id] ?? f)}</strong>{' '}
+                            <span class="muted small">{f.username}</span>
                           </span>
                         </button>
                       )}

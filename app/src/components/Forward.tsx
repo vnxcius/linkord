@@ -50,7 +50,12 @@ function targets(withFiles: boolean): Target[] {
     .map(([id]) => id)
     .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   for (const id of friends) {
-    out.push({ key: `u:${id}`, name: nameOf(id), sub: state.users[id]?.username, icon: () => <Avatar user={state.users[id]} size={32} /> });
+    out.push({
+      key: `u:${id}`,
+      name: nameOf(id),
+      sub: state.users[id]?.username,
+      icon: () => <Avatar user={state.users[id]} size={32} />,
+    });
   }
   for (const gid of state.guildOrder) {
     if (!can(gid, P.SEND_MESSAGES) || (withFiles && !can(gid, P.ATTACH_FILES))) continue;
@@ -118,7 +123,13 @@ export function ForwardModal(p: { message: Message }) {
         </div>
       }
     >
-      <input class="filter-input" placeholder={t('Search')} value={filter()} onInput={(e) => setFilter(e.currentTarget.value)} autofocus />
+      <input
+        class="filter-input"
+        placeholder={t('Search')}
+        value={filter()}
+        onInput={(e) => setFilter(e.currentTarget.value)}
+        autofocus
+      />
       <div class="pick-list forward-list">
         <For each={shown()} fallback={<p class="empty-hint">{t('No results')}</p>}>
           {(x) => {
@@ -127,9 +138,17 @@ export function ForwardModal(p: { message: Message }) {
               <label class="pick-row" classList={{ disabled: !on() && picked().length >= MAX_TARGETS }}>
                 {x.icon()}
                 <span class="grow">
-                  {x.name} <Show when={x.sub}><span class="muted small">{x.sub}</span></Show>
+                  {x.name}{' '}
+                  <Show when={x.sub}>
+                    <span class="muted small">{x.sub}</span>
+                  </Show>
                 </span>
-                <input type="checkbox" checked={on()} disabled={!on() && picked().length >= MAX_TARGETS} onChange={() => toggle(x.key)} />
+                <input
+                  type="checkbox"
+                  checked={on()}
+                  disabled={!on() && picked().length >= MAX_TARGETS}
+                  onChange={() => toggle(x.key)}
+                />
               </label>
             );
           }}

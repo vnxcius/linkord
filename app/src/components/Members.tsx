@@ -17,7 +17,12 @@ export function Members(p: { guildId: string; drawer?: boolean }) {
     const placed = new Set<string>();
     const out: { title: string; ids: string[] }[] = [];
     for (const role of hoisted) {
-      const inRole = ids.filter((id) => !placed.has(id) && presenceOf(id) !== 'offline' && memberRoles(p.guildId, id).find((r) => r.hoist)?.id === role.id);
+      const inRole = ids.filter(
+        (id) =>
+          !placed.has(id) &&
+          presenceOf(id) !== 'offline' &&
+          memberRoles(p.guildId, id).find((r) => r.hoist)?.id === role.id,
+      );
       inRole.forEach((id) => placed.add(id));
       if (inRole.length) out.push({ title: role.name, ids: inRole });
     }

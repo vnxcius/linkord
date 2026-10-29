@@ -1,11 +1,25 @@
 // Voice transport: owns the voice websocket and the Opus codecs, so audio never waits on the UI thread.
 
-import { Application, createDecoder, createEncoder, Signal, type OpusDecoderHandle, type OpusEncoderHandle } from 'libopus-wasm';
+import {
+  Application,
+  createDecoder,
+  createEncoder,
+  Signal,
+  type OpusDecoderHandle,
+  type OpusEncoderHandle,
+} from 'libopus-wasm';
 import type { Denoiser, DenoiseKind } from './denoise';
 import { EchoCanceller } from './echo-canceller';
 
 export type WorkerIn =
-  | { type: 'connect'; url: string; token: string; channelId: string; capture: MessagePort | null; playback: MessagePort }
+  | {
+      type: 'connect';
+      url: string;
+      token: string;
+      channelId: string;
+      capture: MessagePort | null;
+      playback: MessagePort;
+    }
   | { type: 'screen_audio'; port: MessagePort | null }
   | { type: 'screen_audio_native'; on: boolean }
   | { type: 'screen_audio_pcm'; data: ArrayBuffer }
@@ -47,7 +61,15 @@ export interface StreamAudioStats {
   refDb: number;
   /** Captured vs cancelled level over chunks while the voice chat was playing; null when it was silent. */
   suppressionDb: number | null;
-  canceller: { locked: boolean; delayMs: number; confidence: number; realigns: number; rejects: number; tries: number; misses: number } | null;
+  canceller: {
+    locked: boolean;
+    delayMs: number;
+    confidence: number;
+    realigns: number;
+    rejects: number;
+    tries: number;
+    misses: number;
+  } | null;
 }
 
 const post = (m: WorkerOut, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(m, transfer);
@@ -110,7 +132,16 @@ const dbfs = (sq: number, n: number) => (n ? Math.max(-100, Math.round(10 * Math
 
 // Stream-audio diagnostics (Windows 10 echo): sums over the current one-second window.
 const REF_ACTIVE_MS = 300;
-const emptyDiag = () => ({ since: performance.now(), frames: 0, refFrames: 0, inSq: 0, outSq: 0, refSq: 0, echoInSq: 0, echoOutSq: 0 });
+const emptyDiag = () => ({
+  since: performance.now(),
+  frames: 0,
+  refFrames: 0,
+  inSq: 0,
+  outSq: 0,
+  refSq: 0,
+  echoInSq: 0,
+  echoOutSq: 0,
+});
 let diag = emptyDiag();
 let lastLoudRef = -Infinity;
 
@@ -136,8 +167,17 @@ function reportStreamAudio() {
       inDb: dbfs(d.inSq, d.frames * 2),
       outDb: dbfs(d.outSq, d.frames * 2),
       refDb: dbfs(d.refSq, d.refFrames * 2),
-      suppressionDb: d.echoInSq > 1e-6 ? Math.round(10 * Math.log10((d.echoInSq + 1e-10) / (d.echoOutSq + 1e-10))) : null,
-      canceller: c && { locked: c.locked, delayMs: Math.round(c.delay / 48), confidence: Math.round(c.confidence), realigns: c.realigns, rejects: c.alignRejects, tries: c.alignTries, misses: c.alignMisses },
+      suppressionDb:
+        d.echoInSq > 1e-6 ? Math.round(10 * Math.log10((d.echoInSq + 1e-10) / (d.echoOutSq + 1e-10))) : null,
+      canceller: c && {
+        locked: c.locked,
+        delayMs: Math.round(c.delay / 48),
+        confidence: Math.round(c.confidence),
+        realigns: c.realigns,
+        rejects: c.alignRejects,
+        tries: c.alignTries,
+        misses: c.alignMisses,
+      },
     },
   });
 }
@@ -263,7 +303,14 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
   connectMsg = msg;
   playback = msg.playback;
   playback.onmessage = (e) => onReference(e.data);
-  encoder = await createEncoder({ sampleRate: 48000, channels: 1, application: Application.Voip, signal: Signal.Voice, bitrate: 40000, complexity: 8 });
+  encoder = await createEncoder({
+    sampleRate: 48000,
+    channels: 1,
+    application: Application.Voip,
+    signal: Signal.Voice,
+    bitrate: 40000,
+    complexity: 8,
+  });
   if (msg.capture) msg.capture.onmessage = (e) => onCapture(e.data);
 
   const sock = new WebSocket(msg.url);
@@ -316,13 +363,27 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
         screenEncoder = null;
         return;
       }
-      screenEncoder ??= await createEncoder({ sampleRate: 48000, channels: 2, application: Application.Audio, signal: Signal.Music, bitrate: 128000, complexity: 8 });
+      screenEncoder ??= await createEncoder({
+        sampleRate: 48000,
+        channels: 2,
+        application: Application.Audio,
+        signal: Signal.Music,
+        bitrate: 128000,
+        complexity: 8,
+      });
       diag = emptyDiag();
       m.port.onmessage = (ev) => onScreenAudio(ev.data);
       return;
     case 'screen_audio_native':
       if (m.on) {
-        screenEncoder ??= await createEncoder({ sampleRate: 48000, channels: 2, application: Application.Audio, signal: Signal.Music, bitrate: 128000, complexity: 8 });
+        screenEncoder ??= await createEncoder({
+          sampleRate: 48000,
+          channels: 2,
+          application: Application.Audio,
+          signal: Signal.Music,
+          bitrate: 128000,
+          complexity: 8,
+        });
         diag = emptyDiag();
       } else {
         screenEncoder?.free();

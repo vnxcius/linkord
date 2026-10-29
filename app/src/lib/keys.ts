@@ -12,7 +12,15 @@ export interface Combo {
   label: string;
 }
 
-export type KeyAction = 'ptt' | 'ptm' | 'toggle-mute' | 'toggle-deafen' | 'toggle-stream' | 'stream-game' | 'toggle-camera' | 'disconnect';
+export type KeyAction =
+  | 'ptt'
+  | 'ptm'
+  | 'toggle-mute'
+  | 'toggle-deafen'
+  | 'toggle-stream'
+  | 'stream-game'
+  | 'toggle-camera'
+  | 'disconnect';
 
 export interface Keybind {
   id: string;
@@ -25,8 +33,16 @@ export const ACTIONS: Record<KeyAction, { label: string; hint: string; hold: boo
   ptm: { label: msg('Push to Mute'), hint: msg('Hold to mute yourself for a moment.'), hold: true },
   'toggle-mute': { label: msg('Toggle Mute'), hint: msg('Mute or unmute your microphone.'), hold: false },
   'toggle-deafen': { label: msg('Toggle Deafen'), hint: msg('Stop hearing voice chat (also mutes you).'), hold: false },
-  'toggle-stream': { label: msg('Go Live / Stop Streaming'), hint: msg('Opens the Go Live picker, or ends your stream.'), hold: false },
-  'stream-game': { label: msg('Stream Your Game'), hint: msg('Goes live with the game you are playing right away, or ends your stream.'), hold: false },
+  'toggle-stream': {
+    label: msg('Go Live / Stop Streaming'),
+    hint: msg('Opens the Go Live picker, or ends your stream.'),
+    hold: false,
+  },
+  'stream-game': {
+    label: msg('Stream Your Game'),
+    hint: msg('Goes live with the game you are playing right away, or ends your stream.'),
+    hold: false,
+  },
   'toggle-camera': { label: msg('Toggle Camera'), hint: msg('Turn your camera on or off in voice.'), hold: false },
   disconnect: { label: msg('Disconnect from Voice'), hint: msg('Leave the voice channel you are in.'), hold: false },
 };
@@ -123,12 +139,18 @@ export function modifierOf(vk: number): number {
 
 /** Modifiers held during an event, not counting the key itself. */
 export function modsFromEvent(e: KeyboardEvent | MouseEvent, vk = 0): number {
-  const m = (e.ctrlKey ? MOD.ctrl : 0) | (e.shiftKey ? MOD.shift : 0) | (e.altKey ? MOD.alt : 0) | (e.metaKey ? MOD.meta : 0);
+  const m =
+    (e.ctrlKey ? MOD.ctrl : 0) | (e.shiftKey ? MOD.shift : 0) | (e.altKey ? MOD.alt : 0) | (e.metaKey ? MOD.meta : 0);
   return m & ~modifierOf(vk);
 }
 
 export function modsLabel(mods: number): string[] {
-  return [mods & MOD.ctrl && 'Ctrl', mods & MOD.shift && 'Shift', mods & MOD.alt && 'Alt', mods & MOD.meta && 'Win'].filter(Boolean) as string[];
+  return [
+    mods & MOD.ctrl && 'Ctrl',
+    mods & MOD.shift && 'Shift',
+    mods & MOD.alt && 'Alt',
+    mods & MOD.meta && 'Win',
+  ].filter(Boolean) as string[];
 }
 
 export function comboParts(c: Combo): string[] {
@@ -136,6 +158,7 @@ export function comboParts(c: Combo): string[] {
 }
 
 /** `tr` translates key names and "Not set" (keys.ts can't import i18n: prefs.ts imports this file). */
-export const comboLabel = (c: Combo | null | undefined, tr = (s: string) => s) => (c ? comboParts(c).map(tr).join(' + ') : tr(msg('Not set')));
+export const comboLabel = (c: Combo | null | undefined, tr = (s: string) => s) =>
+  c ? comboParts(c).map(tr).join(' + ') : tr(msg('Not set'));
 
 export const sameCombo = (a: Combo | null, b: Combo | null) => !!a && !!b && a.vk === b.vk && a.mods === b.mods;

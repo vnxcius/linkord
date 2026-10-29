@@ -4,6 +4,8 @@
 // While iterating: E2E_ONLY=<regex> runs only matching steps (plus the setup steps), E2E_FAILFAST=1 stops
 // at the first failure, E2E_TIMEOUT=<ms> shortens Playwright's waits (tests/run-local.sh --ui does all three).
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { chromium } from 'playwright-core';
 
 const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
@@ -443,8 +445,15 @@ await step('custom status: set it from the status menu with an emoji; it replace
   await a.page.click('.me-btn');
   await a.page.click('.context-menu button:has-text("Set Custom Status")');
   await a.page.click('.status-emoji-btn');
-  await a.page.fill('.status-picker .emoji-search', 'fire');
-  await a.page.click('.status-picker .emoji-grid button >> nth=0');
+  // The picker floats over the dialog: nothing clips it and the grid shows under the search box.
+  const box = await a.page.locator('.message-picker').boundingBox();
+  assert.ok(box.y >= 0 && box.y + box.height <= 860, `picker off screen: ${JSON.stringify(box)}`);
+  const searchHeight = (await a.page.locator('.message-picker .emoji-search').boundingBox()).height;
+  assert.ok(searchHeight < 60, `search box stretched to ${searchHeight}px`);
+  const topmost = await a.page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.message-picker'), { x: box.x + 24, y: box.y + box.height - 20 });
+  assert.ok(topmost, 'something covers the bottom of the picker');
+  await a.page.fill('.message-picker .emoji-search', 'fire');
+  await a.page.click('.message-picker .emoji-grid button >> nth=0');
   await a.page.fill('.status-input input', 'Exploring the ruins');
   await a.page.selectOption('.custom-status-modal select', '1h');
   await shot(a.page, 'e2e-custom-status-modal');
@@ -474,6 +483,37 @@ await step('custom status: set it from the status menu with an emoji; it replace
   await a.page.waitForSelector('.me-names .custom-status', { state: 'detached' });
   await b.page.waitForSelector(`.members .member:has-text("${a.name}") .activity-line:has-text("Playing Some Game")`);
   await fetch(`${BASE}/api/activities/playing`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+});
+
+await step('own user card: edit the custom status right in the bubble; the presence dot stays above "View profile"', async () => {
+  for (const u of [a, b]) {
+    await u.page.click(`.rail-btn[aria-label="Keep ${run}"]`);
+    await u.page.click('.channel-item:has-text("general")');
+  }
+  await a.page.click(`.members .member:has-text("${a.name}")`);
+  await a.page.click('.profile-card .status-bubble.mine .status-bubble-edit');
+  await a.page.fill('.profile-card .status-bubble.editing input', 'Back in 5');
+  await a.page.keyboard.press('Escape');
+  // Escape only leaves editing.
+  await a.page.waitForSelector('.profile-card .status-bubble.mine.empty');
+  await a.page.click('.profile-card .status-bubble.mine .status-bubble-edit');
+  await a.page.fill('.profile-card .status-bubble.editing input', 'Back in 5');
+  await a.page.keyboard.press('Enter');
+  await a.page.waitForSelector('.profile-card .status-bubble.mine:not(.empty):has-text("Back in 5")');
+  await a.page.waitForSelector('.me-names .custom-status:has-text("Back in 5")');
+  await b.page.waitForSelector(`.members .member:has-text("${a.name}") .custom-status:has-text("Back in 5")`);
+  // Hovering the avatar: the dot is still what's on top at its center.
+  await a.page.hover('.profile-card .profile-avatar');
+  const onTop = await a.page.evaluate(() => {
+    const r = document.querySelector('.profile-card .profile-avatar .presence').getBoundingClientRect();
+    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.classList.contains('presence');
+  });
+  assert.ok(onTop, 'the "View profile" overlay covers the presence dot');
+  await shot(a.page, 'e2e-own-card-status');
+  await a.page.hover('.profile-card .status-bubble.mine');
+  await a.page.click('.profile-card .status-bubble-clear');
+  await a.page.waitForSelector('.me-names .custom-status', { state: 'detached' });
+  await a.page.keyboard.press('Escape');
 });
 
 await step('invites: invite a friend from the list; the DM shows an invite card whose Join button opens the server', async () => {
@@ -554,6 +594,26 @@ await step('voice: both connect, hear each other, mute, per-user volume', async 
   await a.page.waitForSelector('.context-menu .volume-slider');
   await shot(a.page, 'e2e-voice');
   await a.page.keyboard.press('Escape');
+});
+
+await step('voice channel status: set it from the header; everyone sees it under the channel and in the header', async () => {
+  await a.page.click('.chat-header .voice-status-btn:has-text("Set a channel status")');
+  await a.page.fill('.voice-status-edit input', 'Dungeon run 🗡️');
+  await a.page.keyboard.press('Enter');
+  await a.page.waitForSelector('.chat-header .voice-status-btn .voice-status-text:has-text("Dungeon run")');
+  await b.page.waitForSelector('.voice-channel:has-text("Campfire") .voice-status-line:has-text("Dungeon run")');
+  await b.page.waitForSelector('.chat-header .voice-status-text:has-text("Dungeon run")');
+  await shot(b.page, 'e2e-voice-channel-status');
+  // Escape leaves editing without saving; clearing it removes the line for everyone.
+  await b.page.click('.chat-header .voice-status-btn');
+  await b.page.fill('.voice-status-edit input', 'nope');
+  await b.page.keyboard.press('Escape');
+  await b.page.waitForSelector('.chat-header .voice-status-text:has-text("Dungeon run")');
+  await b.page.click('.chat-header .voice-status-btn');
+  await b.page.fill('.voice-status-edit input', '');
+  await b.page.keyboard.press('Enter');
+  await a.page.waitForSelector('.voice-status-line', { state: 'detached' });
+  await a.page.waitForSelector('.chat-header .voice-status-btn.empty');
 });
 
 await step('keybinds: Ctrl+Shift+M toggles mute; a recorded push-to-talk key opens the mic only while held', async () => {
@@ -690,6 +750,68 @@ await step('reload keeps the channel in the URL and rejoins voice; leaving on pu
   assert.equal(await b.page.locator('.reconnect-banner').count(), 0);
 });
 
+await step('desktop app: dismissable banner, download page with this computer first, patch notes, "updated" banner; Back returns to the app', async () => {
+  // A release in the test server's update feed (the browser here reports Linux, so the .deb/.rpm come first).
+  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR, 'updates');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'Linkord_9.9.9_amd64.deb'), Buffer.alloc(3 * 1048576));
+  fs.writeFileSync(path.join(dir, 'Linkord-9.9.9-1.x86_64.rpm'), Buffer.alloc(1024));
+  fs.writeFileSync(path.join(dir, 'Linkord_9.9.9_x64-setup.exe'), Buffer.alloc(1024));
+  const date = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, 'linux.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, deb: 'Linkord_9.9.9_amd64.deb', rpm: 'Linkord-9.9.9-1.x86_64.rpm' }));
+  fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, platforms: { 'windows-x86_64': { signature: 's', file: 'Linkord_9.9.9_x64-setup.exe' } } }));
+  fs.writeFileSync(path.join(dir, 'changelog.json'), JSON.stringify([
+    { version: '9.9.9', date, notes: 'First change\n- Second change' },
+    { version: '9.9.8', date, notes: 'Older change' },
+  ]));
+  const c = await user('cleo', { lastSeenVersion: '0.0.1' });
+  const pg = c.page;
+  try {
+    await pg.waitForSelector('.download-banner:has-text("Get the desktop app")');
+    await pg.waitForSelector('.update-banner:has-text("Linkord was updated to")');
+    await shot(pg, 'e2e-download-banner');
+    await pg.click('.download-banner-btn');
+    await pg.waitForSelector('.site-page .dl-primary a:has-text("Download .deb")');
+    assert.equal(new URL(pg.url()).pathname, '/download');
+    assert.match(await pg.getAttribute('.dl-primary a:has-text("Download .deb")', 'href'), /\/api\/updates\/download\/Linkord_9\.9\.9_amd64\.deb$/);
+    assert.match(await pg.textContent('.dl-primary .dl-meta'), /Version 9\.9\.9 · 3\.0 MB/);
+    await pg.waitForSelector('.dl-platform.mine:has-text("Linux")');
+    await shot(pg, 'e2e-download-page');
+    // "What's new" opens the patch notes; the browser's Back goes back to the download page.
+    // Switching pages keeps the same frame (a new one faded in over the app, which flashed through).
+    await pg.evaluate(() => (document.querySelector('.site-page').dataset.mark = 'same'));
+    await pg.click('.dl-whats-new');
+    await pg.waitForSelector('.notes-release.latest:has-text("9.9.9") li:has-text("Second change")');
+    assert.equal(await pg.getAttribute('.site-page', 'data-mark'), 'same', 'the page frame was rebuilt');
+    assert.equal(await pg.locator('.notes-release').count(), 2);
+    assert.equal(new URL(pg.url()).pathname, '/changelog');
+    await pg.goBack();
+    await pg.waitForSelector('.dl-hero');
+    await pg.click('.site-back');
+    await pg.waitForSelector('.site-page', { state: 'detached' });
+    assert.match(new URL(pg.url()).pathname, /^\/channels\//);
+    // Seeing the patch notes retired the "updated" banner.
+    await pg.waitForSelector('.update-banner:has-text("Linkord was updated to")', { state: 'detached' });
+    // Opened straight from a link: Back to Linkord still lands in the app, even after switching pages.
+    await pg.goto(`${BASE}/changelog`);
+    await pg.waitForSelector('.notes-release');
+    await pg.click('.site-links button:has-text("Download")');
+    await pg.waitForSelector('.dl-hero');
+    await pg.click('.site-back');
+    await pg.waitForSelector('.site-page', { state: 'detached' });
+    await pg.waitForSelector('.layout');
+    // Dismissed for good on this device.
+    await pg.click('.download-banner-close');
+    await pg.waitForSelector('.download-banner', { state: 'detached' });
+    await pg.reload();
+    await pg.waitForSelector('.layout');
+    await pg.waitForTimeout(800);
+    assert.equal(await pg.locator('.download-banner').count(), 0);
+  } finally {
+    await pg.context().close();
+  }
+});
+
 await step('narrow window: the member list opens as a drawer', async () => {
   await a.page.setViewportSize({ width: 900, height: 860 });
   await a.page.click('.rail-btn[aria-label="Keep ' + run + '"]');
@@ -697,7 +819,17 @@ await step('narrow window: the member list opens as a drawer', async () => {
   assert.equal(await a.page.locator('.members').count(), 0);
   await a.page.click('[aria-label="Member list"]');
   await a.page.waitForSelector('.members.drawer');
-  await a.page.click('.drawer-backdrop', { position: { x: 20, y: 400 } });
+  // A member's user card opens on top of the drawer, not behind it.
+  await a.page.click('.members.drawer .member');
+  await a.page.waitForSelector('.profile-card');
+  const onTop = await a.page.evaluate(() => {
+    const r = document.querySelector('.profile-card').getBoundingClientRect();
+    return !!document.elementFromPoint(r.left + r.width / 2, r.top + 40)?.closest('.profile-card');
+  });
+  assert.ok(onTop, 'user card is covered by the member drawer');
+  await a.page.keyboard.press('Escape');
+  await a.page.mouse.click(20, 400);
+  if (await a.page.locator('.members.drawer').count()) await a.page.click('.drawer-backdrop', { position: { x: 20, y: 400 } });
   await a.page.waitForSelector('.members', { state: 'detached' });
   await a.page.setViewportSize({ width: 1400, height: 860 });
 });
@@ -717,6 +849,49 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await pg.click('.mobile-back');
   await pg.waitForSelector('.sidebar');
   assert.equal(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal overflow');
+
+  // Own user card from the avatar in the user panel.
+  await pg.tap('.me-avatar');
+  await pg.waitForSelector('.profile-card');
+  await pg.tap('.sidebar', { position: { x: 150, y: 120 } });
+  await pg.waitForSelector('.profile-card', { state: 'detached' });
+
+  // Swipes: real touch events, sideways from (x0, y) to (x1, y).
+  const cdp = await ctx.newCDPSession(pg);
+  const swipe = async (x0, x1, y) => {
+    const at = (x) => [{ x, y, id: 1 }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(x0) });
+    for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(x0 + ((x1 - x0) * i) / 8) });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+  await fetch(`${BASE}/api/guilds`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: `Swipe ${run}` }) });
+  await pg.tap(`.rail-btn[aria-label="Swipe ${run}"]`);
+  await pg.tap('.channel-item:has-text("general")');
+  await pg.fill('.composer textarea', 'swipe me');
+  await pg.keyboard.press('Enter');
+  const msg = pg.locator('.message:has-text("swipe me")');
+  await msg.waitFor();
+  const box = await msg.boundingBox();
+  await pg.keyboard.press('Escape');
+  await swipe(300, 180, box.y + box.height / 2);
+  await pg.waitForSelector('.reply-bar');
+  await pg.tap('.reply-bar .icon-btn');
+  // Left on the chat (not on a message): member list; tapping outside a member's card closes only the card; right closes the list.
+  await swipe(300, 150, 300);
+  await pg.waitForSelector('.members.drawer');
+  await pg.tap('.members.drawer .member');
+  await pg.waitForSelector('.profile-card');
+  await pg.tap('.chat-header', { position: { x: 20, y: 20 }, force: true });
+  await pg.waitForSelector('.profile-card', { state: 'detached' });
+  assert.equal(await pg.locator('.members.drawer').count(), 1, 'tapping outside the card kept the member list open');
+  await swipe(200, 360, 300);
+  await pg.waitForSelector('.members.drawer', { state: 'detached' });
+  // Right on the chat: back to the channel list; left there: back to the chat.
+  await swipe(80, 300, 30);
+  await pg.waitForSelector('.sidebar');
+  await swipe(300, 80, 400);
+  await pg.waitForSelector('.main .chat-header');
   await ctx.close();
 });
 

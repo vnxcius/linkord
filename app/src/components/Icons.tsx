@@ -31,7 +31,6 @@ import faceSmile from 'heroicons/24/outline/face-smile.svg?raw';
 import folder from 'heroicons/24/outline/folder.svg?raw';
 import folderOpen from 'heroicons/24/outline/folder-open.svg?raw';
 import forward from 'heroicons/24/outline/forward.svg?raw';
-import gif from 'heroicons/24/outline/gif.svg?raw';
 import globeAlt from 'heroicons/24/outline/globe-alt.svg?raw';
 import hashtag from 'heroicons/24/outline/hashtag.svg?raw';
 import language from 'heroicons/24/outline/language.svg?raw';
@@ -65,25 +64,31 @@ import xMark from 'heroicons/24/outline/x-mark.svg?raw';
 type P = { size?: number } & JSX.SvgSVGAttributes<SVGSVGElement>;
 
 /** The shapes inside a Heroicons file (everything between its <svg> tags). */
-const body = (svg: string) => svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').trim();
+const body = (svg: string) =>
+  svg
+    .replace(/^[\s\S]*?<svg[^>]*>/, '')
+    .replace(/<\/svg>\s*$/, '')
+    .trim();
 
 /** Outline icons are stroked; `filled` is for Heroicons' solid set. */
-const icon = (shapes: string, filled = false) => (p: P) => {
-  const [own, rest] = splitProps(p, ['size']);
-  return (
-    <svg
-      width={own.size ?? 20}
-      height={own.size ?? 20}
-      viewBox="0 0 24 24"
-      fill={filled ? 'currentColor' : 'none'}
-      stroke={filled ? undefined : 'currentColor'}
-      stroke-width={filled ? undefined : 1.5}
-      aria-hidden="true"
-      {...rest}
-      innerHTML={shapes}
-    />
-  );
-};
+const icon =
+  (shapes: string, filled = false) =>
+  (p: P) => {
+    const [own, rest] = splitProps(p, ['size']);
+    return (
+      <svg
+        width={own.size ?? 20}
+        height={own.size ?? 20}
+        viewBox="0 0 24 24"
+        fill={filled ? 'currentColor' : 'none'}
+        stroke={filled ? undefined : 'currentColor'}
+        stroke-width={filled ? undefined : 1.5}
+        aria-hidden="true"
+        {...rest}
+        innerHTML={shapes}
+      />
+    );
+  };
 const hero = (svg: string) => icon(body(svg));
 const heroSolid = (svg: string) => icon(body(svg), true);
 
@@ -94,8 +99,12 @@ const slashed = (shapes: string) => shapes + path('m3 3 18 18');
 
 const headphones =
   path('M3.75 15v-3a8.25 8.25 0 0 1 16.5 0v3') +
-  path('M3.75 15.75a1.5 1.5 0 0 1 1.5-1.5h1.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-1.5a1.5 1.5 0 0 1-1.5-1.5v-3Z') +
-  path('M20.25 15.75a1.5 1.5 0 0 0-1.5-1.5h-1.5a.75.75 0 0 0-.75.75v4.5a.75.75 0 0 0 .75.75h1.5a1.5 1.5 0 0 0 1.5-1.5v-3Z');
+  path(
+    'M3.75 15.75a1.5 1.5 0 0 1 1.5-1.5h1.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-1.5a1.5 1.5 0 0 1-1.5-1.5v-3Z',
+  ) +
+  path(
+    'M20.25 15.75a1.5 1.5 0 0 0-1.5-1.5h-1.5a.75.75 0 0 0-.75.75v4.5a.75.75 0 0 0 .75.75h1.5a1.5 1.5 0 0 0 1.5-1.5v-3Z',
+  );
 const bars = (n: number) =>
   ['M4.5 20.25V17', 'M9.5 20.25v-7', 'M14.5 20.25V9', 'M19.5 20.25V4.5']
     .slice(0, n)
@@ -121,7 +130,9 @@ export const Smile = hero(faceSmile);
 export const Paperclip = hero(paperClip);
 export const Screen = hero(computerDesktop);
 export const Gamepad = icon(
-  path('M7.5 7.5h9a4.5 4.5 0 0 1 4.37 3.43l1.06 4.33a2.54 2.54 0 0 1-4.4 2.23l-1.78-1.99h-7.5l-1.78 1.99a2.54 2.54 0 0 1-4.4-2.23l1.06-4.33A4.5 4.5 0 0 1 7.5 7.5Z') +
+  path(
+    'M7.5 7.5h9a4.5 4.5 0 0 1 4.37 3.43l1.06 4.33a2.54 2.54 0 0 1-4.4 2.23l-1.78-1.99h-7.5l-1.78 1.99a2.54 2.54 0 0 1-4.4-2.23l1.06-4.33A4.5 4.5 0 0 1 7.5 7.5Z',
+  ) +
     path('M8.25 10.5v3m-1.5-1.5h3') +
     path('M15.75 11.25h.008v.008h-.008v-.008Zm1.5 1.5h.008v.008h-.008v-.008Z'),
 );
@@ -149,15 +160,18 @@ export const UserPlus = hero(userPlus);
 export const Download = hero(arrowDownTray);
 export const Star = hero(star);
 export const Copy = hero(documentDuplicate);
-export const Gif = hero(gif);
 export const Fullscreen = hero(arrowsPointingOut);
 export const Back = hero(chevronLeft);
 export const At = hero(atSymbol);
 export const Eye = hero(eye);
 export const Switch = hero(arrowsRightLeft);
 export const PopOut = icon(
-  path('M3.75 5.25h16.5a1.5 1.5 0 0 1 1.5 1.5v10.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V6.75a1.5 1.5 0 0 1 1.5-1.5Z') +
-    path('M12.75 12h5.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-.75.75h-5.25a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 .75-.75Z'),
+  path(
+    'M3.75 5.25h16.5a1.5 1.5 0 0 1 1.5 1.5v10.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V6.75a1.5 1.5 0 0 1 1.5-1.5Z',
+  ) +
+    path(
+      'M12.75 12h5.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-.75.75h-5.25a.75.75 0 0 1-.75-.75v-2.25a.75.75 0 0 1 .75-.75Z',
+    ),
 );
 export const Signal = icon(bars(4));
 export const SignalGood = icon(bars(3));
@@ -166,9 +180,15 @@ export const SignalBad = icon(bars(1));
 export const Play = hero(play);
 export const Account = hero(userCircle);
 export const Keyboard = icon(
-  path('M3.75 6.75h16.5a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5Z') +
-    path('M6 9.75h.008v.008H6v-.008Zm3 0h.008v.008H9v-.008Zm3 0h.008v.008H12v-.008Zm3 0h.008v.008H15v-.008Zm3 0h.008v.008H18v-.008Z') +
-    path('M7.5 12.375h.008v.008H7.5v-.008Zm3 0h.008v.008H10.5v-.008Zm3 0h.008v.008H13.5v-.008Zm3 0h.008v.008H16.5v-.008Z') +
+  path(
+    'M3.75 6.75h16.5a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5Z',
+  ) +
+    path(
+      'M6 9.75h.008v.008H6v-.008Zm3 0h.008v.008H9v-.008Zm3 0h.008v.008H12v-.008Zm3 0h.008v.008H15v-.008Zm3 0h.008v.008H18v-.008Z',
+    ) +
+    path(
+      'M7.5 12.375h.008v.008H7.5v-.008Zm3 0h.008v.008H10.5v-.008Zm3 0h.008v.008H13.5v-.008Zm3 0h.008v.008H16.5v-.008Z',
+    ) +
     path('M8.25 14.625h7.5'),
 );
 export const AppIcon = hero(windowIcon);
@@ -192,7 +212,13 @@ export const Rejoin = hero(arrowPath);
 /** The Triforce, in the one accent gold. */
 export function Emblem(p: { size?: number }) {
   return (
-    <svg width={p.size ?? 28} height={((p.size ?? 28) * 173.2) / 200} viewBox="0 0 200 173.2" aria-label="Linkord" style={{ fill: 'var(--gold, #e3b341)' }}>
+    <svg
+      width={p.size ?? 28}
+      height={((p.size ?? 28) * 173.2) / 200}
+      viewBox="0 0 200 173.2"
+      aria-label="Linkord"
+      style={{ fill: 'var(--gold, #e3b341)' }}
+    >
       <path d="M100 0 150 86.6H50Z" />
       <path d="M50 86.6 100 173.2H0Z" />
       <path d="M150 86.6 200 173.2H100Z" />

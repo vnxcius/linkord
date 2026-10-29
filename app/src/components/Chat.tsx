@@ -1,4 +1,15 @@
-import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from 'solid-js';
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Switch,
+} from 'solid-js';
 import { api } from '../lib/api';
 import { jumpToMessage, jumpToPresent, loadMessages, loadNewer, markRead, selectChannel } from '../lib/actions';
 import { dateLocale, joinList, plural, t } from '../lib/i18n';
@@ -11,6 +22,7 @@ import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import * as I from './Icons';
 import { formatTime, MessageItem, onContentClick, renderContent } from './MessageItem';
+import { VoiceStatusHeader } from './VoiceStatus';
 import { VoiceView } from './VoiceView';
 
 const GROUP_WINDOW = 7 * 60_000;
@@ -44,6 +56,7 @@ export function ChatHeader(p: { channel: Channel }) {
         <Match when={p.channel.kind === Kind.Voice}>
           <I.Speaker size={22} class="muted" />
           <h2>{p.channel.name}</h2>
+          <VoiceStatusHeader channel={p.channel} />
         </Match>
         <Match when={p.channel.kind === Kind.Thread}>
           <Show when={parent()}>
@@ -63,13 +76,23 @@ export function ChatHeader(p: { channel: Channel }) {
           <h2>{p.channel.name}</h2>
           <Show when={p.channel.topic}>
             <span class="header-sep" />
-            <span class="topic" innerHTML={renderContent(p.channel.topic, p.channel.guild_id)} onClick={(e) => onContentClick(e, p.channel.guild_id)} />
+            <span
+              class="topic"
+              innerHTML={renderContent(p.channel.topic, p.channel.guild_id)}
+              onClick={(e) => onContentClick(e, p.channel.guild_id)}
+            />
           </Show>
         </Match>
       </Switch>
       <div class="header-actions">
         <Show when={p.channel.kind !== Kind.Voice}>
-          <button class="icon-btn" classList={{ on: ui.panel === 'pins' }} aria-label={t('Pinned messages')} data-tip={t('Pinned messages')} onClick={() => togglePanel('pins')}>
+          <button
+            class="icon-btn"
+            classList={{ on: ui.panel === 'pins' }}
+            aria-label={t('Pinned messages')}
+            data-tip={t('Pinned messages')}
+            onClick={() => togglePanel('pins')}
+          >
             <I.Pin size={20} />
           </button>
         </Show>
@@ -79,7 +102,9 @@ export function ChatHeader(p: { channel: Channel }) {
             classList={{ on: isNarrow() ? ui.membersDrawer : ui.showMembers }}
             aria-label={t('Member list')}
             data-tip={t('Member list')}
-            onClick={() => (isNarrow() ? setUi('membersDrawer', !ui.membersDrawer) : setUi('showMembers', !ui.showMembers))}
+            onClick={() =>
+              isNarrow() ? setUi('membersDrawer', !ui.membersDrawer) : setUi('showMembers', !ui.showMembers)
+            }
           >
             <I.Users size={20} />
           </button>
@@ -117,7 +142,9 @@ function SearchBox(p: { channel: Channel }) {
     const text = q
       .replace(/from:(\S+)/i, (_, name: string) => {
         const n = name.replace(/^@/, '').toLowerCase();
-        author = Object.values(state.users).find((u) => u.username === n || nameOf(u.id, p.channel.guild_id).toLowerCase() === n)?.id;
+        author = Object.values(state.users).find(
+          (u) => u.username === n || nameOf(u.id, p.channel.guild_id).toLowerCase() === n,
+        )?.id;
         return '';
       })
       .replace(/has:(image|file|link)/i, (_, h: string) => ((has = h.toLowerCase()), ''))
@@ -126,7 +153,12 @@ function SearchBox(p: { channel: Channel }) {
   };
   return (
     <label class="search-box">
-      <input placeholder={t('Search')} value={value()} onInput={(e) => setValue(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && void run()} />
+      <input
+        placeholder={t('Search')}
+        value={value()}
+        onInput={(e) => setValue(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === 'Enter' && void run()}
+      />
       <I.Search size={16} />
     </label>
   );
@@ -137,14 +169,19 @@ export function SidePanel(p: { channel: Channel }) {
     <aside class="side-panel">
       <Show when={ui.panel === 'search'} fallback={<PinsPanel channel={p.channel} />}>
         <div class="panel-head">
-          <span>{ui.search.results ? plural(ui.search.results.total, '{n} result', '{n} results') : t('Searching…')}</span>
+          <span>
+            {ui.search.results ? plural(ui.search.results.total, '{n} result', '{n} results') : t('Searching…')}
+          </span>
           <button class="icon-btn tiny" aria-label={t('Close')} onClick={() => setUi('panel', null)}>
             <I.Close size={14} />
           </button>
         </div>
         <p class="panel-hint">{t('Tip: use from:username, has:image, has:file or has:link')}</p>
         <div class="panel-list">
-          <For each={(ui.search.results?.messages ?? []) as Message[]} fallback={<p class="empty-hint">{ui.search.loading ? '' : t('Nothing found.')}</p>}>
+          <For
+            each={(ui.search.results?.messages ?? []) as Message[]}
+            fallback={<p class="empty-hint">{ui.search.loading ? '' : t('Nothing found.')}</p>}
+          >
             {(m) => <ResultCard m={m} />}
           </For>
         </div>
@@ -155,8 +192,15 @@ export function SidePanel(p: { channel: Channel }) {
 
 function PinsPanel(p: { channel: Channel }) {
   // Refetch when a message in this channel gets pinned/unpinned.
-  const pinnedKey = () => (state.messages[p.channel.id]?.list ?? []).filter((m) => m.pinned).map((m) => m.id).join();
-  const [pins] = createResource(() => [p.channel.id, pinnedKey()] as const, ([id]) => api<Message[]>('GET', `/channels/${id}/pins`));
+  const pinnedKey = () =>
+    (state.messages[p.channel.id]?.list ?? [])
+      .filter((m) => m.pinned)
+      .map((m) => m.id)
+      .join();
+  const [pins] = createResource(
+    () => [p.channel.id, pinnedKey()] as const,
+    ([id]) => api<Message[]>('GET', `/channels/${id}/pins`),
+  );
   return (
     <>
       <div class="panel-head">
@@ -166,7 +210,14 @@ function PinsPanel(p: { channel: Channel }) {
         </button>
       </div>
       <div class="panel-list">
-        <For each={pins() ?? []} fallback={<p class="empty-hint">{pins.loading ? '' : t('No pinned messages yet. Right-click a message to pin it.')}</p>}>
+        <For
+          each={pins() ?? []}
+          fallback={
+            <p class="empty-hint">
+              {pins.loading ? '' : t('No pinned messages yet. Right-click a message to pin it.')}
+            </p>
+          }
+        >
           {(m) => <ResultCard m={m} />}
         </For>
       </div>
@@ -284,7 +335,16 @@ function MessageList(p: { channel: Channel }) {
   // something else first: a menu, dialog, picker, profile, reply, message edit or fullscreen video.
   // Capture phase, so we see those still open before their own Escape handlers close them.
   const onEscape = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || e.defaultPrevented || ui.modal || ui.menu || ui.lightbox || ui.replyTo[p.channel.id] || document.fullscreenElement) return;
+    if (
+      e.key !== 'Escape' ||
+      e.defaultPrevented ||
+      ui.modal ||
+      ui.menu ||
+      ui.lightbox ||
+      ui.replyTo[p.channel.id] ||
+      document.fullscreenElement
+    )
+      return;
     if (document.querySelector('.context-menu, .emoji-picker, .profile-card, .settings-screen')) return;
     if ((e.target as HTMLElement).closest?.('.message textarea, .vp')) return;
     setUnreadFrom(undefined);
@@ -301,8 +361,13 @@ function MessageList(p: { channel: Channel }) {
     for (const m of list()) {
       const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
       const grouped =
-        !!prev && !newDay && !m.reply_to && prev.author.id === m.author.id && new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW;
-      const firstUnread = !!read && !unreadMarked && !m.pending && cmpId(m.id, read) > 0 && m.author.id !== state.me?.id;
+        !!prev &&
+        !newDay &&
+        !m.reply_to &&
+        prev.author.id === m.author.id &&
+        new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW;
+      const firstUnread =
+        !!read && !unreadMarked && !m.pending && cmpId(m.id, read) > 0 && m.author.id !== state.me?.id;
       if (firstUnread) unreadMarked = true;
       out.push({ m, grouped: grouped && !firstUnread, newDay, firstUnread });
       prev = m;
@@ -371,7 +436,10 @@ function MessageList(p: { channel: Channel }) {
       <Show when={bucket()?.hasNewer}>
         <div class="history-bar">
           <span>{t("You're viewing older messages")}</span>
-          <button class="link-btn" onClick={() => void jumpToPresent(p.channel.id).then(() => ((stickToBottom = true), scrollToBottom()))}>
+          <button
+            class="link-btn"
+            onClick={() => void jumpToPresent(p.channel.id).then(() => ((stickToBottom = true), scrollToBottom()))}
+          >
             {t('Jump to present')}
           </button>
         </div>
@@ -391,7 +459,14 @@ function MessageList(p: { channel: Channel }) {
               <>
                 <Show when={it.newDay}>
                   <div class="day-divider">
-                    <span>{new Date(it.m.created_at).toLocaleDateString(dateLocale(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                    <span>
+                      {new Date(it.m.created_at).toLocaleDateString(dateLocale(), {
+                        weekday: 'long',
+                        month: 'long',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
                   </div>
                 </Show>
                 <Show when={it.firstUnread}>
@@ -417,7 +492,9 @@ function ChannelWelcome(p: { channel: Channel }) {
         <Match when={p.channel.kind === Kind.Dm}>
           <Avatar user={dmRecipient(p.channel)} size={80} />
           <h1>{dmName(p.channel)}</h1>
-          <p class="muted">{t('This is the beginning of your direct message history with {name}.', { name: dmName(p.channel) })}</p>
+          <p class="muted">
+            {t('This is the beginning of your direct message history with {name}.', { name: dmName(p.channel) })}
+          </p>
         </Match>
         <Match when={p.channel.kind === Kind.GroupDm}>
           <div class="welcome-icon">

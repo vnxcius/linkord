@@ -8,6 +8,7 @@ import { can, P } from './lib/perms';
 import { currentChannel, state } from './lib/store';
 import { Kind } from './lib/types';
 import { isMobile, isNarrow, setUi, ui } from './lib/ui';
+import { initSwipes } from './lib/swipe';
 import { joinVoice, voiceUi } from './lib/voice';
 import { dismissResume, initVoiceResume, rejoinAfterReload, resumable } from './lib/voice-resume';
 import { initRoute } from './lib/route';
@@ -18,6 +19,7 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { Close, Emblem, Rejoin } from './components/Icons';
 import { Login } from './components/Login';
 import { Members } from './components/Members';
+import { DownloadBanner, PageHost, UpdatedBanner } from './components/Pages';
 import { ModalHost, parseInvite } from './components/Modals';
 import { ProfilePopout } from './components/Profile';
 import { Rail } from './components/Rail';
@@ -58,9 +60,11 @@ export default function App() {
       </Show>
       <Show when={authed()} fallback={<Login onLogin={start} />}>
         <Show when={state.ready} fallback={<Splash />}>
+          <DownloadBanner />
           <Main />
         </Show>
       </Show>
+      <PageHost />
     </div>
   );
 }
@@ -88,7 +92,7 @@ function Main() {
   });
   const channel = currentChannel;
   return (
-    <div class="layout" classList={{ 'mobile-main': ui.mobilePane === 'main' }}>
+    <div class="layout" classList={{ 'mobile-main': ui.mobilePane === 'main' }} ref={initSwipes}>
       <div class="nav-pane">
         <Rail />
         <Sidebar />
@@ -97,20 +101,33 @@ function Main() {
       <main class="main">
         <ReconnectBanner />
         <UpdateBanner />
-        <Show when={channel()} fallback={<Show when={state.view === '@me'} fallback={<Home />}><Friends /></Show>}>
+        <UpdatedBanner />
+        <Show
+          when={channel()}
+          fallback={
+            <Show when={state.view === '@me'} fallback={<Home />}>
+              <Friends />
+            </Show>
+          }
+        >
           {(c) => (
             <>
               <ChatHeader channel={c()} />
               <div class="main-body">
                 <ChatView channel={c()} />
-                <Show when={ui.panel && c().kind !== Kind.Voice} fallback={
-                  <Show when={c().guild_id && c().kind === Kind.Text && (isNarrow() ? ui.membersDrawer : ui.showMembers)}>
-                    <Show when={isNarrow()}>
-                      <div class="drawer-backdrop" onClick={() => setUi('membersDrawer', false)} />
+                <Show
+                  when={ui.panel && c().kind !== Kind.Voice}
+                  fallback={
+                    <Show
+                      when={c().guild_id && c().kind === Kind.Text && (isNarrow() ? ui.membersDrawer : ui.showMembers)}
+                    >
+                      <Show when={isNarrow()}>
+                        <div class="drawer-backdrop" onClick={() => setUi('membersDrawer', false)} />
+                      </Show>
+                      <Members guildId={c().guild_id!} drawer={isNarrow()} />
                     </Show>
-                    <Members guildId={c().guild_id!} drawer={isNarrow()} />
-                  </Show>
-                }>
+                  }
+                >
                   <SidePanel channel={c()} />
                 </Show>
               </div>
@@ -197,7 +214,11 @@ function Home() {
             <Emblem size={96} />
           </div>
           <h1>{t('Welcome back, traveler')}</h1>
-          <p class="muted">{t('Pick a conversation, or open a server from the left. Invite your party with a link from the server menu.')}</p>
+          <p class="muted">
+            {t(
+              'Pick a conversation, or open a server from the left. Invite your party with a link from the server menu.',
+            )}
+          </p>
         </Match>
         <Match when={true}>
           <h1>{t('No channels here yet')}</h1>

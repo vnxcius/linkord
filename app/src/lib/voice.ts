@@ -139,13 +139,21 @@ export async function joinVoice(channelId: string) {
     for (const [id, v] of Object.entries(prefs.userVolumes)) send({ type: 'gain', id, gain: v });
     const url = serverUrl().replace(/^http/, 'ws') + '/api/voice/connect';
     const transfer: Transferable[] = capturePort ? [capturePort, playCh.port2] : [playCh.port2];
-    send({ type: 'connect', url, token: getToken() ?? '', channelId, capture: capturePort, playback: playCh.port2 }, transfer);
+    send(
+      { type: 'connect', url, token: getToken() ?? '', channelId, capture: capturePort, playback: playCh.port2 },
+      transfer,
+    );
     await audio.resume();
   } catch (e) {
     if (gen !== generation) return;
     console.error('voice join failed', e);
     teardown();
-    setVoiceUi({ channelId: null, connecting: false, joinedAt: null, error: e instanceof Error ? e.message : String(e) });
+    setVoiceUi({
+      channelId: null,
+      connecting: false,
+      joinedAt: null,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -197,7 +205,12 @@ function onWorker(m: WorkerOut, channelId: string) {
         setTimeout(() => gen === generation && void joinVoice(channelId), 1000 * retries);
         return;
       }
-      setVoiceUi({ channelId: null, connecting: false, joinedAt: null, error: intentional ? null : t('Voice connection lost') });
+      setVoiceUi({
+        channelId: null,
+        connecting: false,
+        joinedAt: null,
+        error: intentional ? null : t('Voice connection lost'),
+      });
     }
   }
 }
@@ -222,7 +235,10 @@ function teardown() {
   setVoiceUi('stats', reconcile({}));
   setVoiceUi('streamAudio', null);
   setVoiceUi('unsupported', reconcile({}));
-  setVoiceUi('speaking', produce((s) => Object.keys(s).forEach((k) => delete s[k])));
+  setVoiceUi(
+    'speaking',
+    produce((s) => Object.keys(s).forEach((k) => delete s[k])),
+  );
 }
 
 export async function leaveVoice() {
@@ -316,10 +332,25 @@ export function bitrateFor(w: number, h: number, fps: number, optimize: 'clarity
   return Math.round(Math.min(8_000_000, Math.max(1_500_000, bits)));
 }
 
-async function pickEncoderConfig(width: number, height: number, fps: number, bitrate: number): Promise<VideoEncoderConfig | null> {
+async function pickEncoderConfig(
+  width: number,
+  height: number,
+  fps: number,
+  bitrate: number,
+): Promise<VideoEncoderConfig | null> {
   for (const hardwareAcceleration of ['prefer-hardware', 'no-preference'] as const) {
     for (const c of CODECS) {
-      const cfg = { codec: c.codec, ...c.extra, width, height, framerate: fps, bitrate, bitrateMode: 'variable', latencyMode: 'realtime', hardwareAcceleration } as VideoEncoderConfig;
+      const cfg = {
+        codec: c.codec,
+        ...c.extra,
+        width,
+        height,
+        framerate: fps,
+        bitrate,
+        bitrateMode: 'variable',
+        latencyMode: 'realtime',
+        hardwareAcceleration,
+      } as VideoEncoderConfig;
       try {
         const res = await VideoEncoder.isConfigSupported(cfg);
         if (res.supported) return res.config ?? cfg;
@@ -404,7 +435,12 @@ async function configure(pub: Publisher, width: number, height: number) {
 function encodeFrame(pub: Publisher, frame: VideoFrame) {
   const now = performance.now();
   // Capture may run faster than the chosen frame rate (and backlogged encoders skip frames).
-  if (pub.stopped || pub.configuring || now - pub.lastFrameAt < 1000 / pub.fps - 2 || (pub.encoder?.encodeQueueSize ?? 0) > 2) {
+  if (
+    pub.stopped ||
+    pub.configuring ||
+    now - pub.lastFrameAt < 1000 / pub.fps - 2 ||
+    (pub.encoder?.encodeQueueSize ?? 0) > 2
+  ) {
     return frame.close();
   }
   // H.264 needs even dimensions; crop the odd pixel instead of rescaling.
@@ -415,7 +451,10 @@ function encodeFrame(pub: Publisher, frame: VideoFrame) {
     void configure(pub, w, h);
     return;
   }
-  const input = w !== frame.displayWidth || h !== frame.displayHeight ? new VideoFrame(frame, { visibleRect: { x: 0, y: 0, width: w, height: h } }) : frame;
+  const input =
+    w !== frame.displayWidth || h !== frame.displayHeight
+      ? new VideoFrame(frame, { visibleRect: { x: 0, y: 0, width: w, height: h } })
+      : frame;
   pub.lastFrameAt = now;
   const keyFrame = pub.forceKey || pub.frames % (pub.fps * KEYFRAME_EVERY_S) === 0;
   if (keyFrame) {
@@ -434,8 +473,11 @@ function encodeFrame(pub: Publisher, frame: VideoFrame) {
 
 /** Pulls frames straight from the track (Chromium/WebView2), or samples a video element elsewhere. */
 function pump(pub: Publisher) {
-  const Processor = (window as unknown as { MediaStreamTrackProcessor?: new (o: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> } })
-    .MediaStreamTrackProcessor;
+  const Processor = (
+    window as unknown as {
+      MediaStreamTrackProcessor?: new (o: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> };
+    }
+  ).MediaStreamTrackProcessor;
   // Each loop stops once its track is replaced (switching source) or the stream ends.
   const track = pub.track;
   const current = () => !pub.stopped && pub.track === track;
@@ -495,7 +537,10 @@ async function publish(source: VideoSource, stream: MediaStream, fps: number, op
   track.addEventListener('ended', () => pub.track === track && stopPublish(source));
   pump(pub);
   setVoiceUi(source, true);
-  setTiles((t) => [...t.filter((x) => x.key !== `me-${source}`), { key: `me-${source}`, identity: state.me!.id, source, stream }]);
+  setTiles((t) => [
+    ...t.filter((x) => x.key !== `me-${source}`),
+    { key: `me-${source}`, identity: state.me!.id, source, stream },
+  ]);
   return pub;
 }
 
@@ -510,9 +555,21 @@ interface NativeStream {
   lastKeyRequest: number;
   stats: { frames: number; bytes: number; since: number };
   encoder: string;
+  /** What's being captured ("screen:<hmonitor>" / "window:<hwnd>"). */
+  source: string;
+  /** The shared window was closed and we're deciding what to do. */
+  closing?: boolean;
 }
 
 let native: NativeStream | null = null;
+
+/** The native stream's current source, if we're streaming natively. */
+export const nativeSource = () => native?.source ?? null;
+
+/** Called when the shared window was closed; may switch the stream elsewhere (games.ts follows League's
+ * client and game). If the stream is still on the closed window afterwards, it ends. */
+let onSourceClosed: (source: string) => Promise<void> = async () => {};
+export const setSourceClosedHandler = (fn: typeof onSourceClosed) => (onSourceClosed = fn);
 
 function onNativeVideo(buf: ArrayBuffer) {
   const n = native;
@@ -550,15 +607,25 @@ function nativeKeyframe() {
 
 async function startNativeScreenShare(q: StreamQuality, source: string): Promise<boolean> {
   const bitrate = bitrateFor(q.height === 1080 ? 1920 : 1280, q.height, q.fps, q.optimize);
-  native = { seq: 0, awaitKey: false, lastKeyRequest: 0, stats: { frames: 0, bytes: 0, since: performance.now() }, encoder: '' };
+  native = {
+    seq: 0,
+    awaitKey: false,
+    lastKeyRequest: 0,
+    stats: { frames: 0, bytes: 0, since: performance.now() },
+    encoder: '',
+    source,
+  };
   if (q.audio) send({ type: 'screen_audio_native', on: true });
   try {
-    const info = await startNativeCapture({ source, height: q.height, fps: q.fps, bitrate, audio: q.audio }, onNativeVideo, (pcm) =>
-      send({ type: 'screen_audio_pcm', data: pcm }, [pcm]),
+    const info = await startNativeCapture(
+      { source, height: q.height, fps: q.fps, bitrate, audio: q.audio },
+      onNativeVideo,
+      (pcm) => send({ type: 'screen_audio_pcm', data: pcm }, [pcm]),
     );
     native.encoder = info.encoder;
     if (q.audio) setStreamAudio('native', info.audio);
-    if (q.audio && info.audio === 'none') toast(t("Couldn't capture stream audio on this PC. Your stream has video only."), 8000);
+    if (q.audio && info.audio === 'none')
+      toast(t("Couldn't capture stream audio on this PC. Your stream has video only."), 8000);
     // Windows 10 can only capture all PC sound: strip our own voice chat back out of it.
     if (info.audio === 'system') send({ type: 'echo_cancel', on: true });
   } catch (e) {
@@ -583,7 +650,10 @@ function stopNativeScreenShare() {
   send({ type: 'video_stop', source: 'screen' });
   removeRemoteVideo(`${state.me?.id}-screen`);
   setVoiceUi('screen', false);
-  setVoiceUi('stats', produce((s) => delete s[`${state.me?.id}-screen`]));
+  setVoiceUi(
+    'stats',
+    produce((s) => delete s[`${state.me?.id}-screen`]),
+  );
   if (voiceUi.focus === `${state.me?.id}-screen`) setVoiceUi('focus', null);
 }
 
@@ -613,7 +683,16 @@ function displayMediaOptions(q: StreamQuality): DisplayMediaStreamOptions {
   return {
     video: displayConstraints(q),
     // Raw stream audio: voice processing would mangle music and game sound.
-    audio: q.audio ? ({ echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, restrictOwnAudio: true, suppressLocalAudioPlayback: false } as MediaTrackConstraints) : false,
+    audio: q.audio
+      ? ({
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 2,
+          restrictOwnAudio: true,
+          suppressLocalAudioPlayback: false,
+        } as MediaTrackConstraints)
+      : false,
     systemAudio: q.audio ? 'include' : 'exclude',
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
@@ -625,7 +704,14 @@ let nativeFailure: string | null = null;
 
 function setStreamAudio(path: StreamAudioDiag['path'], mode: StreamAudioDiag['mode']) {
   const defaultOutput = !prefs.outputDevice || prefs.outputDevice === 'default';
-  setVoiceUi('streamAudio', { path, mode, fallback: path === 'browser' ? nativeFailure : null, stats: null, device: null, defaultOutput });
+  setVoiceUi('streamAudio', {
+    path,
+    mode,
+    fallback: path === 'browser' ? nativeFailure : null,
+    stats: null,
+    device: null,
+    defaultOutput,
+  });
 }
 
 async function onStreamAudioStats(stats: StreamAudioStats) {
@@ -644,7 +730,11 @@ function attachStreamAudio(pub: Publisher, stream: MediaStream, wanted: boolean)
   }
   const audioTrack = stream.getAudioTracks()[0];
   if (audioTrack && audio) {
-    const node = new AudioWorkletNode(audio, 'linkord-capture', { processorOptions: { channels: 2 }, channelCount: 2, channelCountMode: 'explicit' });
+    const node = new AudioWorkletNode(audio, 'linkord-capture', {
+      processorOptions: { channels: 2 },
+      channelCount: 2,
+      channelCountMode: 'explicit',
+    });
     const src = audio.createMediaStreamSource(new MediaStream([audioTrack]));
     const sink = audio.createGain();
     sink.gain.value = 0;
@@ -670,7 +760,9 @@ export async function switchScreenSource(source?: string) {
       const info = await switchNativeSource(source);
       send({ type: 'echo_cancel', on: info.audio === 'system' });
       if (voiceUi.streamAudio) setStreamAudio('native', info.audio);
+      if (!native) return;
       native.awaitKey = false;
+      native.source = source;
     } catch (e) {
       toast(t("Couldn't switch: {error}", { error: String(e) }), 6000);
     }
@@ -702,7 +794,11 @@ export async function updateStreamQuality(q: StreamQuality) {
   if (native) {
     await setNativeQuality(q.height, q.fps, bitrateFor(q.height === 1080 ? 1920 : 1280, q.height, q.fps, q.optimize));
     setPrefs({ screenQuality: { ...q, audio: prefs.screenQuality.audio } });
-    setVoiceUi('streamQuality', { ...(voiceUi.streamQuality ?? q), ...q, audio: voiceUi.streamQuality?.audio ?? false });
+    setVoiceUi('streamQuality', {
+      ...(voiceUi.streamQuality ?? q),
+      ...q,
+      audio: voiceUi.streamQuality?.audio ?? false,
+    });
     return;
   }
   const pub = publishers.screen;
@@ -732,7 +828,10 @@ export function stopPublish(source: VideoSource) {
   send({ type: 'video_stop', source });
   if (source === 'screen') setVoiceUi('streamAudio', null);
   setVoiceUi(source, false);
-  setVoiceUi('stats', produce((s) => delete s[`${state.me?.id}-${source}`]));
+  setVoiceUi(
+    'stats',
+    produce((s) => delete s[`${state.me?.id}-${source}`]),
+  );
   if (source === 'screen' && voiceUi.focus === `${state.me?.id}-screen`) setVoiceUi('focus', null);
   setTiles((t) => t.filter((x) => x.key !== `me-${source}`));
 }
@@ -872,7 +971,8 @@ function onRemoteVideo(id: string, source: VideoSource, data: ArrayBuffer) {
   }
 
   let r = remotes.get(key);
-  if (source === 'camera' && !tiles().some((t) => t.key === key)) setTiles((t) => [...t, { key, identity: id, source }]);
+  if (source === 'camera' && !tiles().some((t) => t.key === key))
+    setTiles((t) => [...t, { key, identity: id, source }]);
   if (!r || (codec && codec !== r.codec)) {
     if (!isKey || !codec) return requestKeyframe(id, source, r);
     if (r && r.decoder.state !== 'closed') r.decoder.close();
@@ -894,14 +994,23 @@ function onRemoteVideo(id: string, source: VideoSource, data: ArrayBuffer) {
     r.waitingKey = true;
     return requestKeyframe(id, source, r);
   }
-  r.decoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: (r.timestamp += 16_667), data: bytes.subarray(offset) }));
+  r.decoder.decode(
+    new EncodedVideoChunk({
+      type: isKey ? 'key' : 'delta',
+      timestamp: (r.timestamp += 16_667),
+      data: bytes.subarray(offset),
+    }),
+  );
 }
 
 function removeRemoteVideo(key: string) {
   const r = remotes.get(key);
   if (r && r.decoder.state !== 'closed') r.decoder.close();
   remotes.delete(key);
-  setVoiceUi('stats', produce((s) => delete s[key]));
+  setVoiceUi(
+    'stats',
+    produce((s) => delete s[key]),
+  );
   if (key.endsWith('-camera')) setTiles((t) => t.filter((x) => x.key !== key));
 }
 
@@ -944,7 +1053,13 @@ setInterval(() => {
     // Our own stream's preview reports the sender-side stats below instead.
     if (native && key === `${state.me?.id}-screen`) continue;
     const secs = (now - r.stats.since) / 1000;
-    setVoiceUi('stats', key, { width: r.width, height: r.height, fps: Math.round(r.stats.frames / secs), kbps: Math.round((r.stats.bytes * 8) / 1000 / secs), codec: r.codec });
+    setVoiceUi('stats', key, {
+      width: r.width,
+      height: r.height,
+      fps: Math.round(r.stats.frames / secs),
+      kbps: Math.round((r.stats.bytes * 8) / 1000 / secs),
+      codec: r.codec,
+    });
     r.stats = { frames: 0, bytes: 0, since: now };
   }
   for (const pub of Object.values(publishers)) {
@@ -982,6 +1097,20 @@ async function refreshCaptureTimings() {
   if (timings?.error) {
     toast(t('Your stream stopped: {error}', { error: timings.error }), 9000);
     stopPublish('screen');
+    return;
+  }
+  // The shared app was closed: follow it elsewhere if it has somewhere to go, else end the stream.
+  if (timings?.source_closed && !native.closing) {
+    const n = native;
+    const source = n.source;
+    n.closing = true;
+    await onSourceClosed(source).catch(() => {});
+    if (native !== n) return;
+    n.closing = false;
+    if (n.source === source) {
+      toast(t('The window you were streaming was closed, so your stream ended.'), 6000);
+      stopPublish('screen');
+    }
   }
 }
 
@@ -998,7 +1127,8 @@ export function onVoiceStateFromServer(v: VoiceState, prev?: VoiceState) {
     if (prev?.channel_id === mine && v.channel_id !== mine) sounds.leave();
     // Someone started or stopped watching our stream.
     const me = state.me!.id;
-    if (stays && voiceUi.screen && !!v.watching?.includes(me) !== !!prev?.watching?.includes(me)) (v.watching?.includes(me) ? sounds.viewerJoin : sounds.viewerLeave)();
+    if (stays && voiceUi.screen && !!v.watching?.includes(me) !== !!prev?.watching?.includes(me))
+      (v.watching?.includes(me) ? sounds.viewerJoin : sounds.viewerLeave)();
   }
   const left = v.channel_id !== mine;
   if ((left || !v.self_stream) && voiceUi.watching[v.user_id]) {
@@ -1030,7 +1160,9 @@ function openMic(): Promise<MediaStream | null> {
 async function applyOutputDevice() {
   const ctx = audio as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null;
   if (!ctx?.setSinkId) return;
-  await ctx.setSinkId(prefs.outputDevice === 'default' ? '' : prefs.outputDevice).catch((e) => console.warn('output device', e));
+  await ctx
+    .setSinkId(prefs.outputDevice === 'default' ? '' : prefs.outputDevice)
+    .catch((e) => console.warn('output device', e));
 }
 
 /** Re-opens the microphone after the input device or processing options change. */

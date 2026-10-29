@@ -1,6 +1,17 @@
 import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
 import { api } from '../lib/api';
-import { currentOrder, logout, markRead, openFriends, saveChannelOrder, selectChannel, toggleAllCategories, toggleCategory, toggleMuteChannel, toggleMuteGuild } from '../lib/actions';
+import {
+  currentOrder,
+  logout,
+  markRead,
+  openFriends,
+  saveChannelOrder,
+  selectChannel,
+  toggleAllCategories,
+  toggleCategory,
+  toggleMuteChannel,
+  toggleMuteGuild,
+} from '../lib/actions';
 import { msg, plural, t } from '../lib/i18n';
 import { can, P } from '../lib/perms';
 import { prefs, setPrefs } from '../lib/prefs';
@@ -38,6 +49,7 @@ import {
 } from '../lib/voice';
 import { nativeCaptureAvailable } from '../lib/native-capture';
 import { canShareScreen, liveFirst, viewersOf } from './VoiceView';
+import { canSetVoiceStatus, editVoiceStatus, VoiceStatusLine } from './VoiceStatus';
 import { ActivityLine, CustomStatusView, elapsedSince, GameIcon } from './Activity';
 import { clearCustomStatusNow, openCustomStatus } from './CustomStatus';
 import { Avatar } from './Avatar';
@@ -79,7 +91,12 @@ function DmSidebar() {
     <>
       <header class="sidebar-header">
         <span class="sidebar-title">{t('Direct Messages')}</span>
-        <button class="icon-btn tiny" aria-label={t('New group')} data-tip={t('New group DM')} onClick={() => setUi('modal', { type: 'create-group' })}>
+        <button
+          class="icon-btn tiny"
+          aria-label={t('New group')}
+          data-tip={t('New group DM')}
+          onClick={() => setUi('modal', { type: 'create-group' })}
+        >
           <I.Plus size={16} />
         </button>
       </header>
@@ -96,7 +113,10 @@ function DmSidebar() {
         <div class="group-title">
           <span>{t('Conversations')}</span>
         </div>
-        <For each={sortedDms()} fallback={<p class="empty-hint">{t('No conversations yet. Message a friend or someone from a server.')}</p>}>
+        <For
+          each={sortedDms()}
+          fallback={<p class="empty-hint">{t('No conversations yet. Message a friend or someone from a server.')}</p>}
+        >
           {(c) => <DmItem c={c} />}
         </For>
       </div>
@@ -108,7 +128,10 @@ function DmItem(p: { c: Channel }) {
   const group = () => p.c.kind === Kind.GroupDm;
   const menu = (): MenuEntry[] => {
     const items: MenuEntry[] = [{ label: t('Mark As Read'), run: () => markRead([p.c.id]) }];
-    items.push({ label: isMuted(p.c) ? t('Unmute Conversation') : t('Mute Conversation'), run: () => attempt(() => toggleMuteChannel(p.c.id)) });
+    items.push({
+      label: isMuted(p.c) ? t('Unmute Conversation') : t('Mute Conversation'),
+      run: () => attempt(() => toggleMuteChannel(p.c.id)),
+    });
     if (group()) {
       items.push('separator');
       items.push({
@@ -129,7 +152,11 @@ function DmItem(p: { c: Channel }) {
   return (
     <button
       class="dm-item"
-      classList={{ active: state.selected['@me'] === p.c.id, unread: isUnread(p.c) && !isMuted(p.c), muted: isMuted(p.c) }}
+      classList={{
+        active: state.selected['@me'] === p.c.id,
+        unread: isUnread(p.c) && !isMuted(p.c),
+        muted: isMuted(p.c),
+      }}
       onClick={() => selectChannel(p.c.id)}
       onContextMenu={(e) => openMenu(e, menu())}
     >
@@ -160,22 +187,52 @@ export function guildMenu(guildId: string): MenuEntry[] {
   const g = state.guilds[guildId];
   const owner = g?.owner_id === state.me?.id;
   const items: MenuEntry[] = [
-    { label: t('Mark As Read'), run: () => markRead(Object.values(state.channels).filter((c) => c.guild_id === guildId).map((c) => c.id)) },
+    {
+      label: t('Mark As Read'),
+      run: () =>
+        markRead(
+          Object.values(state.channels)
+            .filter((c) => c.guild_id === guildId)
+            .map((c) => c.id),
+        ),
+    },
   ];
-  if (can(guildId, P.CREATE_INVITE)) items.push({ label: t('Invite People'), icon: () => <I.Link size={16} />, run: () => setUi('modal', { type: 'invite', guildId }) });
+  if (can(guildId, P.CREATE_INVITE))
+    items.push({
+      label: t('Invite People'),
+      icon: () => <I.Link size={16} />,
+      run: () => setUi('modal', { type: 'invite', guildId }),
+    });
   items.push({
     label: state.settings.muted_guilds?.includes(guildId) ? t('Unmute Server') : t('Mute Server'),
     icon: () => (state.settings.muted_guilds?.includes(guildId) ? <I.Bell size={16} /> : <I.BellOff size={16} />),
     run: () => attempt(() => toggleMuteGuild(guildId)),
   });
-  items.push({ label: t('Edit Server Profile'), icon: () => <I.Edit size={16} />, run: () => setUi('modal', { type: 'nickname', guildId, userId: state.me!.id }) });
+  items.push({
+    label: t('Edit Server Profile'),
+    icon: () => <I.Edit size={16} />,
+    run: () => setUi('modal', { type: 'nickname', guildId, userId: state.me!.id }),
+  });
   const manage = [P.MANAGE_GUILD, P.MANAGE_ROLES, P.MANAGE_EMOJIS, P.KICK_MEMBERS].some((p) => can(guildId, p));
   if (manage || can(guildId, P.MANAGE_CHANNELS)) items.push('separator');
-  if (manage) items.push({ label: t('Server Settings'), icon: () => <I.Gear size={16} />, run: () => setUi('modal', { type: 'server-settings', guildId }) });
+  if (manage)
+    items.push({
+      label: t('Server Settings'),
+      icon: () => <I.Gear size={16} />,
+      run: () => setUi('modal', { type: 'server-settings', guildId }),
+    });
   if (can(guildId, P.MANAGE_CHANNELS))
     items.push(
-      { label: t('Create Channel'), icon: () => <I.Plus size={16} />, run: () => setUi('modal', { type: 'create-channel', guildId, kind: 0 }) },
-      { label: t('Create Category'), icon: () => <I.Folder size={16} />, run: () => setUi('modal', { type: 'create-channel', guildId, kind: 4 }) },
+      {
+        label: t('Create Channel'),
+        icon: () => <I.Plus size={16} />,
+        run: () => setUi('modal', { type: 'create-channel', guildId, kind: 0 }),
+      },
+      {
+        label: t('Create Category'),
+        icon: () => <I.Folder size={16} />,
+        run: () => setUi('modal', { type: 'create-channel', guildId, kind: 4 }),
+      },
     );
   items.push('separator');
   items.push(
@@ -237,7 +294,9 @@ function GuildSidebar(p: { guildId: string }) {
         <div class="channel-group">
           <For each={layout().top}>{(c) => <ChannelRow channel={c} />}</For>
         </div>
-        <For each={layout().categories}>{(c) => <Category guildId={p.guildId} category={c.category} channels={c.channels} />}</For>
+        <For each={layout().categories}>
+          {(c) => <Category guildId={p.guildId} category={c.category} channels={c.channels} />}
+        </For>
       </div>
     </Show>
   );
@@ -333,16 +392,27 @@ function moveChannel(c: Channel, dir: -1 | 1) {
 }
 
 function ChannelRow(p: { channel: Channel }) {
-  return p.channel.kind === Kind.Voice ? <VoiceChannelItem channel={p.channel} /> : <TextChannelItem channel={p.channel} />;
+  return p.channel.kind === Kind.Voice ? (
+    <VoiceChannelItem channel={p.channel} />
+  ) : (
+    <TextChannelItem channel={p.channel} />
+  );
 }
 
 function categoryMenu(c: Channel): MenuEntry[] {
   const gid = c.guild_id!;
-  const ids = channelLayout(gid).categories.find((x) => x.category.id === c.id)?.channels.map((x) => x.id) ?? [];
+  const ids =
+    channelLayout(gid)
+      .categories.find((x) => x.category.id === c.id)
+      ?.channels.map((x) => x.id) ?? [];
   const collapsed = state.settings.collapsed_categories?.includes(c.id);
   const items: MenuEntry[] = [
     { label: t('Mark As Read'), run: () => markRead(ids) },
-    { label: isMuted(c) ? t('Unmute Category') : t('Mute Category'), icon: () => <I.BellOff size={16} />, run: () => attempt(() => toggleMuteChannel(c.id)) },
+    {
+      label: isMuted(c) ? t('Unmute Category') : t('Mute Category'),
+      icon: () => <I.BellOff size={16} />,
+      run: () => attempt(() => toggleMuteChannel(c.id)),
+    },
     'separator',
     { label: t('Collapse Category'), checked: !!collapsed, run: () => attempt(() => toggleCategory(c.id)) },
     { label: t('Collapse All Categories'), run: () => attempt(() => toggleAllCategories(gid)) },
@@ -350,8 +420,16 @@ function categoryMenu(c: Channel): MenuEntry[] {
   if (can(gid, P.MANAGE_CHANNELS)) {
     items.push(
       'separator',
-      { label: t('Create Channel'), icon: () => <I.Plus size={16} />, run: () => setUi('modal', { type: 'create-channel', guildId: gid, kind: 0, parentId: c.id }) },
-      { label: t('Edit Category'), icon: () => <I.Gear size={16} />, run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }) },
+      {
+        label: t('Create Channel'),
+        icon: () => <I.Plus size={16} />,
+        run: () => setUi('modal', { type: 'create-channel', guildId: gid, kind: 0, parentId: c.id }),
+      },
+      {
+        label: t('Edit Category'),
+        icon: () => <I.Gear size={16} />,
+        run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }),
+      },
       {
         label: t('Delete Category'),
         danger: true,
@@ -367,7 +445,11 @@ function categoryMenu(c: Channel): MenuEntry[] {
       },
     );
   }
-  items.push('separator', { label: t('Copy Category ID'), icon: () => <I.Copy size={16} />, run: () => navigator.clipboard.writeText(c.id) });
+  items.push('separator', {
+    label: t('Copy Category ID'),
+    icon: () => <I.Copy size={16} />,
+    run: () => navigator.clipboard.writeText(c.id),
+  });
   return items;
 }
 
@@ -376,7 +458,9 @@ function Category(p: { guildId: string; category: Channel; channels: Channel[] }
   // Collapsed, a category still shows the open channel and the voice channel you're in, like Discord.
   const shown = () =>
     collapsed()
-      ? p.channels.filter((c) => state.selected[p.guildId] === c.id || voiceUi.channelId === c.id || (state.mentions[c.id] ?? 0) > 0)
+      ? p.channels.filter(
+          (c) => state.selected[p.guildId] === c.id || voiceUi.channelId === c.id || (state.mentions[c.id] ?? 0) > 0,
+        )
       : p.channels;
   return (
     <div class="channel-group" classList={{ collapsed: collapsed() }}>
@@ -413,11 +497,31 @@ function Category(p: { guildId: string; category: Channel; channels: Channel[] }
 function channelMenu(c: Channel): MenuEntry[] {
   const items: MenuEntry[] = [];
   if (c.kind !== Kind.Voice) items.push({ label: t('Mark As Read'), run: () => markRead([c.id]) });
-  items.push({ label: isMuted(c) ? t('Unmute Channel') : t('Mute Channel'), icon: () => <I.BellOff size={16} />, run: () => attempt(() => toggleMuteChannel(c.id)) });
-  const manage = c.kind === Kind.Thread ? c.owner_id === state.me?.id || can(c.guild_id, P.MANAGE_THREADS) : can(c.guild_id, P.MANAGE_CHANNELS);
+  if (c.kind === Kind.Voice && canSetVoiceStatus(c))
+    items.push({
+      label: t('Set Channel Status'),
+      icon: () => <I.Edit size={16} />,
+      run: () => {
+        selectChannel(c.id);
+        editVoiceStatus(c.id);
+      },
+    });
+  items.push({
+    label: isMuted(c) ? t('Unmute Channel') : t('Mute Channel'),
+    icon: () => <I.BellOff size={16} />,
+    run: () => attempt(() => toggleMuteChannel(c.id)),
+  });
+  const manage =
+    c.kind === Kind.Thread
+      ? c.owner_id === state.me?.id || can(c.guild_id, P.MANAGE_THREADS)
+      : can(c.guild_id, P.MANAGE_CHANNELS);
   if (manage) {
     items.push('separator');
-    items.push({ label: c.kind === Kind.Thread ? t('Edit Thread') : t('Edit Channel'), icon: () => <I.Gear size={16} />, run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }) });
+    items.push({
+      label: c.kind === Kind.Thread ? t('Edit Thread') : t('Edit Channel'),
+      icon: () => <I.Gear size={16} />,
+      run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }),
+    });
     if (c.kind !== Kind.Thread) {
       const order = currentOrder(c.guild_id!);
       const list = [order.top, ...order.categories.map((x) => x.channels)].find((l) => l.includes(c.id)) ?? [];
@@ -427,7 +531,10 @@ function channelMenu(c: Channel): MenuEntry[] {
       items.push({ label: t('Move Down'), disabled: i >= same.length - 1, run: () => moveChannel(c, 1) });
     }
     if (c.kind === Kind.Thread)
-      items.push({ label: t('Archive Thread'), run: () => attempt(() => api('PATCH', `/channels/${c.id}`, { archived: true })) });
+      items.push({
+        label: t('Archive Thread'),
+        run: () => attempt(() => api('PATCH', `/channels/${c.id}`, { archived: true })),
+      });
     items.push({
       label: c.kind === Kind.Thread ? t('Delete Thread') : t('Delete Channel'),
       danger: true,
@@ -443,7 +550,11 @@ function channelMenu(c: Channel): MenuEntry[] {
     });
   }
   items.push('separator');
-  items.push({ label: t('Copy Channel ID'), icon: () => <I.Copy size={16} />, run: () => navigator.clipboard.writeText(c.id) });
+  items.push({
+    label: t('Copy Channel ID'),
+    icon: () => <I.Copy size={16} />,
+    run: () => navigator.clipboard.writeText(c.id),
+  });
   return items;
 }
 
@@ -455,7 +566,12 @@ function TextChannelItem(p: { channel: Channel }) {
       <button
         class="channel-item"
         {...dragProps(p.channel)}
-        classList={{ ...dragProps(p.channel).classList, active: active(), unread: isUnread(p.channel) && !active() && !isMuted(p.channel), muted: isMuted(p.channel) }}
+        classList={{
+          ...dragProps(p.channel).classList,
+          active: active(),
+          unread: isUnread(p.channel) && !active() && !isMuted(p.channel),
+          muted: isMuted(p.channel),
+        }}
         onClick={() => selectChannel(p.channel.id)}
         onContextMenu={(e) => openMenu(e, channelMenu(p.channel))}
       >
@@ -531,7 +647,11 @@ function VoiceChannelItem(p: { channel: Channel }) {
       <button
         class="channel-item"
         {...dragProps(p.channel)}
-        classList={{ ...dragProps(p.channel).classList, active: state.selected[gid()] === p.channel.id, connected: connected() }}
+        classList={{
+          ...dragProps(p.channel).classList,
+          active: state.selected[gid()] === p.channel.id,
+          connected: connected(),
+        }}
         disabled={!can(gid(), P.CONNECT)}
         onClick={() => {
           selectChannel(p.channel.id);
@@ -543,6 +663,7 @@ function VoiceChannelItem(p: { channel: Channel }) {
         <span class="channel-name">{p.channel.name}</span>
         <Show when={callStart()}>{(since) => <CallTimer since={since()} />}</Show>
       </button>
+      <VoiceStatusLine channel={p.channel} />
       <For each={members()}>
         {(v) => {
           const u = () => state.users[v.user_id];
@@ -550,7 +671,9 @@ function VoiceChannelItem(p: { channel: Channel }) {
             <button
               class="voice-user"
               title={v.self_stream ? t("Watch {name}'s stream", { name: nameOf(v.user_id, gid()) }) : undefined}
-              onClick={(e) => (v.self_stream ? void goToStream(p.channel.id, v.user_id) : openProfile(v.user_id, e, gid()))}
+              onClick={(e) =>
+                v.self_stream ? void goToStream(p.channel.id, v.user_id) : openProfile(v.user_id, e, gid())
+              }
               onContextMenu={(e) => v.user_id !== state.me?.id && openMenu(e, volumeMenu(v.user_id))}
             >
               <Avatar user={u()} size={22} speaking={!!voiceUi.speaking[v.user_id] && !v.self_mute} />
@@ -565,7 +688,14 @@ function VoiceChannelItem(p: { channel: Channel }) {
                 <Show when={prefs.userVolumes[v.user_id] === 0}>
                   <I.Speaker size={14} class="off" />
                 </Show>
-                <Show when={v.self_deaf} fallback={<Show when={v.self_mute}><I.MicOff size={14} /></Show>}>
+                <Show
+                  when={v.self_deaf}
+                  fallback={
+                    <Show when={v.self_mute}>
+                      <I.MicOff size={14} />
+                    </Show>
+                  }
+                >
                   <I.HeadphonesOff size={14} />
                 </Show>
               </span>
@@ -662,7 +792,11 @@ function GamePanel() {
           <GameIcon src={g().icon} size={32} />
           <div class="game-panel-text">
             <strong title={g().name}>{g().name}</strong>
-            <span classList={{ live: voiceUi.screen }}>{voiceUi.screen ? t('Streaming to {channel}', { channel: state.channels[voiceUi.channelId!]?.name ?? '' }) : elapsedSince(g().startedAt, now())}</span>
+            <span classList={{ live: voiceUi.screen }}>
+              {voiceUi.screen
+                ? t('Streaming to {channel}', { channel: state.channels[voiceUi.channelId!]?.name ?? '' })
+                : elapsedSince(g().startedAt, now())}
+            </span>
           </div>
           <button
             class="icon-btn game-stream"
@@ -685,63 +819,80 @@ function VoicePanel() {
   return (
     <Show when={voiceUi.channelId || voiceUi.error}>
       <div class="dock-voice">
-      <div class="voice-panel">
-        <Switch>
-          <Match when={voiceUi.error && !voiceUi.channelId}>
-            <div class="voice-status error">
-              <strong>{t('Voice failed')}</strong>
-              <span>{voiceUi.error}</span>
-            </div>
-          </Match>
-          <Match when={ch()}>
-            <PingIndicator />
-            <div class="voice-status" onClick={() => selectChannel(ch()!.id)}>
-              <strong classList={{ connecting: voiceUi.connecting }}>{voiceUi.connecting ? t('Connecting…') : t('Voice Connected')}</strong>
-              <span>
-                {ch()!.name} / {state.guilds[ch()!.guild_id!]?.name}
-              </span>
-            </div>
-            <Show when={prefs.inputMode === 'ptt'}>
-              <span class="ptt-indicator" classList={{ on: voiceUi.pttActive }} title={t('Push to talk: {key}', { key: comboLabel(prefs.keybinds.find((b) => b.action === 'ptt')?.combo, t) })}>
-                PTT
-              </span>
-            </Show>
-            <button class="icon-btn" aria-label={t('Disconnect')} data-tip={t('Disconnect')} onClick={() => void leaveVoice()}>
-              <I.Hangup size={20} />
-            </button>
-          </Match>
-        </Switch>
-      </div>
-      {/* Like Discord: camera and screen share without opening the voice channel. */}
-      <Show when={voiceUi.channelId && !voiceUi.connecting}>
-        <div class="voice-panel-actions">
-          <Show when={canSendVideo}>
-            <button class="panel-btn" classList={{ on: voiceUi.camera }} onClick={() => void toggleCamera()}>
-              <I.Camera size={18} /> {t('Video')}
-            </button>
-          </Show>
-          <Show when={canShareScreen}>
-            <button
-              class="panel-btn"
-              classList={{ on: voiceUi.screen }}
-              onClick={() => (voiceUi.screen ? stopScreenShare() : setUi('modal', { type: 'go-live' }))}
-            >
-              <I.Screen size={18} /> {voiceUi.screen ? t('Stop') : t('Screen')}
-            </button>
-            <Show when={voiceUi.screen}>
-              <button class="panel-btn" title={t('Share something else without ending the stream')} onClick={openSwitchSource}>
-                <I.Switch size={18} /> {t('Switch')}
+        <div class="voice-panel">
+          <Switch>
+            <Match when={voiceUi.error && !voiceUi.channelId}>
+              <div class="voice-status error">
+                <strong>{t('Voice failed')}</strong>
+                <span>{voiceUi.error}</span>
+              </div>
+            </Match>
+            <Match when={ch()}>
+              <PingIndicator />
+              <div class="voice-status" onClick={() => selectChannel(ch()!.id)}>
+                <strong classList={{ connecting: voiceUi.connecting }}>
+                  {voiceUi.connecting ? t('Connecting…') : t('Voice Connected')}
+                </strong>
+                <span>
+                  {ch()!.name} / {state.guilds[ch()!.guild_id!]?.name}
+                </span>
+              </div>
+              <Show when={prefs.inputMode === 'ptt'}>
+                <span
+                  class="ptt-indicator"
+                  classList={{ on: voiceUi.pttActive }}
+                  title={t('Push to talk: {key}', {
+                    key: comboLabel(prefs.keybinds.find((b) => b.action === 'ptt')?.combo, t),
+                  })}
+                >
+                  PTT
+                </span>
+              </Show>
+              <button
+                class="icon-btn"
+                aria-label={t('Disconnect')}
+                data-tip={t('Disconnect')}
+                onClick={() => void leaveVoice()}
+              >
+                <I.Hangup size={20} />
+              </button>
+            </Match>
+          </Switch>
+        </div>
+        {/* Like Discord: camera and screen share without opening the voice channel. */}
+        <Show when={voiceUi.channelId && !voiceUi.connecting}>
+          <div class="voice-panel-actions">
+            <Show when={canSendVideo}>
+              <button class="panel-btn" classList={{ on: voiceUi.camera }} onClick={() => void toggleCamera()}>
+                <I.Camera size={18} /> {t('Video')}
               </button>
             </Show>
-          </Show>
-        </div>
-        <Show when={voiceUi.screen}>
-          <div class="streaming-note">
-            <span class="live-badge">{t('LIVE')}</span>
-            <I.Eye size={14} /> {t('{n} watching', { n: viewersOf(state.me!.id).length })}
+            <Show when={canShareScreen}>
+              <button
+                class="panel-btn"
+                classList={{ on: voiceUi.screen }}
+                onClick={() => (voiceUi.screen ? stopScreenShare() : setUi('modal', { type: 'go-live' }))}
+              >
+                <I.Screen size={18} /> {voiceUi.screen ? t('Stop') : t('Screen')}
+              </button>
+              <Show when={voiceUi.screen}>
+                <button
+                  class="panel-btn"
+                  title={t('Share something else without ending the stream')}
+                  onClick={openSwitchSource}
+                >
+                  <I.Switch size={18} /> {t('Switch')}
+                </button>
+              </Show>
+            </Show>
           </div>
+          <Show when={voiceUi.screen}>
+            <div class="streaming-note">
+              <span class="live-badge">{t('LIVE')}</span>
+              <I.Eye size={14} /> {t('{n} watching', { n: viewersOf(state.me!.id).length })}
+            </div>
+          </Show>
         </Show>
-      </Show>
       </div>
     </Show>
   );
@@ -771,13 +922,24 @@ function UserPanel() {
       (d) => d.kind === kind && d.deviceId !== 'default' && d.deviceId !== 'communications',
     );
     const current = input ? prefs.inputDevice : prefs.outputDevice;
-    const pick = (id: string) => (input ? (setPrefs({ inputDevice: id }), void restartMic()) : void setOutputDevice(id));
-    const options = [{ deviceId: 'default', label: t('System default') }, ...devices.map((d) => ({ deviceId: d.deviceId, label: d.label || (input ? t('Microphone') : t('Speakers')) }))];
+    const pick = (id: string) =>
+      input ? (setPrefs({ inputDevice: id }), void restartMic()) : void setOutputDevice(id);
+    const options = [
+      { deviceId: 'default', label: t('System default') },
+      ...devices.map((d) => ({ deviceId: d.deviceId, label: d.label || (input ? t('Microphone') : t('Speakers')) })),
+    ];
     const items: MenuEntry[] = [
-      { label: t(input ? 'Input device' : 'Output device'), render: () => <div class="menu-title">{t(input ? 'Input device' : 'Output device')}</div> },
+      {
+        label: t(input ? 'Input device' : 'Output device'),
+        render: () => <div class="menu-title">{t(input ? 'Input device' : 'Output device')}</div>,
+      },
       ...options.map((d) => ({ label: d.label, checked: current === d.deviceId, run: () => pick(d.deviceId) })),
       'separator',
-      { label: t('Voice settings'), icon: () => <I.Gear size={16} />, run: () => setUi('modal', { type: 'settings', tab: 'voice' }) },
+      {
+        label: t('Voice settings'),
+        icon: () => <I.Gear size={16} />,
+        run: () => setUi('modal', { type: 'settings', tab: 'voice' }),
+      },
     ];
     setUi('menu', { x: r.left, y: r.top - 8 - (options.length * 36 + 90), items });
   };
@@ -793,7 +955,12 @@ function UserPanel() {
                 <button class="grow" onClick={() => (setUi('menu', null), openCustomStatus())}>
                   <CustomStatusView status={custom} size={16} />
                 </button>
-                <button class="icon-btn" aria-label={t('Clear Custom Status')} data-tip={t('Clear Custom Status')} onClick={() => (setUi('menu', null), void clearCustomStatusNow())}>
+                <button
+                  class="icon-btn"
+                  aria-label={t('Clear Custom Status')}
+                  data-tip={t('Clear Custom Status')}
+                  onClick={() => (setUi('menu', null), void clearCustomStatusNow())}
+                >
                   <I.Close size={14} />
                 </button>
               </div>
@@ -813,9 +980,26 @@ function UserPanel() {
           run: () => setStatus(s.id),
         })),
         'separator' as const,
-        { label: t('Copy Username'), icon: () => <I.Copy size={16} />, run: () => navigator.clipboard.writeText(me().username) },
+        {
+          label: t('Copy Username'),
+          icon: () => <I.Copy size={16} />,
+          run: () => navigator.clipboard.writeText(me().username),
+        },
         { label: t('Log Out'), danger: true, icon: () => <I.Logout size={16} />, run: () => logout() },
       ],
+    });
+  };
+  // The avatar opens your own user card (the rest of the button opens the status menu).
+  const openOwnCard = (e: MouseEvent) => {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).closest('.user-panel')!.getBoundingClientRect();
+    setUi('menu', null);
+    setUi('profile', {
+      userId: me().id,
+      x: r.left + 8,
+      y: 0,
+      bottom: r.top - 8,
+      guildId: state.view !== '@me' ? state.view : undefined,
     });
   };
   return (
@@ -826,7 +1010,9 @@ function UserPanel() {
         </div>
       </Show>
       <button class="me-btn" onClick={statusMenu}>
-        <Avatar user={me()} size={34} presence speaking={!!voiceUi.speaking[me().id]} />
+        <span class="me-avatar" title={t('View profile')} onClick={openOwnCard}>
+          <Avatar user={me()} size={34} presence speaking={!!voiceUi.speaking[me().id]} />
+        </span>
         <span class="me-names">
           <strong>{nameOf(me().id)}</strong>
           <Show when={state.customStatus} fallback={<span>{statusLabel()}</span>}>
@@ -835,26 +1021,53 @@ function UserPanel() {
         </span>
       </button>
       <div class="split-btn" classList={{ off: voiceUi.muted }}>
-        <button class="icon-btn" classList={{ off: voiceUi.muted }} aria-label={t('Mute')} data-tip={voiceUi.muted ? t('Unmute') : t('Mute')} onClick={() => void toggleMute()} onContextMenu={(e) => void deviceMenu(e, 'audioinput')}>
+        <button
+          class="icon-btn"
+          classList={{ off: voiceUi.muted }}
+          aria-label={t('Mute')}
+          data-tip={voiceUi.muted ? t('Unmute') : t('Mute')}
+          onClick={() => void toggleMute()}
+          onContextMenu={(e) => void deviceMenu(e, 'audioinput')}
+        >
           <Show when={voiceUi.muted} fallback={<I.Mic size={19} />}>
             <I.MicOff size={19} />
           </Show>
         </button>
-        <button class="split-chevron" aria-label={t('Microphone options')} onClick={(e) => void deviceMenu(e, 'audioinput')}>
+        <button
+          class="split-chevron"
+          aria-label={t('Microphone options')}
+          onClick={(e) => void deviceMenu(e, 'audioinput')}
+        >
           <I.Chevron size={13} />
         </button>
       </div>
       <div class="split-btn" classList={{ off: voiceUi.deafened }}>
-        <button class="icon-btn" classList={{ off: voiceUi.deafened }} aria-label={t('Deafen')} data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')} onClick={() => void toggleDeafen()} onContextMenu={(e) => void deviceMenu(e, 'audiooutput')}>
+        <button
+          class="icon-btn"
+          classList={{ off: voiceUi.deafened }}
+          aria-label={t('Deafen')}
+          data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')}
+          onClick={() => void toggleDeafen()}
+          onContextMenu={(e) => void deviceMenu(e, 'audiooutput')}
+        >
           <Show when={voiceUi.deafened} fallback={<I.Headphones size={19} />}>
             <I.HeadphonesOff size={19} />
           </Show>
         </button>
-        <button class="split-chevron" aria-label={t('Speaker options')} onClick={(e) => void deviceMenu(e, 'audiooutput')}>
+        <button
+          class="split-chevron"
+          aria-label={t('Speaker options')}
+          onClick={(e) => void deviceMenu(e, 'audiooutput')}
+        >
           <I.Chevron size={13} />
         </button>
       </div>
-      <button class="icon-btn" aria-label={t('Settings')} data-tip={t('Settings')} onClick={() => setUi('modal', { type: 'settings' })}>
+      <button
+        class="icon-btn"
+        aria-label={t('Settings')}
+        data-tip={t('Settings')}
+        onClick={() => setUi('modal', { type: 'settings' })}
+      >
         <I.Gear size={19} />
       </button>
     </div>

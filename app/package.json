@@ -1,7 +1,7 @@
 {
   "name": "linkord-app",
   "private": true,
-  "version": "0.1.32",
+  "version": "0.1.38",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -36,6 +36,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.4",
+    "emojibase": "16.0.0",
+    "emojibase-data": "16.0.3",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "twemoji-colr-font": "15.0.3",

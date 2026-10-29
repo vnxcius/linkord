@@ -146,6 +146,8 @@ pub struct CaptureVideoStats {
     threads: u32,
     /// Why the stream stopped on its own (the encoder could not be created), if it did.
     error: Option<String>,
+    /// The shared window no longer exists (its app was closed).
+    source_closed: bool,
 }
 
 #[tauri::command]
@@ -596,7 +598,7 @@ mod imp {
     }
 
     pub fn video_stats() -> Option<CaptureVideoStats> {
-        let shared = SESSION.lock().unwrap().as_ref()?.shared.clone();
+        let (shared, source) = SESSION.lock().unwrap().as_ref().map(|s| (s.shared.clone(), s.source.clone()))?;
         let st = &shared.stats;
         let error = shared.error.lock().unwrap().clone();
         let take = |a: &AtomicU64| a.swap(0, Ordering::Relaxed);
@@ -616,7 +618,16 @@ mod imp {
             encode_max_ms: ms(take(&st.encode_max_us)),
             threads: st.threads.load(Ordering::Relaxed),
             error,
+            source_closed: window_closed(&source),
         })
+    }
+
+    /// Whether `source` is a window that has been destroyed.
+    fn window_closed(source: &str) -> bool {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+        let Some(Ok(handle)) = source.strip_prefix("window:").map(str::parse::<usize>) else { return false };
+        !unsafe { IsWindow(Some(HWND(handle as *mut std::ffi::c_void))) }.as_bool()
     }
 
     pub fn stop() {

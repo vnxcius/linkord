@@ -4,6 +4,7 @@
 import { createSignal, For, Show } from 'solid-js';
 import { markRead, patchSettings, selectView } from '../lib/actions';
 import { t } from '../lib/i18n';
+import { openPage } from '../lib/route';
 import { isTauri } from '../lib/platform';
 import { guildMentions, guildUnread, state } from '../lib/store';
 import type { GuildFolder } from '../lib/types';
@@ -49,21 +50,37 @@ function toggleFolder(id: string) {
   } catch {}
 }
 
-const folderName = (f: GuildFolder) => f.name || f.guild_ids.map((id) => state.guilds[id]?.name).filter(Boolean).slice(0, 3).join(', ');
+const folderName = (f: GuildFolder) =>
+  f.name ||
+  f.guild_ids
+    .map((id) => state.guilds[id]?.name)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(', ');
 
 export function updateFolder(id: string, patch: Partial<GuildFolder>) {
   return saveEntries(railEntries().map((f) => (f.id === id ? { ...f, ...patch } : f)));
 }
 
 function folderMenu(f: GuildFolder): MenuEntry[] {
-  const channels = (gid: string) => Object.values(state.channels).filter((c) => c.guild_id === gid).map((c) => c.id);
+  const channels = (gid: string) =>
+    Object.values(state.channels)
+      .filter((c) => c.guild_id === gid)
+      .map((c) => c.id);
   return [
     { label: t('Mark Folder As Read'), run: () => markRead(f.guild_ids.flatMap(channels)) },
-    { label: t('Folder Settings'), icon: () => <Folder size={16} />, run: () => setUi('modal', { type: 'folder-settings', folderId: f.id! }) },
+    {
+      label: t('Folder Settings'),
+      icon: () => <Folder size={16} />,
+      run: () => setUi('modal', { type: 'folder-settings', folderId: f.id! }),
+    },
     'separator',
     {
       label: t('Ungroup Folder'),
-      run: () => saveEntries(railEntries().flatMap((x) => (x.id === f.id ? x.guild_ids.map((id) => ({ guild_ids: [id] })) : [x]))),
+      run: () =>
+        saveEntries(
+          railEntries().flatMap((x) => (x.id === f.id ? x.guild_ids.map((id) => ({ guild_ids: [id] })) : [x])),
+        ),
     },
   ];
 }
@@ -159,18 +176,22 @@ export function Rail() {
   const dmMentions = () => state.dmOrder.reduce((n, id) => n + (state.mentions[id] ?? 0), 0);
   return (
     <nav class="rail">
-      <RailItem home active={state.view === '@me'} label={t('Direct Messages')} badge={dmMentions()} onClick={() => selectView('@me')}>
+      <RailItem
+        home
+        active={state.view === '@me'}
+        label={t('Direct Messages')}
+        badge={dmMentions()}
+        onClick={() => selectView('@me')}
+      >
         <Emblem size={24} />
       </RailItem>
       <div class="rail-sep" />
-      <For each={railEntries()}>
-        {(f) => (f.id ? <FolderItem folder={f} /> : <GuildItem id={f.guild_ids[0]} />)}
-      </For>
+      <For each={railEntries()}>{(f) => (f.id ? <FolderItem folder={f} /> : <GuildItem id={f.guild_ids[0]} />)}</For>
       <RailItem label={t('Add a server')} add onClick={() => setUi('modal', { type: 'add-server' })}>
         <Plus size={22} />
       </RailItem>
       <Show when={!isTauri && !isMobile()}>
-        <RailItem label={t('Download the app')} add onClick={() => setUi('modal', { type: 'download' })}>
+        <RailItem label={t('Download the app')} add onClick={() => openPage('download')}>
           <Download size={20} />
         </RailItem>
       </Show>

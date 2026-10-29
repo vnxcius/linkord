@@ -47,7 +47,8 @@ function onChannelViewed(channelId: string) {
 }
 
 export function ensureMessages(channelId: string) {
-  if (!state.messages[channelId]) setState('messages', channelId, { list: [], loaded: false, hasMore: true, hasNewer: false, loading: false });
+  if (!state.messages[channelId])
+    setState('messages', channelId, { list: [], loaded: false, hasMore: true, hasNewer: false, loading: false });
 }
 
 const PAGE = 50;
@@ -59,7 +60,10 @@ export async function loadMessages(channelId: string, before?: string) {
   if (state.messages[channelId].loading) return;
   setState('messages', channelId, 'loading', true);
   try {
-    const page = await api<Message[]>('GET', `/channels/${channelId}/messages?limit=${PAGE}${before ? `&before=${before}` : ''}`);
+    const page = await api<Message[]>(
+      'GET',
+      `/channels/${channelId}/messages?limit=${PAGE}${before ? `&before=${before}` : ''}`,
+    );
     setState('messages', channelId, (m) => ({
       ...m,
       list: before ? [...page, ...m.list] : [...page, ...m.list.filter((x) => x.pending || x.failed)],
@@ -80,8 +84,16 @@ export async function loadNewer(channelId: string) {
   if (!b?.hasNewer || b.loading || !b.list.length) return;
   setState('messages', channelId, 'loading', true);
   try {
-    const page = await api<Message[]>('GET', `/channels/${channelId}/messages?limit=${PAGE}&after=${b.list[b.list.length - 1].id}`);
-    setState('messages', channelId, (m) => ({ ...m, list: [...m.list, ...page], hasNewer: page.length === PAGE, loading: false }));
+    const page = await api<Message[]>(
+      'GET',
+      `/channels/${channelId}/messages?limit=${PAGE}&after=${b.list[b.list.length - 1].id}`,
+    );
+    setState('messages', channelId, (m) => ({
+      ...m,
+      list: [...m.list, ...page],
+      hasNewer: page.length === PAGE,
+      loading: false,
+    }));
   } catch {
     setState('messages', channelId, 'loading', false);
   }
@@ -153,7 +165,13 @@ export interface VoiceMeta {
   waveform: string;
 }
 
-export async function sendMessage(channelId: string, content: string, replyTo?: string, files: File[] = [], voice?: VoiceMeta) {
+export async function sendMessage(
+  channelId: string,
+  content: string,
+  replyTo?: string,
+  files: File[] = [],
+  voice?: VoiceMeta,
+) {
   const me = state.me!;
   const nonce = `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
   ensureMessages(channelId);
@@ -166,7 +184,19 @@ export async function sendMessage(channelId: string, content: string, replyTo?: 
     reply_to: replyTo ?? null,
     referenced_message: replyTo ? referenced(channelId, replyTo) : null,
     // A voice message shows (and plays) right away from the local recording while it uploads.
-    attachments: voice && files[0] ? [{ id: `pending-${nonce}`, filename: files[0].name, url: URL.createObjectURL(files[0]), size: files[0].size, content_type: files[0].type, ...voice }] : [],
+    attachments:
+      voice && files[0]
+        ? [
+            {
+              id: `pending-${nonce}`,
+              filename: files[0].name,
+              url: URL.createObjectURL(files[0]),
+              size: files[0].size,
+              content_type: files[0].type,
+              ...voice,
+            },
+          ]
+        : [],
     embeds: [],
     reactions: [],
     created_at: new Date().toISOString(),
@@ -187,10 +217,16 @@ export async function sendMessage(channelId: string, content: string, replyTo?: 
     const msg = await api<Message>('POST', `/channels/${channelId}/messages`, body);
     receiveMessage(msg);
   } catch {
-    setState('messages', channelId, 'list', (m) => m.nonce === nonce && m.pending === true, produce((m) => {
-      m.pending = false;
-      m.failed = true;
-    }));
+    setState(
+      'messages',
+      channelId,
+      'list',
+      (m) => m.nonce === nonce && m.pending === true,
+      produce((m) => {
+        m.pending = false;
+        m.failed = true;
+      }),
+    );
   }
 }
 
@@ -207,7 +243,8 @@ export function receiveMessage(msg: Message) {
   const list = bucket.list;
   if (list.some((m) => m.id === msg.id)) return;
   const pendingIdx = msg.nonce ? list.findIndex((m) => m.nonce === msg.nonce && m.author.id === msg.author.id) : -1;
-  if (pendingIdx >= 0) setState('messages', msg.channel_id, 'list', pendingIdx, { ...msg, pending: false, failed: false });
+  if (pendingIdx >= 0)
+    setState('messages', msg.channel_id, 'list', pendingIdx, { ...msg, pending: false, failed: false });
   else setState('messages', msg.channel_id, 'list', (l) => [...l, msg]);
 }
 
@@ -217,7 +254,10 @@ export async function retryMessage(m: Message) {
   const v = m.attachments[0];
   if (v?.waveform && v.url.startsWith('blob:')) {
     const file = new File([await (await fetch(v.url)).blob()], v.filename, { type: v.content_type });
-    return sendMessage(m.channel_id, '', m.reply_to ?? undefined, [file], { duration_secs: v.duration_secs!, waveform: v.waveform });
+    return sendMessage(m.channel_id, '', m.reply_to ?? undefined, [file], {
+      duration_secs: v.duration_secs!,
+      waveform: v.waveform,
+    });
   }
   void sendMessage(m.channel_id, m.content, m.reply_to ?? undefined);
 }
@@ -240,7 +280,11 @@ export async function startThread(m: Message, name?: string) {
 
 /** Forwards a message to channels/DMs and to friends (their DM is opened if needed), with an optional comment. */
 export async function forwardMessage(m: Message, to: { channelIds: string[]; userIds: string[] }, content: string) {
-  await api('POST', `/channels/${m.channel_id}/messages/${m.id}/forward`, { channel_ids: to.channelIds, user_ids: to.userIds, content });
+  await api('POST', `/channels/${m.channel_id}/messages/${m.id}/forward`, {
+    channel_ids: to.channelIds,
+    user_ids: to.userIds,
+    content,
+  });
 }
 
 let lastTyping = 0;
@@ -289,17 +333,21 @@ function toggleIn(list: string[] | undefined, id: string): string[] {
   return l.includes(id) ? l.filter((x) => x !== id) : [...l, id];
 }
 
-export const toggleMuteGuild = (id: string) => patchSettings({ muted_guilds: toggleIn(state.settings.muted_guilds, id) });
-export const toggleCategory = (id: string) => patchSettings({ collapsed_categories: toggleIn(state.settings.collapsed_categories, id) });
+export const toggleMuteGuild = (id: string) =>
+  patchSettings({ muted_guilds: toggleIn(state.settings.muted_guilds, id) });
+export const toggleCategory = (id: string) =>
+  patchSettings({ collapsed_categories: toggleIn(state.settings.collapsed_categories, id) });
 /** Collapses every category of a server (or expands them all when they already are). */
 export function toggleAllCategories(guildId: string) {
   const ids = channelLayout(guildId).categories.map((c) => c.category.id);
   const collapsed = state.settings.collapsed_categories ?? [];
   const all = ids.every((id) => collapsed.includes(id));
-  return patchSettings({ collapsed_categories: all ? collapsed.filter((id) => !ids.includes(id)) : [...new Set([...collapsed, ...ids])] });
+  return patchSettings({
+    collapsed_categories: all ? collapsed.filter((id) => !ids.includes(id)) : [...new Set([...collapsed, ...ids])],
+  });
 }
-export const toggleMuteChannel = (id: string) => patchSettings({ muted_channels: toggleIn(state.settings.muted_channels, id) });
-export const toggleFavoriteGif = (url: string) => patchSettings({ favorite_gifs: toggleIn(state.settings.favorite_gifs, url).slice(-200) });
+export const toggleMuteChannel = (id: string) =>
+  patchSettings({ muted_channels: toggleIn(state.settings.muted_channels, id) });
 
 export const friendRequest = (userId: string) => api('PUT', `/users/@me/relationships/${userId}`);
 export const friendRequestByName = (username: string) => api('POST', '/users/@me/relationships', { username });
@@ -321,7 +369,10 @@ export interface ChannelOrder {
 
 export function currentOrder(guildId: string): ChannelOrder {
   const l = channelLayout(guildId);
-  return { top: l.top.map((c) => c.id), categories: l.categories.map((c) => ({ id: c.category.id, channels: c.channels.map((x) => x.id) })) };
+  return {
+    top: l.top.map((c) => c.id),
+    categories: l.categories.map((c) => ({ id: c.category.id, channels: c.channels.map((x) => x.id) })),
+  };
 }
 
 /** Saves a new sidebar order (positions and categories), showing it right away. */

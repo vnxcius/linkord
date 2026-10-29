@@ -27,7 +27,12 @@ export function ContextMenu() {
     setPos({ x: Math.min(m.x, innerWidth - w - 8), y: Math.min(m.y, innerHeight - h - 8) });
   });
   return (
-    <div class="menu context-menu" ref={el} style={{ left: `${pos().x}px`, top: `${pos().y}px` }} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      class="menu context-menu"
+      ref={el}
+      style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <For each={ui.menu!.items}>
         {(item) =>
           item === 'separator' ? (

@@ -12,7 +12,6 @@ export type Modal =
   | { type: 'settings'; tab?: string }
   | { type: 'join-invite'; code: string }
   | { type: 'create-group' }
-  | { type: 'download' }
   | { type: 'user-profile'; userId: string; guildId?: string }
   | { type: 'folder-settings'; folderId: string }
   | { type: 'go-live'; update?: boolean; switchSource?: boolean }
@@ -36,14 +35,22 @@ export type MenuEntry = MenuItem | 'separator';
 
 export const [ui, setUi] = createStore({
   modal: null as Modal | null,
-  profile: null as { userId: string; x: number; y: number; guildId?: string } | null,
+  /** A user card at x/y, or with its bottom edge at `bottom` (opened from below, like your own panel). */
+  profile: null as { userId: string; x: number; y: number; bottom?: number; guildId?: string } | null,
   menu: null as { x: number; y: number; items: MenuEntry[] } | null,
   lightbox: null as string | null,
   replyTo: {} as Record<string, string | undefined>,
   editing: null as string | null,
+  /** Voice channel whose status is being edited in the header. */
+  editVoiceStatus: null as string | null,
   showMembers: true,
   panel: null as 'search' | 'pins' | null,
-  search: { query: '', channelId: '' as string | undefined, results: null as null | { total: number; messages: any[] }, loading: false },
+  search: {
+    query: '',
+    channelId: '' as string | undefined,
+    results: null as null | { total: number; messages: any[] },
+    loading: false,
+  },
   toast: null as string | null,
   /** Bumped to ask the composer to take focus (reply, end of edit, file picked...). */
   composerFocus: 0,

@@ -2,7 +2,21 @@ import { t } from './i18n';
 import { batch } from 'solid-js';
 import { createStore, produce, reconcile } from 'solid-js/store';
 import { cmpId } from './ids';
-import type { Activity, Channel, Emoji, Guild, GuildInfo, Member, Message, Rel, Role, Settings, Status, User, VoiceState } from './types';
+import type {
+  Activity,
+  Channel,
+  Emoji,
+  Guild,
+  GuildInfo,
+  Member,
+  Message,
+  Rel,
+  Role,
+  Settings,
+  Status,
+  User,
+  VoiceState,
+} from './types';
 import { Kind, isPrivate } from './types';
 
 export interface ChannelMessages {
@@ -32,7 +46,6 @@ export interface State {
   dmOrder: string[];
   relationships: Record<string, Rel>;
   settings: Settings;
-  features: { gifs: boolean };
   presences: Record<string, Status>;
   /** user id -> what they're doing (listening to Spotify...). */
   activities: Record<string, Activity[]>;
@@ -45,6 +58,8 @@ export interface State {
   /** channel id -> user id -> expiry timestamp */
   typing: Record<string, Record<string, number>>;
   voice: Record<string, VoiceState>;
+  /** voice channel id -> the call's status ("what we're up to"), while someone is in it. */
+  voiceStatus: Record<string, string>;
   mentions: Record<string, number>;
   /** '@me' for DMs/home, otherwise a guild id */
   view: string;
@@ -69,7 +84,6 @@ export const [state, setState] = createStore<State>({
   dmOrder: [],
   relationships: {},
   settings: {},
-  features: { gifs: false },
   presences: {},
   activities: {},
   customStatus: null,
@@ -78,6 +92,7 @@ export const [state, setState] = createStore<State>({
   messages: {},
   typing: {},
   voice: {},
+  voiceStatus: {},
   mentions: {},
   view: '@me',
   selected: {},
@@ -114,11 +129,28 @@ export function addGuild(g: Guild) {
 
 export function removeGuild(id: string) {
   batch(() => {
-    for (const c of Object.values(state.channels)) if (c.guild_id === id) setState('channels', produce((cs) => delete cs[c.id]));
-    setState('guilds', produce((m) => delete m[id]));
-    setState('members', produce((m) => delete m[id]));
-    setState('roles', produce((m) => delete m[id]));
-    setState('emojis', produce((m) => delete m[id]));
+    for (const c of Object.values(state.channels))
+      if (c.guild_id === id)
+        setState(
+          'channels',
+          produce((cs) => delete cs[c.id]),
+        );
+    setState(
+      'guilds',
+      produce((m) => delete m[id]),
+    );
+    setState(
+      'members',
+      produce((m) => delete m[id]),
+    );
+    setState(
+      'roles',
+      produce((m) => delete m[id]),
+    );
+    setState(
+      'emojis',
+      produce((m) => delete m[id]),
+    );
     setState('guildOrder', (o) => o.filter((x) => x !== id));
     if (state.view === id) setState('view', '@me');
   });
@@ -132,20 +164,27 @@ export function addDm(c: Channel) {
   });
 }
 
-const inOrder = (a: Channel, b: Channel) => Number(a.kind === Kind.Voice) - Number(b.kind === Kind.Voice) || a.position - b.position || cmpId(a.id, b.id);
+const inOrder = (a: Channel, b: Channel) =>
+  Number(a.kind === Kind.Voice) - Number(b.kind === Kind.Voice) || a.position - b.position || cmpId(a.id, b.id);
 
 /**
  * A server's sidebar, like Discord's: channels without a category first, then each category with its
  * channels. Text channels come before voice channels at each level.
  */
-export function channelLayout(guildId: string): { top: Channel[]; categories: { category: Channel; channels: Channel[] }[] } {
+export function channelLayout(guildId: string): {
+  top: Channel[];
+  categories: { category: Channel; channels: Channel[] }[];
+} {
   const all = guildChannels(guildId);
   const cats = all.filter((c) => c.kind === Kind.Category);
   const isCat = (id?: string | null) => !!id && cats.some((c) => c.id === id);
   const chans = all.filter((c) => c.kind === Kind.Text || c.kind === Kind.Voice);
   return {
     top: chans.filter((c) => !isCat(c.parent_id)).sort(inOrder),
-    categories: cats.map((category) => ({ category, channels: chans.filter((c) => c.parent_id === category.id).sort(inOrder) })),
+    categories: cats.map((category) => ({
+      category,
+      channels: chans.filter((c) => c.parent_id === category.id).sort(inOrder),
+    })),
   };
 }
 
@@ -204,7 +243,10 @@ export function guildUnread(guildId: string): boolean {
 }
 
 export function guildMentions(guildId: string): number {
-  return Object.values(state.channels).reduce((n, c) => n + (c.guild_id === guildId ? (state.mentions[c.id] ?? 0) : 0), 0);
+  return Object.values(state.channels).reduce(
+    (n, c) => n + (c.guild_id === guildId ? (state.mentions[c.id] ?? 0) : 0),
+    0,
+  );
 }
 
 /** Total badge count: DMs plus mentions, like Discord's taskbar badge. */

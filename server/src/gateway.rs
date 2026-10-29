@@ -23,7 +23,7 @@ use crate::error::ApiResult;
 use crate::id::Id;
 use crate::models::{Channel, DmChannel, Guild, SelfUser, User};
 use crate::state::AppState;
-use crate::voice::VoiceState;
+use crate::voice::{ChannelStatus, VoiceState};
 
 type Tx = mpsc::UnboundedSender<Arc<str>>;
 
@@ -221,6 +221,7 @@ pub async fn presence_sweeper(st: AppState) {
     }
 }
 
+/// Desktop apps before 0.1.38 read `features.gifs` (their GIF picker); always off now that it's gone.
 #[derive(Serialize)]
 struct Features {
     gifs: bool,
@@ -241,6 +242,8 @@ struct Ready<'a> {
     custom_status: Option<serde_json::Value>,
     read_states: HashMap<Id, Id>,
     voice_states: Vec<VoiceState>,
+    /// Statuses of the voice calls going on ("what we're up to").
+    voice_channel_statuses: Vec<ChannelStatus>,
     features: Features,
 }
 
@@ -274,7 +277,8 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         custom_status: crate::activities::own_custom_status(st, user_id),
         read_states,
         voice_states: st.voice.for_guilds(&guild_ids),
-        features: Features { gifs: st.cfg.giphy_api_key.is_some() },
+        voice_channel_statuses: st.voice.statuses_for(&guild_ids),
+        features: Features { gifs: false },
     };
     Ok(serde_json::to_string(&serde_json::json!({ "t": "READY", "d": ready })).map_err(anyhow::Error::from)?)
 }

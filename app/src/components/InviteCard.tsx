@@ -30,7 +30,11 @@ export const isInviteUrl = (url: string) => knownServers().some((o) => url.start
 // Many messages can show the same invite; fetch each once per session.
 const cache = new Map<string, Promise<InvitePreview | null>>();
 const preview = (code: string) => {
-  if (!cache.has(code)) cache.set(code, api<InvitePreview>('GET', `/invites/${code}`).catch(() => null));
+  if (!cache.has(code))
+    cache.set(
+      code,
+      api<InvitePreview>('GET', `/invites/${code}`).catch(() => null),
+    );
   return cache.get(code)!;
 };
 
@@ -49,7 +53,11 @@ export function InviteCard(p: { code: string; mine: boolean }) {
   return (
     <div class="invite-card">
       <div class="invite-head">
-        {info() === null ? t("You received an invite, but it's invalid.") : p.mine ? t('You sent an invite to join a server') : t("You've been invited to join a server")}
+        {info() === null
+          ? t("You received an invite, but it's invalid.")
+          : p.mine
+            ? t('You sent an invite to join a server')
+            : t("You've been invited to join a server")}
       </div>
       <Show
         when={!info.loading}
@@ -92,7 +100,12 @@ export function InviteCard(p: { code: string; mine: boolean }) {
                   </span>
                 </div>
               </div>
-              <button class="btn invite-join" classList={{ joined: joined() }} disabled={joining()} onClick={() => void join()}>
+              <button
+                class="btn invite-join"
+                classList={{ joined: joined() }}
+                disabled={joining()}
+                onClick={() => void join()}
+              >
                 {joined() ? t('Joined') : joining() ? t('Joining…') : t('Join')}
               </button>
             </div>

@@ -43,6 +43,12 @@ export interface Prefs {
   language: 'system' | 'en' | 'pt-BR';
   /** Desktop app zoom (Ctrl + / Ctrl -), 1 = 100%. */
   zoom: number;
+  /** Skin tone for emoji picked in the picker: 0 = default yellow, 1-5 light to dark. */
+  emojiTone: number;
+  /** Web: the "get the desktop app" banner was closed. */
+  downloadBannerDismissed: boolean;
+  /** Last version whose "Linkord was updated" banner was seen ('' = first run). */
+  lastSeenVersion: string;
 }
 
 const DEFAULTS: Prefs = {
@@ -70,6 +76,9 @@ const DEFAULTS: Prefs = {
   hiddenGames: [],
   language: 'system',
   zoom: 1,
+  emojiTone: 0,
+  downloadBannerDismissed: false,
+  lastSeenVersion: '',
 };
 
 const KEY = 'linkord.prefs';

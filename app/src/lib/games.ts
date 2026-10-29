@@ -3,12 +3,29 @@
 // your activity, and offer to stream its window straight away (the panel above Voice Connected, a keybind).
 import { createSignal } from 'solid-js';
 import { api, getToken } from './api';
-import { buildIndex, gameIconUrl, matchPath, normalizePath, type DetectableGame, type GameIndex } from './game-match';
+import {
+  buildIndex,
+  gameIconUrl,
+  linkedAppOf,
+  linkedTarget,
+  matchPath,
+  normalizePath,
+  type DetectableGame,
+  type GameIndex,
+  type LinkedApp,
+} from './game-match';
 import { t } from './i18n';
 import { isTauri } from './platform';
 import { prefs } from './prefs';
 import { toast } from './ui';
-import { startScreenShare, stopScreenShare, voiceUi } from './voice';
+import {
+  nativeSource,
+  setSourceClosedHandler,
+  startScreenShare,
+  stopScreenShare,
+  switchScreenSource,
+  voiceUi,
+} from './voice';
 
 export interface RunningApp {
   pid: number;
@@ -77,7 +94,12 @@ async function report(game: CurrentGame | null) {
   const now = Date.now();
   if (key === reported && (!key || now - lastReport < REPORT_MS)) return;
   try {
-    if (game && key) await api('PUT', '/activities/playing', { application_id: game.applicationId, name: game.name, started_at: game.startedAt });
+    if (game && key)
+      await api('PUT', '/activities/playing', {
+        application_id: game.applicationId,
+        name: game.name,
+        started_at: game.startedAt,
+      });
     else await api('DELETE', '/activities/playing');
     reported = key;
     lastReport = now;
@@ -94,12 +116,19 @@ async function scan() {
   const found = apps
     .map((app) => ({ app, game: gameFor(app) }))
     .filter((x) => x.game)
-    .sort((a, b) => Number(!!b.app.window && !b.app.window.minimized) - Number(!!a.app.window && !a.app.window.minimized))[0];
+    .sort(
+      (a, b) => Number(!!b.app.window && !b.app.window.minimized) - Number(!!a.app.window && !a.app.window.minimized),
+    )[0];
   const prev = currentGame();
   if (!found) setCurrentGame(null);
   else {
     const same = prev?.key === found.game!.key;
-    setCurrentGame({ ...found.game!, pid: found.app.pid, window: found.app.window, startedAt: same ? prev!.startedAt : Date.now() });
+    setCurrentGame({
+      ...found.game!,
+      pid: found.app.pid,
+      window: found.app.window,
+      startedAt: same ? prev!.startedAt : Date.now(),
+    });
   }
   await report(currentGame());
 }
@@ -109,6 +138,19 @@ export function initGames() {
   if (!gameDetectionAvailable) return;
   void scan();
   setInterval(() => void scan(), SCAN_MS);
+  setInterval(() => void followStream(), FOLLOW_MS);
+  // The shared window closed: let a check already under way finish, then look again.
+  setSourceClosedHandler(async (source) => {
+    await inFlight;
+    await followStream();
+    // League's client comes back a few seconds after a match (restored, or relaunched if it closed during the
+    // game): keep the stream until it does instead of ending it.
+    const until = Date.now() + RETURN_WAIT_MS;
+    while (nativeSource() === source && followed?.source === source && followed.linked && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 1000));
+      await followStream();
+    }
+  });
 }
 
 /** Re-reports right away (sharing toggled, a game added or removed). */
@@ -126,7 +168,36 @@ export async function toggleGameStream() {
   // The window may have changed since the last scan (game restarted, launcher closed).
   const app = (await scanApps()).find((a) => a.pid === game.pid);
   const win = app?.window ?? game.window;
-  if (!win) return toast(t("{game} has no window to stream yet", { game: game.name }));
+  if (!win) return toast(t('{game} has no window to stream yet', { game: game.name }));
   if (win.minimized) return toast(t('Restore the {game} window to stream it', { game: game.name }));
   await startScreenShare(prefs.screenQuality, win.id);
+}
+
+// ---------- streams that follow their app (League of Legends: client -> game -> client) ----------
+
+const FOLLOW_MS = 3000;
+/** How long a closed linked window (League's game) waits for the other one (its client) before the stream ends. */
+const RETURN_WAIT_MS = 60_000;
+/** The window stream we last looked at, and the linked app it belongs to (null: none, nothing to follow). */
+let followed: { source: string; linked: LinkedApp | null } | null = null;
+let inFlight: Promise<void> | null = null;
+
+/** Moves a native window stream to where its linked app is now. */
+function followStream(): Promise<void> {
+  return (inFlight ??= follow().finally(() => (inFlight = null)));
+}
+
+async function follow() {
+  const source = nativeSource();
+  if (!source?.startsWith('window:')) return void (followed = null);
+  if (followed?.source === source && !followed.linked) return;
+  const apps = await scanApps();
+  if (followed?.source !== source) {
+    const app = apps.find((a) => a.window?.id === source);
+    followed = { source, linked: app ? (linkedAppOf(app.path) ?? null) : null };
+  }
+  const target = followed.linked && linkedTarget(followed.linked, apps);
+  if (!target || target === source || nativeSource() !== source) return;
+  await switchScreenSource(target);
+  if (nativeSource() === target) followed = { source: target, linked: followed.linked };
 }

@@ -722,6 +722,48 @@ test('call timer: everyone in a voice channel gets the same call start; it survi
   }
 });
 
+test('voice channel status: people in the call set it, everyone in the server sees it, it shows in READY while the call goes on', async () => {
+  const voiceCh = guild.channels.find((c) => c.kind === 2);
+  const textCh = guild.channels.find((c) => c.kind === 0);
+  const watch = await gateway(owner.token);
+  const ws = await new Promise((resolve, reject) => {
+    const s = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/connect`);
+    s.onopen = () => s.send(JSON.stringify({ token: member.token, channel_id: voiceCh.id }));
+    s.onmessage = (e) => typeof e.data === 'string' && JSON.parse(e.data).op === 'ready' && resolve(s);
+    s.onerror = reject;
+  });
+  const url = `/channels/${voiceCh.id}/voice-status`;
+  const last = () => watch.events.filter((e) => e.t === 'VOICE_CHANNEL_STATUS_UPDATE').pop()?.d;
+  try {
+    // Not in the server / not a voice channel / too long.
+    assert.equal((await call(outsider.token, 'PUT', url, { status: 'hi' })).status, 404);
+    assert.equal((await call(member.token, 'PUT', `/channels/${textCh.id}/voice-status`, { status: 'hi' })).status, 400);
+    assert.equal((await call(member.token, 'PUT', url, { status: 'x'.repeat(501) })).status, 400);
+
+    const set = await ok(member.token, 'PUT', url, { status: '  ranked grind :3  ' });
+    assert.equal(set.status, 'ranked grind :3');
+    await until(() => last()?.status === 'ranked grind :3');
+    assert.equal(last().channel_id, voiceCh.id);
+    const ready = await gateway(outsider.token).then((g) => (g.ws.close(), g.first.d));
+    assert.ok(!ready.voice_channel_statuses.some((s) => s.channel_id === voiceCh.id), 'only for members of the server');
+    const mine = await gateway(owner.token).then((g) => (g.ws.close(), g.first.d));
+    assert.deepEqual(
+      mine.voice_channel_statuses.find((s) => s.channel_id === voiceCh.id),
+      { guild_id: guild.id, channel_id: voiceCh.id, status: 'ranked grind :3' },
+    );
+
+    // The owner isn't in the call but manages channels; an empty status clears it.
+    await ok(owner.token, 'PUT', url, { status: '' });
+    await until(() => last() && last().status === null);
+  } finally {
+    ws.close();
+    watch.ws.close();
+  }
+  // Nobody in the call: only people in it could set it now.
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal((await call(owner.token, 'PUT', url, { status: 'hello?' })).status, 400);
+});
+
 test('direct access (skips Cloudflare): client IP from the connection, not headers; links point back to the address used', async () => {
   const DIRECT = 'http://localhost:7703';
   assert.equal(await (await fetch(`${DIRECT}/api/health`)).text(), 'ok');

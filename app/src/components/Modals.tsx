@@ -1,4 +1,15 @@
-import { createMemo, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from 'solid-js';
+import {
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+  type JSX,
+} from 'solid-js';
 import { api, serverUrl } from '../lib/api';
 import { createGroupDm, dmChannel, selectChannel, selectView, sendMessage } from '../lib/actions';
 import { plural, t } from '../lib/i18n';
@@ -17,7 +28,12 @@ import { Settings } from './Settings';
 import { ServerSettings } from './SettingsModals';
 import { prefs } from '../lib/prefs';
 import { startScreenShare, switchScreenSource, updateStreamQuality, voiceUi, type StreamQuality } from '../lib/voice';
-import { captureCapabilities, listCaptureSources, nativeCaptureAvailable, type CaptureSource } from '../lib/native-capture';
+import {
+  captureCapabilities,
+  listCaptureSources,
+  nativeCaptureAvailable,
+  type CaptureSource,
+} from '../lib/native-capture';
 
 export function ModalHost() {
   const close = () => setUi('modal', null);
@@ -39,8 +55,13 @@ export function ModalHost() {
           when={m().type !== 'settings' && m().type !== 'server-settings'}
           fallback={
             <Switch>
-              <Match when={m().type === 'settings' && (m() as Extract<Modal, { type: 'settings' }>)}>{(x) => <Settings tab={x().tab} />}</Match>
-              <Match when={m().type === 'server-settings' && (m() as Extract<Modal, { type: 'server-settings' }>)} keyed>
+              <Match when={m().type === 'settings' && (m() as Extract<Modal, { type: 'settings' }>)}>
+                {(x) => <Settings tab={x().tab} />}
+              </Match>
+              <Match
+                when={m().type === 'server-settings' && (m() as Extract<Modal, { type: 'server-settings' }>)}
+                keyed
+              >
                 {(x) => <ServerSettings guildId={x.guildId} tab={x.tab} />}
               </Match>
             </Switch>
@@ -51,7 +72,9 @@ export function ModalHost() {
               <Match when={m().type === 'add-server'}>
                 <AddServer />
               </Match>
-              <Match when={m().type === 'invite' && (m() as Extract<Modal, { type: 'invite' }>)}>{(x) => <Invite guildId={x().guildId} />}</Match>
+              <Match when={m().type === 'invite' && (m() as Extract<Modal, { type: 'invite' }>)}>
+                {(x) => <Invite guildId={x().guildId} />}
+              </Match>
               <Match when={m().type === 'create-channel' && (m() as Extract<Modal, { type: 'create-channel' }>)}>
                 {(x) => <CreateChannel guildId={x().guildId} kind={x().kind} parentId={x().parentId} />}
               </Match>
@@ -67,21 +90,24 @@ export function ModalHost() {
               <Match when={m().type === 'user-profile' && (m() as Extract<Modal, { type: 'user-profile' }>)}>
                 {(x) => <ProfileModal userId={x().userId} guildId={x().guildId} />}
               </Match>
-              <Match when={m().type === 'download'}>
-                <DownloadApp />
-              </Match>
               <Match when={m().type === 'custom-status'}>
                 <CustomStatusModal />
               </Match>
               <Match when={m().type === 'create-group'}>
                 <CreateGroup />
               </Match>
-              <Match when={m().type === 'forward' && (m() as Extract<Modal, { type: 'forward' }>)}>{(x) => <ForwardModal message={x().message} />}</Match>
+              <Match when={m().type === 'forward' && (m() as Extract<Modal, { type: 'forward' }>)}>
+                {(x) => <ForwardModal message={x().message} />}
+              </Match>
               <Match when={m().type === 'nickname' && (m() as Extract<Modal, { type: 'nickname' }>)}>
                 {(x) => <MemberEditor guildId={x().guildId} userId={x().userId} />}
               </Match>
-              <Match when={m().type === 'join-invite' && (m() as Extract<Modal, { type: 'join-invite' }>)}>{(x) => <JoinInvite code={x().code} />}</Match>
-              <Match when={m().type === 'confirm' && (m() as Extract<Modal, { type: 'confirm' }>)}>{(x) => <Confirm {...x()} />}</Match>
+              <Match when={m().type === 'join-invite' && (m() as Extract<Modal, { type: 'join-invite' }>)}>
+                {(x) => <JoinInvite code={x().code} />}
+              </Match>
+              <Match when={m().type === 'confirm' && (m() as Extract<Modal, { type: 'confirm' }>)}>
+                {(x) => <Confirm {...x()} />}
+              </Match>
             </Switch>
           </div>
         </Show>
@@ -90,7 +116,13 @@ export function ModalHost() {
   );
 }
 
-export function Dialog(p: { title: string; subtitle?: string; children: JSX.Element; footer?: JSX.Element; wide?: boolean }) {
+export function Dialog(p: {
+  title: string;
+  subtitle?: string;
+  children: JSX.Element;
+  footer?: JSX.Element;
+  wide?: boolean;
+}) {
   return (
     <div class="modal" classList={{ wide: p.wide }} role="dialog" aria-label={p.title}>
       <button class="icon-btn modal-close" aria-label={t('Close')} onClick={() => setUi('modal', null)}>
@@ -151,7 +183,13 @@ function FolderSettings(p: { folderId: string }) {
       <form class="stack" onSubmit={save}>
         <label class="field">
           <span>{t('Folder name')}</span>
-          <input value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={40} placeholder={t('Name your folder')} autofocus />
+          <input
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            maxLength={40}
+            placeholder={t('Name your folder')}
+            autofocus
+          />
         </label>
         <div class="field">
           <span>{t('Folder color')}</span>
@@ -178,63 +216,6 @@ function FolderSettings(p: { folderId: string }) {
   );
 }
 
-type Downloads = Partial<Record<'windows' | 'deb' | 'rpm', { version: string; url: string }>>;
-
-/** Web only: the desktop installers, with the one for this computer first. */
-function DownloadApp() {
-  const [files] = createResource(() => api<Downloads>('GET', '/downloads'));
-  const os = /Windows/.test(navigator.userAgent) ? 'windows' : /Linux|X11/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent) ? 'linux' : null;
-  const windows = () => (
-    <Show when={files()?.windows}>
-      {(f) => (
-        <div class="download-card" classList={{ mine: os === 'windows' }}>
-          <div class="download-os">
-            <strong>Windows</strong>
-            <span class="muted">{t('Windows 10 and 11 · version {version}', { version: f().version })}</span>
-          </div>
-          <a class="btn" classList={{ primary: os === 'windows' }} href={f().url} download="">
-            <I.Download size={16} /> {t('Download')}
-          </a>
-        </div>
-      )}
-    </Show>
-  );
-  const linux = () => (
-    <Show when={files()?.deb || files()?.rpm}>
-      <div class="download-card" classList={{ mine: os === 'linux' }}>
-        <div class="download-os">
-          <strong>Linux</strong>
-          <span class="muted">{t('Version {version} · no global keybinds or app-only stream audio yet', { version: (files()!.rpm ?? files()!.deb)!.version })}</span>
-        </div>
-        <div class="row">
-          <Show when={files()!.rpm}>
-            <a class="btn" classList={{ primary: os === 'linux' }} href={files()!.rpm!.url} download="" title="Fedora, RHEL, openSUSE">
-              <I.Download size={16} /> .rpm
-            </a>
-          </Show>
-          <Show when={files()!.deb}>
-            <a class="btn" classList={{ primary: os === 'linux' }} href={files()!.deb!.url} download="" title="Debian, Ubuntu, Mint">
-              <I.Download size={16} /> .deb
-            </a>
-          </Show>
-        </div>
-      </div>
-    </Show>
-  );
-  return (
-    <Dialog title={t('Get the desktop app')} subtitle={t('Push to talk that works in games, native screen sharing with sound, and it starts with your computer.')}>
-      <Show when={!files.loading} fallback={<div class="spinner" />}>
-        <div class="stack download-list">
-          {os === 'linux' ? [linux(), windows()] : [windows(), linux()]}
-          <Show when={!files()?.windows && !files()?.deb && !files()?.rpm}>
-            <p class="muted">{t('No downloads are available yet.')}</p>
-          </Show>
-        </div>
-      </Show>
-    </Dialog>
-  );
-}
-
 interface TemplatePreview {
   name: string;
   description: string;
@@ -245,7 +226,9 @@ interface TemplatePreview {
 /** The code from a Discord template link (discord.new/…, discord.com/template/…). */
 export function templateCode(input: string): string | null {
   const s = input.trim().replace(/\/+$/, '');
-  const m = s.match(/^(?:https?:\/\/)?(?:www\.)?(?:discord\.new|(?:ptb\.|canary\.)?discord(?:app)?\.com\/template)\/([A-Za-z0-9]+)$/);
+  const m = s.match(
+    /^(?:https?:\/\/)?(?:www\.)?(?:discord\.new|(?:ptb\.|canary\.)?discord(?:app)?\.com\/template)\/([A-Za-z0-9]+)$/,
+  );
   return m ? m[1] : null;
 }
 
@@ -279,7 +262,9 @@ function AddServer() {
         const fd = new FormData();
         fd.append('file', f);
         // The server is made either way; a failed icon upload just leaves the initials.
-        await api('POST', `/guilds/${g.id}/icon`, fd).catch((err) => toast(err instanceof Error ? err.message : String(err)));
+        await api('POST', `/guilds/${g.id}/icon`, fd).catch((err) =>
+          toast(err instanceof Error ? err.message : String(err)),
+        );
       }
       setUi('modal', null);
       selectView(g.id);
@@ -292,14 +277,30 @@ function AddServer() {
     setUi('modal', { type: 'join-invite', code });
   };
   return (
-    <Dialog title={t('Start an adventure')} subtitle={t('Create a server for you and your friends, or join one with an invite.')}>
+    <Dialog
+      title={t('Start an adventure')}
+      subtitle={t('Create a server for you and your friends, or join one with an invite.')}
+    >
       <form class="stack" onSubmit={create}>
         <div class="icon-upload">
           <label class="upload-circle" title={t('Upload icon')}>
-            <Show when={iconUrl()} fallback={<span class="upload-empty"><I.AddImage size={22} /><small>{t('Icon')}</small></span>}>
+            <Show
+              when={iconUrl()}
+              fallback={
+                <span class="upload-empty">
+                  <I.AddImage size={22} />
+                  <small>{t('Icon')}</small>
+                </span>
+              }
+            >
               {(src) => <img src={src()} alt="" />}
             </Show>
-            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => setIcon(e.currentTarget.files?.[0] ?? null)} />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              hidden
+              onChange={(e) => setIcon(e.currentTarget.files?.[0] ?? null)}
+            />
             <span class="upload-hint">{icon() ? t('Change') : t('Upload')}</span>
           </label>
           <label class="field grow">
@@ -330,9 +331,18 @@ function AddServer() {
                   <div class="template-preview">
                     <strong>{tp().name}</strong>
                     <span class="muted">
-                      {plural(tp().channels.filter((c) => c.kind === Kind.Text).length, '{n} text channel', '{n} text channels')} ·{' '}
-                      {plural(tp().channels.filter((c) => c.kind === Kind.Voice).length, '{n} voice channel', '{n} voice channels')} ·{' '}
-                      {plural(tp().roles.length, '{n} role', '{n} roles')}
+                      {plural(
+                        tp().channels.filter((c) => c.kind === Kind.Text).length,
+                        '{n} text channel',
+                        '{n} text channels',
+                      )}{' '}
+                      ·{' '}
+                      {plural(
+                        tp().channels.filter((c) => c.kind === Kind.Voice).length,
+                        '{n} voice channel',
+                        '{n} voice channels',
+                      )}{' '}
+                      · {plural(tp().roles.length, '{n} role', '{n} roles')}
                     </span>
                     <span class="muted small">{t("Per-channel permissions aren't copied.")}</span>
                   </div>
@@ -351,7 +361,11 @@ function AddServer() {
       <form class="stack" onSubmit={join}>
         <label class="field">
           <span>{t('Invite link')}</span>
-          <input value={invite()} onInput={(e) => setInvite(e.currentTarget.value)} placeholder={`${serverUrl()}/invite/AbC123xY`} />
+          <input
+            value={invite()}
+            onInput={(e) => setInvite(e.currentTarget.value)}
+            placeholder={`${serverUrl()}/invite/AbC123xY`}
+          />
         </label>
         <button class="btn" disabled={!invite().trim()}>
           {t('Join server')}
@@ -365,7 +379,10 @@ function AddServer() {
 }
 
 function JoinInvite(p: { code: string }) {
-  const [preview] = createResource(() => p.code, (code) => api<{ guild: GuildInfo; member_count: number; inviter: User }>('GET', `/invites/${code}`));
+  const [preview] = createResource(
+    () => p.code,
+    (code) => api<{ guild: GuildInfo; member_count: number; inviter: User }>('GET', `/invites/${code}`),
+  );
   const { busy, error, run } = useSubmit();
   const accept = () =>
     run(async () => {
@@ -386,9 +403,7 @@ function JoinInvite(p: { code: string }) {
               <div>
                 <p class="muted small">{t('{name} invited you to join', { name: displayName(pv().inviter) })}</p>
                 <h3>{pv().guild.name}</h3>
-                <p class="muted small">
-                  {plural(pv().member_count, '{n} member', '{n} members')}
-                </p>
+                <p class="muted small">{plural(pv().member_count, '{n} member', '{n} members')}</p>
               </div>
             </div>
           )}
@@ -406,7 +421,9 @@ function JoinInvite(p: { code: string }) {
 
 function Invite(p: { guildId: string }) {
   const [maxAge, setMaxAge] = createSignal(7 * 86400);
-  const [invite] = createResource(maxAge, (age) => api<{ code: string }>('POST', `/guilds/${p.guildId}/invites`, { max_age: age || null }));
+  const [invite] = createResource(maxAge, (age) =>
+    api<{ code: string }>('POST', `/guilds/${p.guildId}/invites`, { max_age: age || null }),
+  );
   const link = () => (invite() ? `${serverUrl()}/invite/${invite()!.code}` : '');
   const [filter, setFilter] = createSignal('');
   const [sent, setSent] = createSignal<string[]>([]);
@@ -414,7 +431,10 @@ function Invite(p: { guildId: string }) {
     Object.entries(state.relationships)
       .filter(([id, r]) => r === Rel.Friend && !state.members[p.guildId]?.[id])
       .map(([id]) => id)
-      .filter((id) => !filter() || nameOf(id).toLowerCase().includes(filter()) || state.users[id]?.username.includes(filter()))
+      .filter(
+        (id) =>
+          !filter() || nameOf(id).toLowerCase().includes(filter()) || state.users[id]?.username.includes(filter()),
+      )
       .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   const copy = async () => {
     await navigator.clipboard.writeText(link());
@@ -429,16 +449,31 @@ function Invite(p: { guildId: string }) {
     });
   return (
     <Dialog title={t('Invite friends to {server}', { server: state.guilds[p.guildId]?.name ?? '' })}>
-      <input class="filter-input" placeholder={t('Search for friends')} value={filter()} onInput={(e) => setFilter(e.currentTarget.value.toLowerCase())} />
+      <input
+        class="filter-input"
+        placeholder={t('Search for friends')}
+        value={filter()}
+        onInput={(e) => setFilter(e.currentTarget.value.toLowerCase())}
+      />
       <div class="invite-friends">
-        <For each={friends()} fallback={<p class="empty-hint">{filter() ? t('No friends found.') : t('All your friends are already here.')}</p>}>
+        <For
+          each={friends()}
+          fallback={
+            <p class="empty-hint">{filter() ? t('No friends found.') : t('All your friends are already here.')}</p>
+          }
+        >
           {(id) => (
             <div class="invite-friend">
               <Avatar user={state.users[id]} size={32} presence />
               <span class="grow">
                 <strong>{nameOf(id)}</strong> <span class="muted small">{state.users[id]?.username}</span>
               </span>
-              <button class="btn small-btn" classList={{ primary: !sent().includes(id) }} disabled={!invite() || sent().includes(id)} onClick={() => void send(id)}>
+              <button
+                class="btn small-btn"
+                classList={{ primary: !sent().includes(id) }}
+                disabled={!invite() || sent().includes(id)}
+                onClick={() => void send(id)}
+              >
                 {sent().includes(id) ? t('Sent') : t('Invite')}
               </button>
             </div>
@@ -476,7 +511,11 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
   const submit = (e: Event) => {
     e.preventDefault();
     void run(async () => {
-      const ch = await api<Channel>('POST', `/guilds/${p.guildId}/channels`, { name: name(), kind: kind(), parent_id: p.parentId });
+      const ch = await api<Channel>('POST', `/guilds/${p.guildId}/channels`, {
+        name: name(),
+        kind: kind(),
+        parent_id: p.parentId,
+      });
       setUi('modal', null);
       if (ch.kind === 0) selectChannel(ch.id);
     });
@@ -487,7 +526,13 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
         <form class="stack" onSubmit={submit}>
           <label class="field">
             <span>{t('Category name')}</span>
-            <input value={name()} onInput={(e) => setName(e.currentTarget.value)} placeholder={t('New category')} maxLength={100} autofocus />
+            <input
+              value={name()}
+              onInput={(e) => setName(e.currentTarget.value)}
+              placeholder={t('New category')}
+              maxLength={100}
+              autofocus
+            />
           </label>
           <Show when={error()}>
             <p class="error">{error()}</p>
@@ -499,19 +544,36 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
       </Dialog>
     );
   return (
-    <Dialog title={t('Create channel')} subtitle={category() ? t('in {category}', { category: category()!.name }) : undefined}>
+    <Dialog
+      title={t('Create channel')}
+      subtitle={category() ? t('in {category}', { category: category()!.name }) : undefined}
+    >
       <form class="stack" onSubmit={submit}>
         <div class="kind-picker">
           <button type="button" classList={{ active: kind() === 0 }} onClick={() => setKind(0)}>
-            <I.Hash /> <span><strong>{t('Text')}</strong><small>{t('Messages, images, emoji and banter')}</small></span>
+            <I.Hash />{' '}
+            <span>
+              <strong>{t('Text')}</strong>
+              <small>{t('Messages, images, emoji and banter')}</small>
+            </span>
           </button>
           <button type="button" classList={{ active: kind() === 2 }} onClick={() => setKind(2)}>
-            <I.Speaker /> <span><strong>{t('Voice')}</strong><small>{t('Hang out with voice, video and screen share')}</small></span>
+            <I.Speaker />{' '}
+            <span>
+              <strong>{t('Voice')}</strong>
+              <small>{t('Hang out with voice, video and screen share')}</small>
+            </span>
           </button>
         </div>
         <label class="field">
           <span>{t('Channel name')}</span>
-          <input value={name()} onInput={(e) => setName(e.currentTarget.value)} placeholder={kind() === 0 ? t('new-channel') : t('Hangout')} maxLength={100} autofocus />
+          <input
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            placeholder={kind() === 0 ? t('new-channel') : t('Hangout')}
+            maxLength={100}
+            autofocus
+          />
         </label>
         <Show when={error()}>
           <p class="error">{error()}</p>
@@ -534,7 +596,17 @@ function Confirm(p: { title: string; body: string; action: string; run: () => Pr
           <button class="btn ghost" onClick={() => setUi('modal', null)}>
             {t('Cancel')}
           </button>
-          <button class="btn danger" disabled={busy()} onClick={() => run(async () => { await p.run(); setUi('modal', null); })} autofocus>
+          <button
+            class="btn danger"
+            disabled={busy()}
+            onClick={() =>
+              run(async () => {
+                await p.run();
+                setUi('modal', null);
+              })
+            }
+            autofocus
+          >
             {p.action}
           </button>
         </>
@@ -556,12 +628,23 @@ function ChannelSettings(p: { channelId: string }) {
   const save = (e: Event) => {
     e.preventDefault();
     void run(async () => {
-      await api('PATCH', `/channels/${p.channelId}`, { name: name(), ...(ch()?.kind === Kind.Text ? { topic: topic() } : {}) });
+      await api('PATCH', `/channels/${p.channelId}`, {
+        name: name(),
+        ...(ch()?.kind === Kind.Text ? { topic: topic() } : {}),
+      });
       setUi('modal', null);
     });
   };
   return (
-    <Dialog title={ch()?.kind === Kind.Thread ? t('Edit thread') : ch()?.kind === Kind.Category ? t('Edit category') : t('Edit channel')}>
+    <Dialog
+      title={
+        ch()?.kind === Kind.Thread
+          ? t('Edit thread')
+          : ch()?.kind === Kind.Category
+            ? t('Edit category')
+            : t('Edit channel')
+      }
+    >
       <form class="stack" onSubmit={save}>
         <label class="field">
           <span>{t('Name')}</span>
@@ -570,7 +653,13 @@ function ChannelSettings(p: { channelId: string }) {
         <Show when={ch()?.kind === Kind.Text}>
           <label class="field">
             <span>{t('Topic')}</span>
-            <textarea value={topic()} onInput={(e) => setTopic(e.currentTarget.value)} maxLength={1024} rows={3} placeholder={t('Let everyone know how to use this channel')} />
+            <textarea
+              value={topic()}
+              onInput={(e) => setTopic(e.currentTarget.value)}
+              maxLength={1024}
+              rows={3}
+              placeholder={t('Let everyone know how to use this channel')}
+            />
           </label>
         </Show>
         <Show when={error()}>
@@ -593,7 +682,8 @@ function CreateGroup() {
   const [picked, setPicked] = createSignal<string[]>([]);
   const [filter, setFilter] = createSignal('');
   const { busy, error, run } = useSubmit();
-  const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : l.length < 9 ? [...l, id] : l));
+  const toggle = (id: string) =>
+    setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : l.length < 9 ? [...l, id] : l));
   return (
     <Dialog
       title={t('Select friends')}
@@ -617,9 +707,20 @@ function CreateGroup() {
         </button>
       }
     >
-      <input class="filter-input" placeholder={t('Type the username of a friend')} value={filter()} onInput={(e) => setFilter(e.currentTarget.value.toLowerCase())} autofocus />
+      <input
+        class="filter-input"
+        placeholder={t('Type the username of a friend')}
+        value={filter()}
+        onInput={(e) => setFilter(e.currentTarget.value.toLowerCase())}
+        autofocus
+      />
       <div class="pick-list">
-        <For each={friends().filter((id) => nameOf(id).toLowerCase().includes(filter()) || state.users[id]?.username.includes(filter()))} fallback={<p class="empty-hint">{t('Add some friends first.')}</p>}>
+        <For
+          each={friends().filter(
+            (id) => nameOf(id).toLowerCase().includes(filter()) || state.users[id]?.username.includes(filter()),
+          )}
+          fallback={<p class="empty-hint">{t('Add some friends first.')}</p>}
+        >
           {(id) => (
             <label class="pick-row">
               <Avatar user={state.users[id]} size={32} presence />
@@ -677,7 +778,12 @@ function MemberEditor(p: { guildId: string; userId: string }) {
         <Show when={canNick()}>
           <label class="field">
             <span>{t('Nickname')}</span>
-            <input value={nick()} onInput={(e) => setNick(e.currentTarget.value)} maxLength={32} placeholder={state.users[p.userId]?.display_name ?? state.users[p.userId]?.username} />
+            <input
+              value={nick()}
+              onInput={(e) => setNick(e.currentTarget.value)}
+              maxLength={32}
+              placeholder={state.users[p.userId]?.display_name ?? state.users[p.userId]?.username}
+            />
           </label>
         </Show>
         <Show when={canRoles() && assignable().length}>
@@ -719,7 +825,9 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
   const quality = (): StreamQuality => ({ height: height(), fps: fps(), optimize: optimize(), audio: audio() });
   // Desktop app on Windows: pick what to share right here instead of the system picker.
   const picker = nativeCaptureAvailable && (!p.update || p.switchSource);
-  const [sources, { refetch }] = createResource(() => (picker ? listCaptureSources().catch(() => [] as CaptureSource[]) : Promise.resolve([] as CaptureSource[])));
+  const [sources, { refetch }] = createResource(() =>
+    picker ? listCaptureSources().catch(() => [] as CaptureSource[]) : Promise.resolve([] as CaptureSource[]),
+  );
   const [caps] = createResource(captureCapabilities);
   const [tab, setTab] = createSignal<'window' | 'screen'>('window');
   const [selected, setSelected] = createSignal<CaptureSource | null>(null);
@@ -776,11 +884,30 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
                 ↻
               </button>
             </div>
-            <Show when={!sources.loading} fallback={<div class="source-loading"><div class="spinner" /></div>}>
+            <Show
+              when={!sources.loading}
+              fallback={
+                <div class="source-loading">
+                  <div class="spinner" />
+                </div>
+              }
+            >
               <div class="source-grid">
-                <For each={shown()} fallback={<p class="empty-hint">{t('Nothing to share here. Open the app you want to stream, then refresh.')}</p>}>
+                <For
+                  each={shown()}
+                  fallback={
+                    <p class="empty-hint">
+                      {t('Nothing to share here. Open the app you want to stream, then refresh.')}
+                    </p>
+                  }
+                >
                   {(src) => (
-                    <button class="source-card" classList={{ selected: selected()?.id === src.id }} onClick={() => setSelected(src)} onDblClick={() => (setSelected(src), go())}>
+                    <button
+                      class="source-card"
+                      classList={{ selected: selected()?.id === src.id }}
+                      onClick={() => setSelected(src)}
+                      onDblClick={() => (setSelected(src), go())}
+                    >
                       <div class="source-thumb">
                         <Show when={src.thumbnail} fallback={<I.Screen size={32} />}>
                           <img src={src.thumbnail!} alt="" />
@@ -800,44 +927,67 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
           </div>
         </Show>
         <Show when={!p.switchSource}>
-        <div class="quality-row">
-          <div class="field">
-            <span>{t('Resolution')}</span>
-            <Seg value={height()} options={[[720, '720p'], [1080, '1080p']]} onChange={setHeight} />
+          <div class="quality-row">
+            <div class="field">
+              <span>{t('Resolution')}</span>
+              <Seg
+                value={height()}
+                options={[
+                  [720, '720p'],
+                  [1080, '1080p'],
+                ]}
+                onChange={setHeight}
+              />
+            </div>
+            <div class="field">
+              <span>{t('Frame rate')}</span>
+              <Seg
+                value={fps()}
+                options={[
+                  [15, '15 fps'],
+                  [30, '30 fps'],
+                  [60, '60 fps'],
+                ]}
+                onChange={setFps}
+              />
+            </div>
+            <div class="field">
+              <span>{t('Optimize for')}</span>
+              <Seg
+                value={optimize()}
+                options={[
+                  ['clarity', t('Clarity'), t('Sharp text, code and slides')],
+                  ['motion', t('Motion'), t('Smooth games and video')],
+                ]}
+                onChange={setOptimize}
+              />
+            </div>
           </div>
-          <div class="field">
-            <span>{t('Frame rate')}</span>
-            <Seg value={fps()} options={[[15, '15 fps'], [30, '30 fps'], [60, '60 fps']]} onChange={setFps} />
-          </div>
-          <div class="field">
-            <span>{t('Optimize for')}</span>
-            <Seg
-              value={optimize()}
-              options={[
-                ['clarity', t('Clarity'), t('Sharp text, code and slides')],
-                ['motion', t('Motion'), t('Smooth games and video')],
-              ]}
-              onChange={setOptimize}
+          <label class="toggle-row" classList={{ disabled: p.update }}>
+            <span>
+              <strong>{t('Share audio')}</strong>
+              <small>
+                {p.update
+                  ? t('Restart the stream to change this.')
+                  : !picker
+                    ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
+                    : caps() && !caps()!.per_app_audio
+                      ? t(
+                          'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
+                        )
+                      : selected()?.kind === 'screen'
+                        ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
+                        : t('Only the sound of the app you share.')}
+              </small>
+            </span>
+            <input
+              type="checkbox"
+              class="switch"
+              checked={audio()}
+              disabled={p.update}
+              onChange={(e) => setAudio(e.currentTarget.checked)}
             />
-          </div>
-        </div>
-        <label class="toggle-row" classList={{ disabled: p.update }}>
-          <span>
-            <strong>{t('Share audio')}</strong>
-            <small>
-              {p.update
-                ? t('Restart the stream to change this.')
-                : !picker
-                  ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
-                  : caps() && !caps()!.per_app_audio
-                    ? t('Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.')
-                    : selected()?.kind === 'screen'
-                      ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
-                      : t('Only the sound of the app you share.')}
-            </small>
-          </span>
-          <input type="checkbox" class="switch" checked={audio()} disabled={p.update} onChange={(e) => setAudio(e.currentTarget.checked)} />
-        </label>
+          </label>
         </Show>
       </div>
     </Dialog>

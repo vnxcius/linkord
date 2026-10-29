@@ -87,6 +87,5 @@ can't verify updates and everyone has to reinstall.
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth app |
 | `LINKORD_DEV_LOGIN` | Passwordless test login. Keep `false` in production |
 | `LINKORD_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
-| `GIPHY_API_KEY` | Optional GIF search |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional Spotify connection (redirect `<public_url>/api/connections/spotify/callback`) |
 | `LINKORD_DIRECT_BIND` / `LINKORD_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |

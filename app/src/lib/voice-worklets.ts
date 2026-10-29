@@ -71,7 +71,14 @@ class Playback extends AudioWorkletProcessor {
     };
   }
 
-  private onMessage(msg: { id: string; pcm?: Float32Array; channels?: number; gain?: number; remove?: boolean; captureRef?: boolean }) {
+  private onMessage(msg: {
+    id: string;
+    pcm?: Float32Array;
+    channels?: number;
+    gain?: number;
+    remove?: boolean;
+    captureRef?: boolean;
+  }) {
     if (msg.captureRef !== undefined) {
       this.captureRef = msg.captureRef;
       this.refN = 0;

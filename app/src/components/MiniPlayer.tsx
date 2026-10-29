@@ -3,7 +3,15 @@ import { selectChannel } from '../lib/actions';
 import { t } from '../lib/i18n';
 import { prefs, setPrefs } from '../lib/prefs';
 import { currentChannel, nameOf, state } from '../lib/store';
-import { registerCanvas, setStreamVolume, setVoiceUi, streamVolume, toggleStreamMute, voiceUi, watchStream } from '../lib/voice';
+import {
+  registerCanvas,
+  setStreamVolume,
+  setVoiceUi,
+  streamVolume,
+  toggleStreamMute,
+  voiceUi,
+  watchStream,
+} from '../lib/voice';
 import * as I from './Icons';
 import { canPopOut, popOut, Viewers } from './VoiceView';
 import { VolumeControl } from './VolumeControl';
@@ -80,7 +88,11 @@ export function MiniPlayer() {
   const resize = (e: PointerEvent) => {
     e.stopPropagation();
     const w0 = width();
-    track(e, (dx, dy) => setPrefs({ miniPlayerWidth: Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth(), w0 - Math.min(dx, (dy * 16) / 9)))) }));
+    track(e, (dx, dy) =>
+      setPrefs({
+        miniPlayerWidth: Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth(), w0 - Math.min(dx, (dy * 16) / 9)))),
+      }),
+    );
   };
 
   return (
@@ -103,11 +115,18 @@ export function MiniPlayer() {
           />
           <div class="mini-bar">
             <span class="video-label">
-              <span class="name">{nameOf(id, state.voice[id]?.guild_id)}</span> <span class="live-badge">{t('LIVE')}</span>
+              <span class="name">{nameOf(id, state.voice[id]?.guild_id)}</span>{' '}
+              <span class="live-badge">{t('LIVE')}</span>
               <Viewers userId={id} guildId={state.voice[id]?.guild_id} />
             </span>
             <span class="grow" />
-            <VolumeControl value={streamVolume(id)} max={2} tip={t('Stream volume')} onChange={(v) => setStreamVolume(id, v)} onToggleMute={() => toggleStreamMute(id)} />
+            <VolumeControl
+              value={streamVolume(id)}
+              max={2}
+              tip={t('Stream volume')}
+              onChange={(v) => setStreamVolume(id, v)}
+              onToggleMute={() => toggleStreamMute(id)}
+            />
             <Show when={canPopOut}>
               <button class="vp-btn" data-tip={t('Pop out')} onClick={() => void popOut(canvas)}>
                 <I.PopOut size={16} />

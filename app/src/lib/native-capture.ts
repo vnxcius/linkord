@@ -82,6 +82,8 @@ export interface CaptureVideoStats {
   threads: number;
   /** Set when the stream stopped on its own (no encoder). */
   error: string | null;
+  /** The shared window no longer exists (its app was closed). */
+  source_closed: boolean;
 }
 
 export async function captureVideoStats(): Promise<CaptureVideoStats | null> {

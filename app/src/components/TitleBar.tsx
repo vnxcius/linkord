@@ -7,7 +7,12 @@ import { Close, Emblem, Maximize, Minimize } from './Icons';
 /** Graphite's title bar: the Triforce and where you are, centered. On the desktop app it is also the window
  *  chrome (the native title bar is disabled); on the web it's only shown on wide screens. */
 export function TitleBar() {
-  const place = () => (!state.ready ? 'Linkord' : state.view === '@me' ? t('Direct Messages') : (state.guilds[state.view]?.name ?? 'Linkord'));
+  const place = () =>
+    !state.ready
+      ? 'Linkord'
+      : state.view === '@me'
+        ? t('Direct Messages')
+        : (state.guilds[state.view]?.name ?? 'Linkord');
   return (
     <div class="titlebar" classList={{ web: !isTauri }} data-tauri-drag-region>
       <span class="titlebar-side" data-tauri-drag-region>

@@ -46,7 +46,8 @@ export function VoiceView(p: { channel: Channel }) {
     const out: VideoItem[] = [];
     for (const v of members()) {
       const isMe = v.user_id === me();
-      if (isMe ? voiceUi.screen : v.self_stream) out.push({ key: `${v.user_id}-screen`, userId: v.user_id, source: 'screen' });
+      if (isMe ? voiceUi.screen : v.self_stream)
+        out.push({ key: `${v.user_id}-screen`, userId: v.user_id, source: 'screen' });
       const hasCam = isMe ? voiceUi.camera : videoTiles().some((t) => t.key === `${v.user_id}-camera`);
       if (hasCam) out.push({ key: `${v.user_id}-camera`, userId: v.user_id, source: 'camera' });
     }
@@ -73,7 +74,14 @@ export function VoiceView(p: { channel: Channel }) {
           <Show when={v.self_stream}>
             <span class="live-badge">{t('LIVE')}</span>
           </Show>
-          <Show when={v.self_deaf} fallback={<Show when={v.self_mute}><I.MicOff size={14} /></Show>}>
+          <Show
+            when={v.self_deaf}
+            fallback={
+              <Show when={v.self_mute}>
+                <I.MicOff size={14} />
+              </Show>
+            }
+          >
             <I.HeadphonesOff size={14} />
           </Show>
         </span>
@@ -128,13 +136,19 @@ export function VoiceView(p: { channel: Channel }) {
               <VideoCard item={parseKey(key)} guildId={gid()} large />
             </div>
             <div class="strip-wrap" classList={{ hidden: voiceUi.hideStrip }}>
-              <button class="strip-toggle" onClick={() => setVoiceUi('hideStrip', !voiceUi.hideStrip)} aria-label={voiceUi.hideStrip ? t('Show members') : t('Hide members')}>
+              <button
+                class="strip-toggle"
+                onClick={() => setVoiceUi('hideStrip', !voiceUi.hideStrip)}
+                aria-label={voiceUi.hideStrip ? t('Show members') : t('Hide members')}
+              >
                 <I.Chevron size={16} class={voiceUi.hideStrip ? 'flip' : ''} />
                 {voiceUi.hideStrip ? t('Show members') : t('Hide members')}
               </button>
               <Show when={!voiceUi.hideStrip}>
                 <div class="strip">
-                  <For each={videos().filter((v) => v.key !== key)}>{(v) => <VideoCard item={v} guildId={gid()} small />}</For>
+                  <For each={videos().filter((v) => v.key !== key)}>
+                    {(v) => <VideoCard item={v} guildId={gid()} small />}
+                  </For>
                   <For each={members()}>{(v) => ParticipantTile(v)}</For>
                 </div>
               </Show>
@@ -151,18 +165,34 @@ export function VoiceView(p: { channel: Channel }) {
             </button>
           }
         >
-          <button class="round-btn" classList={{ off: voiceUi.muted }} data-tip={voiceUi.muted ? t('Unmute') : t('Mute')} onClick={() => void toggleMute()}>
+          <button
+            class="round-btn"
+            classList={{ off: voiceUi.muted }}
+            data-tip={voiceUi.muted ? t('Unmute') : t('Mute')}
+            onClick={() => void toggleMute()}
+          >
             <Show when={voiceUi.muted} fallback={<I.Mic />}>
               <I.MicOff />
             </Show>
           </button>
-          <button class="round-btn" classList={{ off: voiceUi.deafened }} data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')} onClick={() => void toggleDeafen()}>
+          <button
+            class="round-btn"
+            classList={{ off: voiceUi.deafened }}
+            data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')}
+            onClick={() => void toggleDeafen()}
+          >
             <Show when={voiceUi.deafened} fallback={<I.Headphones />}>
               <I.HeadphonesOff />
             </Show>
           </button>
           <Show when={canSendVideo}>
-            <button class="round-btn" classList={{ on: voiceUi.camera }} data-tip={t('Camera')} disabled={!connected()} onClick={() => void toggleCamera()}>
+            <button
+              class="round-btn"
+              classList={{ on: voiceUi.camera }}
+              data-tip={t('Camera')}
+              disabled={!connected()}
+              onClick={() => void toggleCamera()}
+            >
               <I.Camera />
             </button>
           </Show>
@@ -170,7 +200,12 @@ export function VoiceView(p: { channel: Channel }) {
             <Show
               when={voiceUi.screen}
               fallback={
-                <button class="round-btn" data-tip={t('Share your screen')} disabled={!connected()} onClick={() => setUi('modal', { type: 'go-live' })}>
+                <button
+                  class="round-btn"
+                  data-tip={t('Share your screen')}
+                  disabled={!connected()}
+                  onClick={() => setUi('modal', { type: 'go-live' })}
+                >
                   <I.Screen />
                 </button>
               }
@@ -178,7 +213,11 @@ export function VoiceView(p: { channel: Channel }) {
               <button class="round-btn" data-tip={t('Switch what you share')} onClick={openSwitchSource}>
                 <I.Switch />
               </button>
-              <button class="round-btn" data-tip={t('Stream quality')} onClick={() => setUi('modal', { type: 'go-live', update: true })}>
+              <button
+                class="round-btn"
+                data-tip={t('Stream quality')}
+                onClick={() => setUi('modal', { type: 'go-live', update: true })}
+              >
                 <I.Gear />
               </button>
               <button class="pill-btn danger" onClick={stopScreenShare}>
@@ -220,7 +259,10 @@ export function viewersOf(userId: string): string[] {
 }
 
 /** Floats a stream over other apps (OS picture-in-picture), where the webview supports it. */
-export const canPopOut = typeof document !== 'undefined' && !!document.pictureInPictureEnabled && 'captureStream' in HTMLCanvasElement.prototype;
+export const canPopOut =
+  typeof document !== 'undefined' &&
+  !!document.pictureInPictureEnabled &&
+  'captureStream' in HTMLCanvasElement.prototype;
 
 export async function popOut(canvas: HTMLCanvasElement | undefined) {
   if (!canvas) return;
@@ -236,7 +278,14 @@ export function Viewers(p: { userId: string; guildId?: string | null }) {
   const ids = () => viewersOf(p.userId);
   return (
     <Show when={ids().length}>
-      <span class="viewers" title={t('Watching: {names}', { names: ids().map((id) => nameOf(id, p.guildId)).join(', ') })}>
+      <span
+        class="viewers"
+        title={t('Watching: {names}', {
+          names: ids()
+            .map((id) => nameOf(id, p.guildId))
+            .join(', '),
+        })}
+      >
         <I.Eye size={14} />
         {ids().length}
         <span class="viewer-avatars">
@@ -272,18 +321,31 @@ function audioDiagLines(): string[] {
   if (!s) return lines;
   const c = s.canceller;
   if (c?.locked) {
-    lines.push(t('Canceller locked · delay {delay} ms · confidence {confidence} · realigned {realigns}× · ignored {rejects} weaker matches', { delay: c.delayMs, confidence: c.confidence, realigns: c.realigns, rejects: c.rejects }));
+    lines.push(
+      t(
+        'Canceller locked · delay {delay} ms · confidence {confidence} · realigned {realigns}× · ignored {rejects} weaker matches',
+        { delay: c.delayMs, confidence: c.confidence, realigns: c.realigns, rejects: c.rejects },
+      ),
+    );
   } else if (c) {
-    lines.push(t('Canceller searching · {misses} of {tries} tries without a match', { misses: c.misses, tries: c.tries }));
+    lines.push(
+      t('Canceller searching · {misses} of {tries} tries without a match', { misses: c.misses, tries: c.tries }),
+    );
   }
   lines.push(
     s.suppressionDb === null
       ? t('Captured {in} dB · sent {out} dB · voice chat silent', { in: s.inDb, out: s.outDb })
-      : t('Captured {in} dB · sent {out} dB · voice chat {ref} dB · {suppression} dB removed', { in: s.inDb, out: s.outDb, ref: s.refDb, suppression: s.suppressionDb }),
+      : t('Captured {in} dB · sent {out} dB · voice chat {ref} dB · {suppression} dB removed', {
+          in: s.inDb,
+          out: s.outDb,
+          ref: s.refDb,
+          suppression: s.suppressionDb,
+        }),
   );
   const rates = [t('capture {rate} Hz', { rate: s.rate })];
   if (c) rates.push(t('voice reference {rate} Hz', { rate: s.refRate }));
-  if (d.device?.mix_rate) rates.push(t('device {rate} Hz, {channels} ch', { rate: d.device.mix_rate, channels: d.device.mix_channels }));
+  if (d.device?.mix_rate)
+    rates.push(t('device {rate} Hz, {channels} ch', { rate: d.device.mix_rate, channels: d.device.mix_channels }));
   if (d.device) rates.push(t('{count} gaps', { count: d.device.discontinuities }));
   lines.push(rates.join(' · '));
   if (d.mode === 'system' && !d.defaultOutput) lines.push(t('Voice plays on a device other than the Windows default'));
@@ -302,7 +364,11 @@ function captureTimingLines(): string[] {
       threads: c.threads,
       encode: ms(c.encode_ms, c.encode_max_ms),
     }),
-    t('{frames} frames/s captured · {encoded} encoded · {skipped} skipped (encoder busy)', { frames: c.frames, encoded: c.encoded, skipped: c.busy_skips }),
+    t('{frames} frames/s captured · {encoded} encoded · {skipped} skipped (encoder busy)', {
+      frames: c.frames,
+      encoded: c.encoded,
+      skipped: c.busy_skips,
+    }),
   ];
 }
 
@@ -328,7 +394,8 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
     document.removeEventListener('fullscreenchange', onFs);
     clearTimeout(idleTimer);
   });
-  const toggleFullscreen = () => (document.fullscreenElement ? void document.exitFullscreen() : void wrap.requestFullscreen?.());
+  const toggleFullscreen = () =>
+    document.fullscreenElement ? void document.exitFullscreen() : void wrap.requestFullscreen?.();
   const focus = () => setVoiceUi('focus', voiceUi.focus === p.item.key ? null : p.item.key);
   // A click focuses a tile, or takes a focused one back to the grid. Wait a moment so a double click
   // (fullscreen) doesn't also count as a click.
@@ -348,7 +415,14 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
     <div
       ref={wrap}
       class="video-card"
-      classList={{ large: p.large, small: p.small, tiled: p.tiled, idle: idle() && (p.large || fullscreen()), screen: isScreen(), fullscreen: fullscreen() }}
+      classList={{
+        large: p.large,
+        small: p.small,
+        tiled: p.tiled,
+        idle: idle() && (p.large || fullscreen()),
+        screen: isScreen(),
+        fullscreen: fullscreen(),
+      }}
       onMouseMove={poke}
       onDblClick={onDblClick}
       onClick={onClick}
@@ -361,7 +435,10 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
             <strong>
               {nameOf(p.item.userId, p.guildId)} <span class="live-badge">{t('LIVE')}</span>
             </strong>
-            <button class="btn primary" onClick={(e) => (e.stopPropagation(), watchStream(p.item.userId, true, !p.tiled))}>
+            <button
+              class="btn primary"
+              onClick={(e) => (e.stopPropagation(), watchStream(p.item.userId, true, !p.tiled))}
+            >
               {t('Watch Stream')}
             </button>
           </div>
@@ -370,7 +447,14 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
         <Show
           when={own() && localStream()}
           fallback={
-            <Show when={!voiceUi.unsupported[p.item.key]} fallback={<p class="video-msg">{t("This device can't play this stream ({codec}).", { codec: voiceUi.unsupported[p.item.key] })}</p>}>
+            <Show
+              when={!voiceUi.unsupported[p.item.key]}
+              fallback={
+                <p class="video-msg">
+                  {t("This device can't play this stream ({codec}).", { codec: voiceUi.unsupported[p.item.key] })}
+                </p>
+              }
+            >
               <canvas
                 ref={(c) => {
                   canvas = c;
@@ -428,7 +512,11 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
                 <I.PopOut size={18} />
               </button>
             </Show>
-            <button class="vp-btn" data-tip={fullscreen() ? t('Exit fullscreen') : t('Fullscreen')} onClick={toggleFullscreen}>
+            <button
+              class="vp-btn"
+              data-tip={fullscreen() ? t('Exit fullscreen') : t('Fullscreen')}
+              onClick={toggleFullscreen}
+            >
               <I.Fullscreen size={18} />
             </button>
             <Show when={isScreen() && own()}>
@@ -437,7 +525,11 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
               </button>
             </Show>
             <Show when={isScreen()}>
-              <button class="vp-btn danger" data-tip={own() ? t('Stop streaming') : t('Stop watching')} onClick={() => (own() ? stopScreenShare() : watchStream(p.item.userId, false))}>
+              <button
+                class="vp-btn danger"
+                data-tip={own() ? t('Stop streaming') : t('Stop watching')}
+                onClick={() => (own() ? stopScreenShare() : watchStream(p.item.userId, false))}
+              >
                 <I.Close size={18} />
               </button>
             </Show>

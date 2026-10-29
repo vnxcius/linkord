@@ -2,7 +2,7 @@
 //   node --test games.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, gameIconUrl, matchPath } from '../app/src/lib/game-match.ts';
+import { buildIndex, gameIconUrl, linkedAppOf, linkedTarget, matchPath } from '../app/src/lib/game-match.ts';
 
 const LIST = [
   ['1', 'Counter-Strike 2', 'abc', ['win64/cs2.exe']],
@@ -40,4 +40,19 @@ test('just a file name (elevated processes) still matches entries without a fold
 test('icon URLs use the CDN, none without an icon hash', () => {
   assert.equal(gameIconUrl(LIST[0]), 'https://cdn.discordapp.com/app-icons/1/abc.png?size=128');
   assert.equal(gameIconUrl(LIST[1]), undefined);
+});
+
+test('a League of Legends stream follows the game while it has a window, else the client', () => {
+  const client = { path: 'C:\\Riot Games\\League of Legends\\LeagueClientUx.exe', window: { id: 'window:1' } };
+  const game = { path: 'C:\\Riot Games\\League of Legends\\Game\\League of Legends.exe', window: { id: 'window:2' } };
+  const other = { path: 'C:\\Windows\\explorer.exe', window: { id: 'window:3' } };
+  const lol = linkedAppOf(client.path);
+  assert.ok(lol);
+  assert.equal(linkedAppOf(game.path), lol);
+  assert.equal(linkedAppOf(other.path), undefined);
+  assert.equal(linkedTarget(lol, [other, client]), 'window:1');
+  assert.equal(linkedTarget(lol, [client, other, game]), 'window:2');
+  // Game still starting (no window yet): stay on the client.
+  assert.equal(linkedTarget(lol, [client, { ...game, window: null }]), 'window:1');
+  assert.equal(linkedTarget(lol, [other]), null);
 });

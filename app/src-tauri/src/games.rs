@@ -64,13 +64,15 @@ mod imp {
             let (Ok(pid), Ok(id)) = (w.pid(), w.id()) else { continue };
             let title = w.title().unwrap_or_default();
             let (width, height) = (w.width().unwrap_or(0), w.height().unwrap_or(0));
-            if title.trim().is_empty() || width < 120 || height < 80 {
+            let minimized = w.is_minimized().unwrap_or(false);
+            // Minimized windows report a tiny size; keep them (League's client sits minimized during a match).
+            if title.trim().is_empty() || (!minimized && (width < 120 || height < 80)) {
                 continue;
             }
             if out.get(&pid).is_some_and(|o| o.width * o.height >= width * height) {
                 continue;
             }
-            out.insert(pid, AppWindow { id: format!("window:{id}"), title, width, height, minimized: w.is_minimized().unwrap_or(false) });
+            out.insert(pid, AppWindow { id: format!("window:{id}"), title, width, height, minimized });
         }
         out
     }

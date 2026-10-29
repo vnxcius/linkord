@@ -8,7 +8,15 @@ import { t } from '../lib/i18n';
 import { state } from '../lib/store';
 import type { Attachment, User } from '../lib/types';
 import { toast } from '../lib/ui';
-import { BARS, decodeWaveform, MIN_MS, packWaveform, startRecording, type Recorder, type VoiceClip } from '../lib/voice-note';
+import {
+  BARS,
+  decodeWaveform,
+  MIN_MS,
+  packWaveform,
+  startRecording,
+  type Recorder,
+  type VoiceClip,
+} from '../lib/voice-note';
 import { Avatar } from './Avatar';
 import * as I from './Icons';
 import { pauseChatVideo, formatDuration } from './VideoPlayer';
@@ -176,7 +184,10 @@ export function RecordingBar(p: { v: VoiceRecording }) {
         <div class="rec-bar holding">
           <span class="rec-dot" />
           <span class="rec-time">{time()}</span>
-          <span class="rec-slide" style={{ transform: `translateX(${p.v.drag().x}px)`, opacity: 1 + p.v.drag().x / CANCEL_PX }}>
+          <span
+            class="rec-slide"
+            style={{ transform: `translateX(${p.v.drag().x}px)`, opacity: 1 + p.v.drag().x / CANCEL_PX }}
+          >
             <I.Back size={16} /> {t('Slide to cancel')}
           </span>
           <div class="rec-lock" style={{ transform: `translateY(${Math.max(-LOCK_PX, p.v.drag().y) * 0.6}px)` }}>
@@ -202,13 +213,19 @@ export function RecordingBar(p: { v: VoiceRecording }) {
             </>
           }
         >
-          <button class="icon-btn rec-play" aria-label={previewing() ? t('Pause') : t('Play')} onClick={() => void togglePreview()}>
+          <button
+            class="icon-btn rec-play"
+            aria-label={previewing() ? t('Pause') : t('Play')}
+            onClick={() => void togglePreview()}
+          >
             <Show when={previewing()} fallback={<I.Play size={18} />}>
               <I.Pause size={18} />
             </Show>
           </button>
           <Waveform levels={recorded()} progress={previewAt() / (r().elapsed() / 1000 || 1)} />
-          <span class="rec-time">{formatDuration(previewing() || previewAt() ? previewAt() : r().elapsed() / 1000)}</span>
+          <span class="rec-time">
+            {formatDuration(previewing() || previewAt() ? previewAt() : r().elapsed() / 1000)}
+          </span>
         </Show>
         <button
           class="icon-btn rec-pause"
@@ -251,7 +268,17 @@ function markPlayed(id: string) {
   } catch {}
 }
 
-const [speed, setSpeedSignal] = createSignal(Number((() => { try { return localStorage.getItem(SPEED_KEY); } catch { return null; } })()) || 1);
+const [speed, setSpeedSignal] = createSignal(
+  Number(
+    (() => {
+      try {
+        return localStorage.getItem(SPEED_KEY);
+      } catch {
+        return null;
+      }
+    })(),
+  ) || 1,
+);
 const setSpeed = (s: number) => {
   setSpeedSignal(s);
   try {
@@ -290,7 +317,14 @@ function Waveform(p: { levels: number[]; progress: number; onSeek?: (f: number) 
       }}
       onPointerMove={(e) => p.onSeek && e.buttons & 1 && p.onSeek(at(e))}
     >
-      <For each={bars()}>{(l, i) => <span classList={{ on: (i() + 0.5) / bars().length <= p.progress }} style={{ height: `${Math.max(10, l * 100)}%` }} />}</For>
+      <For each={bars()}>
+        {(l, i) => (
+          <span
+            classList={{ on: (i() + 0.5) / bars().length <= p.progress }}
+            style={{ height: `${Math.max(10, l * 100)}%` }}
+          />
+        )}
+      </For>
       <Show when={p.onSeek}>
         <span class="vn-thumb" style={{ left: `${Math.min(1, p.progress) * 100}%` }} />
       </Show>
@@ -338,7 +372,14 @@ export function VoiceMessage(p: { a: Attachment; src: string; author: User; chan
   return (
     <div class="voice-note" classList={{ playing: playing(), mine: mine() }}>
       <button class="vn-play" aria-label={playing() ? t('Pause') : t('Play')} onClick={toggle}>
-        <Show when={loading()} fallback={<Show when={playing()} fallback={<I.Play size={20} />}><I.Pause size={20} /></Show>}>
+        <Show
+          when={loading()}
+          fallback={
+            <Show when={playing()} fallback={<I.Play size={20} />}>
+              <I.Pause size={20} />
+            </Show>
+          }
+        >
           <span class="spinner small" />
         </Show>
       </button>
@@ -357,7 +398,11 @@ export function VoiceMessage(p: { a: Attachment; src: string; author: User; chan
           </div>
         }
       >
-        <button class="vn-speed" aria-label={t('Playback speed')} onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed()) + 1) % SPEEDS.length])}>
+        <button
+          class="vn-speed"
+          aria-label={t('Playback speed')}
+          onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed()) + 1) % SPEEDS.length])}
+        >
           {speed()}×
         </button>
       </Show>

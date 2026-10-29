@@ -17,7 +17,13 @@ setInterval(() => setNow(Date.now()), 1000);
 /** Spotify's mark (shown with Spotify activities and the Spotify connection, as Discord does). */
 export function SpotifyIcon(p: { size?: number; class?: string }) {
   return (
-    <svg class={`spotify-icon ${p.class ?? ''}`} width={p.size ?? 16} height={p.size ?? 16} viewBox="0 0 24 24" aria-hidden="true">
+    <svg
+      class={`spotify-icon ${p.class ?? ''}`}
+      width={p.size ?? 16}
+      height={p.size ?? 16}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
       <circle cx="12" cy="12" r="12" fill="#1ed760" />
       <path
         fill="none"
@@ -46,8 +52,22 @@ export function GameIcon(p: { src?: string; size: number; class?: string }) {
 export function StatusEmojiView(p: { emoji: StatusEmoji; size?: number }) {
   const size = () => `${p.size ?? 14}px`;
   return (
-    <Show when={p.emoji.id} fallback={<span class="status-emoji" style={{ 'font-size': size() }}>{p.emoji.name}</span>}>
-      {(id) => <img class="status-emoji custom" src={emojiUrl(id(), p.emoji.animated)} alt={`:${p.emoji.name}:`} style={{ width: size(), height: size() }} />}
+    <Show
+      when={p.emoji.id}
+      fallback={
+        <span class="status-emoji" style={{ 'font-size': size() }}>
+          {p.emoji.name}
+        </span>
+      }
+    >
+      {(id) => (
+        <img
+          class="status-emoji custom"
+          src={emojiUrl(id(), p.emoji.animated)}
+          alt={`:${p.emoji.name}:`}
+          style={{ width: size(), height: size() }}
+        />
+      )}
     </Show>
   );
 }
@@ -133,7 +153,8 @@ export function ActivityBadge(p: { userId: string }) {
 }
 
 /** h:mm:ss (or m:ss) since `start`. */
-export const elapsedSince = (start: number | undefined, at: number) => formatDuration(Math.max(0, at - (start ?? at)) / 1000);
+export const elapsedSince = (start: number | undefined, at: number) =>
+  formatDuration(Math.max(0, at - (start ?? at)) / 1000);
 
 /** "Playing a game": icon, name and time played, for profiles and the Active Now column. */
 export function GameCard(p: { activity: Activity; compact?: boolean }) {
@@ -166,7 +187,13 @@ export function SpotifyCard(p: { activity: Activity; compact?: boolean }) {
   const end = () => a().timestamps?.end ?? now();
   const elapsed = () => Math.max(0, Math.min(end() - start(), now() - start()));
   const total = () => Math.max(1, end() - start());
-  const artists = () => a().artists ?? (a().state ? a().state!.split('; ').map((name) => ({ name, url: undefined as string | undefined })) : []);
+  const artists = () =>
+    a().artists ??
+    (a().state
+      ? a()
+          .state!.split('; ')
+          .map((name) => ({ name, url: undefined as string | undefined }))
+      : []);
   return (
     <div class="spotify-card" classList={{ compact: p.compact }}>
       <Show when={!p.compact}>

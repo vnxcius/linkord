@@ -2,7 +2,8 @@
 //! installer and `latest.json` into `<data>/updates/`; installers are served from /api/updates/download.
 //! `app/publish-linux.sh` adds the signed Linux packages and `linux.json`; Linux apps get both as one static
 //! manifest (`linux-x86_64-deb` / `-rpm`) and the updater picks the one it was installed from. /api/downloads
-//! lists what the web client's "Download the app" offers.
+//! lists what the web client's download page offers. `changelog.json` (newest first, appended by publish-windows.sh)
+//! feeds the patch notes page.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -16,7 +17,10 @@ use crate::direct::PublicBase;
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/updates/{target}/{arch}/{current}", get(check)).route("/downloads", get(downloads))
+    Router::new()
+        .route("/updates/{target}/{arch}/{current}", get(check))
+        .route("/downloads", get(downloads))
+        .route("/changelog", get(changelog))
 }
 
 #[derive(Deserialize)]
@@ -99,20 +103,29 @@ async fn check_linux(st: &AppState, base: &PublicBase, arch: &str, current: &str
     Json(out).into_response()
 }
 
-/// Latest installers per platform, for the web client's download buttons. Missing ones are omitted.
+/// Latest installers per platform, for the web client's download page: version, link, size, release date and
+/// notes. Missing ones are omitted.
 async fn downloads(State(st): State<AppState>, base: PublicBase) -> Json<serde_json::Value> {
     let dir = st.cfg.data_dir.join("updates");
-    let url = |file: &str| format!("{base}/api/updates/download/{}", urlencoding::encode(file));
+    let entry = |file: &str, version: &str, notes: &str, date: Option<&str>| {
+        let dir = dir.clone();
+        let (file, version, notes, date) = (file.to_string(), version.to_string(), notes.to_string(), date.map(str::to_string));
+        let url = format!("{base}/api/updates/download/{}", urlencoding::encode(&file));
+        async move {
+            let size = tokio::fs::metadata(dir.join(&file)).await.ok().map(|m| m.len());
+            json!({ "version": version, "url": url, "size": size, "date": date, "notes": notes })
+        }
+    };
     let mut out = serde_json::Map::new();
     if let Some(latest) = tokio::fs::read(dir.join("latest.json")).await.ok().and_then(|raw| serde_json::from_slice::<Latest>(&raw).ok()) {
         if let Some(p) = latest.platforms.get("windows-x86_64") {
-            out.insert("windows".into(), json!({ "version": latest.version, "url": url(&p.file) }));
+            out.insert("windows".into(), entry(&p.file, &latest.version, &latest.notes, Some(&latest.pub_date)).await);
         }
     }
     if let Some(linux) = tokio::fs::read(dir.join("linux.json")).await.ok().and_then(|raw| serde_json::from_slice::<LinuxPackages>(&raw).ok()) {
         for (kind, file) in [("deb", &linux.deb), ("rpm", &linux.rpm)] {
             if let Some(file) = file {
-                out.insert(kind.into(), json!({ "version": linux.version, "url": url(file) }));
+                out.insert(kind.into(), entry(file, &linux.version, &linux.notes, linux.pub_date.as_deref()).await);
             }
         }
     }
@@ -126,4 +139,22 @@ mod tests {
         assert!(super::parse_version("0.1.10") > super::parse_version("0.1.9"));
         assert_eq!(super::parse_version("v1.2.3"), Some((1, 2, 3)));
     }
+}
+
+#[derive(Deserialize, serde::Serialize)]
+struct Release {
+    version: String,
+    date: Option<String>,
+    /// One change per line.
+    notes: String,
+}
+
+/// Patch notes, newest first. Before the first changelog entry, the latest release's notes stand in.
+async fn changelog(State(st): State<AppState>) -> Json<Vec<Release>> {
+    let dir = st.cfg.data_dir.join("updates");
+    if let Some(list) = tokio::fs::read(dir.join("changelog.json")).await.ok().and_then(|raw| serde_json::from_slice::<Vec<Release>>(&raw).ok()) {
+        return Json(list);
+    }
+    let latest = tokio::fs::read(dir.join("latest.json")).await.ok().and_then(|raw| serde_json::from_slice::<Latest>(&raw).ok());
+    Json(latest.map(|l| vec![Release { version: l.version, date: Some(l.pub_date), notes: l.notes }]).unwrap_or_default())
 }

@@ -38,13 +38,20 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
     const style = r?.color ? ` style="--role:${r.color}"` : '';
     return slot(`<span class="mention role"${style}>@${esc(r?.name ?? 'deleted-role')}</span>`);
   });
-  s = s.replace(/(^|\s)@(everyone|here)\b/g, (_, pre: string, who: string) => pre + slot(`<span class="mention everyone">@${who}</span>`));
+  s = s.replace(
+    /(^|\s)@(everyone|here)\b/g,
+    (_, pre: string, who: string) => pre + slot(`<span class="mention everyone">@${who}</span>`),
+  );
   s = s.replace(/&lt;(a?):(\w{2,32}):(\d+)&gt;/g, (_, a: string, name: string, id: string) =>
     opts.emojiUrl
-      ? slot(`<img class="emoji custom" src="${opts.emojiUrl(id, a === 'a')}" alt=":${name}:" title=":${name}:" draggable="false">`)
+      ? slot(
+          `<img class="emoji custom" src="${opts.emojiUrl(id, a === 'a')}" alt=":${name}:" title=":${name}:" draggable="false">`,
+        )
       : `:${name}:`,
   );
-  s = s.replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g, (url) => slot(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`));
+  s = s.replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g, (url) =>
+    slot(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
+  );
 
   const out: string[] = [];
   let quote: string[] = [];

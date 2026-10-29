@@ -17,8 +17,6 @@ pub struct Config {
     pub dev_login: bool,
     /// Total bytes each user may upload.
     pub upload_quota: u64,
-    /// Enables GIF search in the picker.
-    pub giphy_api_key: Option<String>,
     /// Spotify connection (Settings -> Connections). Both empty = the option is hidden.
     pub spotify_client_id: String,
     pub spotify_client_secret: String,
@@ -60,7 +58,6 @@ impl Config {
             discord_client_secret: opt("DISCORD_CLIENT_SECRET").unwrap_or_default(),
             dev_login: opt("LINKORD_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
             upload_quota: opt("LINKORD_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
-            giphy_api_key: opt("GIPHY_API_KEY"),
             spotify_client_id: opt("SPOTIFY_CLIENT_ID").unwrap_or_default(),
             spotify_client_secret: opt("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
             spotify_accounts_url: opt("SPOTIFY_ACCOUNTS_URL").unwrap_or_else(|| "https://accounts.spotify.com".into()),

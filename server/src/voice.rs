@@ -22,10 +22,10 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{CloseFrame, Message as WsMsg, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Response;
-use axum::routing::get;
-use axum::Router;
+use axum::routing::{get, put};
+use axum::{Json, Router};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::api::channels::channel_for;
-use crate::auth::user_from_token;
+use crate::auth::{user_from_token, AuthUser};
+use crate::error::{bad, ApiResult};
 use crate::gateway::guild_members;
 use crate::id::Id;
 use crate::models::kind;
@@ -90,9 +91,28 @@ struct Peer {
 
 /// A voice channel's call: it starts when the first person joins and ends when the last one leaves.
 struct Call {
+    guild_id: Id,
     started_at: i64,
     /// Set while nobody is in it, so a lone user reconnecting keeps the call going.
     empty_since: Option<Instant>,
+    /// The channel status ("what we're up to"), like Discord's. Lives as long as the call.
+    status: Option<String>,
+}
+
+impl Call {
+    fn ended(&self) -> bool {
+        self.empty_since.is_some_and(|t| t.elapsed() > CALL_GRACE)
+    }
+}
+
+/// Longest voice channel status, as on Discord.
+const MAX_STATUS: usize = 500;
+
+#[derive(Clone, Serialize)]
+pub struct ChannelStatus {
+    pub guild_id: Id,
+    pub channel_id: Id,
+    pub status: Option<String>,
 }
 
 /// How long an empty channel keeps its call (a reconnect, switching device).
@@ -108,6 +128,15 @@ pub struct VoiceStates {
 impl VoiceStates {
     pub fn for_guilds(&self, guilds: &[Id]) -> Vec<VoiceState> {
         self.by_user.iter().filter(|v| guilds.contains(&v.guild_id)).map(|v| v.clone()).collect()
+    }
+
+    /// Statuses of the calls going on in these guilds.
+    pub fn statuses_for(&self, guilds: &[Id]) -> Vec<ChannelStatus> {
+        self.calls
+            .iter()
+            .filter(|c| guilds.contains(&c.guild_id) && !c.ended())
+            .filter_map(|c| c.status.clone().map(|s| ChannelStatus { guild_id: c.guild_id, channel_id: *c.key(), status: Some(s) }))
+            .collect()
     }
 
     /// Sends to everyone in the channel except the sender. Voice goes on the voice lane; video and stream
@@ -164,15 +193,18 @@ impl VoiceStates {
         removed
     }
 
-    /// The start of the channel's call, beginning one if it had none (or it ended a while ago).
-    fn join_call(&self, channel: Id) -> i64 {
+    /// The start of the channel's call, beginning one if it had none (or it ended a while ago), and
+    /// whether an old call's status was cleared by that.
+    fn join_call(&self, channel: Id, guild_id: Id) -> (i64, bool) {
         let now = chrono::Utc::now().timestamp_millis();
-        let mut call = self.calls.entry(channel).or_insert(Call { started_at: now, empty_since: None });
-        if call.empty_since.is_some_and(|t| t.elapsed() > CALL_GRACE) {
+        let mut call = self.calls.entry(channel).or_insert(Call { guild_id, started_at: now, empty_since: None, status: None });
+        let mut cleared = false;
+        if call.ended() {
             call.started_at = now;
+            cleared = call.status.take().is_some();
         }
         call.empty_since = None;
-        call.started_at
+        (call.started_at, cleared)
     }
 
     /// Stops everyone in the channel watching `streamer` (their stream ended or they left), so a later
@@ -230,7 +262,45 @@ pub async fn leave(st: &AppState, user: Id) {
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/voice/connect", get(voice_handler)).route("/voice/media", get(media_handler))
+    Router::new()
+        .route("/voice/connect", get(voice_handler))
+        .route("/voice/media", get(media_handler))
+        .route("/channels/{id}/voice-status", put(set_status))
+}
+
+async fn announce_status(st: &AppState, status: &ChannelStatus) {
+    if let Ok(members) = guild_members(&st.db, status.guild_id).await {
+        st.hub.send(&members, "VOICE_CHANNEL_STATUS_UPDATE", status);
+    }
+}
+
+#[derive(Deserialize)]
+struct SetStatus {
+    status: Option<String>,
+}
+
+/// Sets the status of a call: anyone in it can, and people who manage channels can while it's going on.
+async fn set_status(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<SetStatus>) -> ApiResult<Json<ChannelStatus>> {
+    let access = channel_for(&st, id, me).await?;
+    if access.ch.kind != kind::VOICE {
+        return Err(bad("not a voice channel"));
+    }
+    let inside = st.voice.by_user.get(&me).is_some_and(|v| v.channel_id == Some(id));
+    let live = st.voice.rooms.get(&id).is_some_and(|r| !r.is_empty());
+    if !inside && !(live && access.has(perms::MANAGE_CHANNELS)) {
+        return Err(bad("join the voice channel to set its status"));
+    }
+    let status = body.status.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    if status.as_ref().is_some_and(|s| s.chars().count() > MAX_STATUS) {
+        return Err(bad("status must be at most 500 characters"));
+    }
+    let out = {
+        let Some(mut call) = st.voice.calls.get_mut(&id) else { return Err(bad("join the voice channel to set its status")) };
+        call.status = status.clone();
+        ChannelStatus { guild_id: call.guild_id, channel_id: id, status }
+    };
+    announce_status(&st, &out).await;
+    Ok(Json(out))
 }
 
 async fn voice_handler(State(st): State<AppState>, ws: WebSocketUpgrade) -> Response {
@@ -325,11 +395,16 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         self_stream: false,
         self_video: false,
         watching: Vec::new(),
-        call_started_at: Some(st.voice.join_call(channel)),
+        call_started_at: None,
         conn,
     };
+    let (started_at, status_cleared) = st.voice.join_call(channel, guild_id);
+    let vs = VoiceState { call_started_at: Some(started_at), ..vs };
     st.voice.by_user.insert(me, vs.clone());
     announce(&st, &vs).await;
+    if status_cleared {
+        announce_status(&st, &ChannelStatus { guild_id, channel_id: channel, status: None }).await;
+    }
 
     let (mut sink, mut stream) = socket.split();
     let ready = sink.send(WsMsg::Text(json!({ "op": "ready" }).to_string().into())).await.is_ok();

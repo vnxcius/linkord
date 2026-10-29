@@ -20,7 +20,8 @@ export interface VoiceClip {
 }
 
 function mimeType() {
-  for (const t of ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/mp4']) if (MediaRecorder.isTypeSupported(t)) return t;
+  for (const t of ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/mp4'])
+    if (MediaRecorder.isTypeSupported(t)) return t;
   return '';
 }
 
@@ -56,7 +57,9 @@ export type Recorder = Awaited<ReturnType<typeof startRecording>>;
 
 export async function startRecording() {
   const device = prefs.inputDevice && prefs.inputDevice !== 'default' ? { deviceId: { exact: prefs.inputDevice } } : {};
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...device, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { ...device, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
   const type = mimeType();
   const rec = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32_000 });
   const chunks: Blob[] = [];

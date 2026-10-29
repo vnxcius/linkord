@@ -117,10 +117,11 @@ export function VideoPlayer(p: { src: string; filename: string }) {
     v.pause();
     seekTo(v.currentTime + dir * FRAME);
   };
-  const toggleFullscreen = () => (document.fullscreenElement ? void document.exitFullscreen() : void root.requestFullscreen?.());
+  const toggleFullscreen = () =>
+    document.fullscreenElement ? void document.exitFullscreen() : void root.requestFullscreen?.();
   const togglePip = () =>
-    void (document.pictureInPictureElement === v ? document.exitPictureInPicture() : v.requestPictureInPicture()).catch(() =>
-      toast(t("Picture-in-picture isn't available here")),
+    void (document.pictureInPictureElement === v ? document.exitPictureInPicture() : v.requestPictureInPicture()).catch(
+      () => toast(t("Picture-in-picture isn't available here")),
     );
   const save = async () => {
     if (saving() !== null) return;
@@ -305,7 +306,11 @@ export function VideoPlayer(p: { src: string; filename: string }) {
       <Show when={noVideo() && !failed()}>
         <div class="vp-novideo">
           <I.Warning size={16} />
-          <span>{t("This browser can't show this video's picture (its format isn't supported here), only the sound. Download it to watch.")}</span>
+          <span>
+            {t(
+              "This browser can't show this video's picture (its format isn't supported here), only the sound. Download it to watch.",
+            )}
+          </span>
         </div>
       </Show>
       <Show when={!failed() && !started()}>
@@ -354,7 +359,15 @@ export function VideoPlayer(p: { src: string; filename: string }) {
           root.focus({ preventScroll: true });
         }}
       >
-        <div class="vp-seek" ref={seekBar} onPointerDown={seekDown} onPointerMove={seekMove} onPointerUp={seekUp} onPointerCancel={seekUp} onPointerLeave={() => setHover(null)}>
+        <div
+          class="vp-seek"
+          ref={seekBar}
+          onPointerDown={seekDown}
+          onPointerMove={seekMove}
+          onPointerUp={seekUp}
+          onPointerCancel={seekUp}
+          onPointerLeave={() => setHover(null)}
+        >
           <div class="vp-track">
             <div class="vp-buffered" style={{ width: `${duration() ? (buffered() / duration()) * 100 : 0}%` }} />
             <Show when={hover() !== null}>
@@ -374,13 +387,24 @@ export function VideoPlayer(p: { src: string; filename: string }) {
           <button class="vp-btn" data-tip={paused() ? t('Play (k)') : t('Pause (k)')} onClick={toggle}>
             {paused() ? <I.Play size={18} /> : <I.Pause size={18} />}
           </button>
-          <VolumeControl value={volume()} muted={muted()} tip={t('Mute (m)')} onChange={(x) => setVol(x)} onToggleMute={toggleMute} />
+          <VolumeControl
+            value={volume()}
+            muted={muted()}
+            tip={t('Mute (m)')}
+            onChange={(x) => setVol(x)}
+            onToggleMute={toggleMute}
+          />
           <span class="vp-time">
             {formatDuration(time())} / {formatDuration(duration())}
           </span>
           <span class="grow" />
           <div class="vp-speed">
-            <button class="vp-btn vp-rate" classList={{ changed: rate() !== 1 }} data-tip={t('Playback speed')} onClick={() => setMenu(menu() === 'speed' ? null : 'speed')}>
+            <button
+              class="vp-btn vp-rate"
+              classList={{ changed: rate() !== 1 }}
+              data-tip={t('Playback speed')}
+              onClick={() => setMenu(menu() === 'speed' ? null : 'speed')}
+            >
               <Show when={rate() !== 1} fallback={<I.Speed size={18} />}>
                 {rate()}×
               </Show>
@@ -410,7 +434,11 @@ export function VideoPlayer(p: { src: string; filename: string }) {
               </div>
             </Show>
           </div>
-          <button class="vp-btn" data-tip={saving() !== null ? t('Downloading…') : t('Download')} onClick={() => void save()}>
+          <button
+            class="vp-btn"
+            data-tip={saving() !== null ? t('Downloading…') : t('Download')}
+            onClick={() => void save()}
+          >
             <Show when={saving() !== null} fallback={<I.Download size={18} />}>
               <span class="vp-saving">{Number.isNaN(saving()!) ? '…' : `${Math.round(saving()! * 100)}%`}</span>
             </Show>
@@ -420,7 +448,11 @@ export function VideoPlayer(p: { src: string; filename: string }) {
               <I.PopOut size={18} />
             </button>
           </Show>
-          <button class="vp-btn" data-tip={fullscreen() ? t('Exit fullscreen (f)') : t('Fullscreen (f)')} onClick={toggleFullscreen}>
+          <button
+            class="vp-btn"
+            data-tip={fullscreen() ? t('Exit fullscreen (f)') : t('Fullscreen (f)')}
+            onClick={toggleFullscreen}
+          >
             {fullscreen() ? <I.ExitFullscreen size={18} /> : <I.EnterFullscreen size={18} />}
           </button>
         </div>

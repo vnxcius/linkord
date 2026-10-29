@@ -40,4 +40,35 @@ export function matchPath(index: GameIndex, path: string): DetectableGame | unde
 }
 
 /** Discord's CDN icon for a detectable game (same URL the server puts in the activity). */
-export const gameIconUrl = (game: DetectableGame, size = 128) => (game[2] ? `https://cdn.discordapp.com/app-icons/${game[0]}/${game[2]}.png?size=${size}` : undefined);
+export const gameIconUrl = (game: DetectableGame, size = 128) =>
+  game[2] ? `https://cdn.discordapp.com/app-icons/${game[0]}/${game[2]}.png?size=${size}` : undefined;
+
+/**
+ * Apps whose window moves to another process mid-session. League of Legends: the client (lobby, champ select)
+ * and the game are separate programs, so a stream of one follows to the other: the game while it has a
+ * window, the client otherwise. Executable file names, lowercase.
+ */
+export interface LinkedApp {
+  game: string[];
+  client: string[];
+}
+
+export const LINKED_APPS: LinkedApp[] = [
+  { game: ['league of legends.exe'], client: ['leagueclientux.exe', 'leagueclient.exe'] },
+];
+
+interface AppWindowRef {
+  path: string;
+  window: { id: string } | null;
+}
+
+const fileIn = (names: string[], path: string) => names.includes(fileOf(normalizePath(path)));
+
+/** The linked app a process belongs to (as its game or its client), if any. */
+export const linkedAppOf = (path: string) => LINKED_APPS.find((l) => fileIn(l.game, path) || fileIn(l.client, path));
+
+/** The window a stream of `linked` should show right now: the game's if it has one, else the client's (or null). */
+export function linkedTarget(linked: LinkedApp, apps: AppWindowRef[]): string | null {
+  const win = (names: string[]) => apps.find((a) => a.window && fileIn(names, a.path))?.window?.id;
+  return win(linked.game) ?? win(linked.client) ?? null;
+}

@@ -27,7 +27,8 @@ export function systemLang(): Lang {
   return 'en';
 }
 
-export const lang = (): Lang => (prefs.language === 'system' || !DICTS.hasOwnProperty(prefs.language) ? systemLang() : prefs.language);
+export const lang = (): Lang =>
+  prefs.language === 'system' || !DICTS.hasOwnProperty(prefs.language) ? systemLang() : prefs.language;
 
 /** Locale for dates and numbers: the system's own (e.g. en-GB) when it speaks the UI language. */
 export const dateLocale = (): string | undefined => (lang() === systemLang() ? undefined : lang());
@@ -38,7 +39,8 @@ export function t(text: string, vars?: Record<string, string | number>): string 
 }
 
 /** t() with the singular or plural form; `{n}` is the count. */
-export const plural = (n: number, one: string, other: string, vars?: Record<string, string | number>) => t(n === 1 ? one : other, { n, ...vars });
+export const plural = (n: number, one: string, other: string, vars?: Record<string, string | number>) =>
+  t(n === 1 ? one : other, { n, ...vars });
 
 /** "A, B and C" in the UI language. */
 export const joinList = (items: string[]) => new Intl.ListFormat(lang(), { type: 'conjunction' }).format(items);

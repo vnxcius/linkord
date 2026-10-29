@@ -7,7 +7,19 @@ import { cmpId } from './ids';
 import { notify } from './platform';
 import { prefs } from './prefs';
 import { sounds } from './sounds';
-import { addDm, addGuild, isBlocked, isMuted, nameOf, putMember, putUser, removeGuild, setRoles, setState, state } from './store';
+import {
+  addDm,
+  addGuild,
+  isBlocked,
+  isMuted,
+  nameOf,
+  putMember,
+  putUser,
+  removeGuild,
+  setRoles,
+  setState,
+  state,
+} from './store';
 import type { Activity, Channel, Guild, Message, Rel, Settings, Status, User, VoiceState } from './types';
 import { Kind } from './types';
 import { onVoiceStateFromServer } from './voice';
@@ -26,7 +38,10 @@ export function connectGateway() {
   ws = sock;
   sock.onopen = () => {
     // Resume where we left off if the session is still alive server-side; otherwise start fresh.
-    const msg = state.sessionId && state.ready ? { op: 'resume', token, session_id: state.sessionId, seq } : { op: 'identify', token };
+    const msg =
+      state.sessionId && state.ready
+        ? { op: 'resume', token, session_id: state.sessionId, seq }
+        : { op: 'identify', token };
     sock.send(JSON.stringify(msg));
   };
   sock.onmessage = (e) => {
@@ -71,7 +86,7 @@ interface Ready {
   custom_status?: Activity | null;
   read_states: Record<string, string>;
   voice_states: VoiceState[];
-  features: { gifs: boolean };
+  voice_channel_statuses?: { channel_id: string; status: string }[];
 }
 
 function handle(t: string, d: any) {
@@ -95,7 +110,11 @@ function handle(t: string, d: any) {
     case 'GUILD_MEMBER_UPDATE':
       return putMember(d.guild_id, d.member);
     case 'GUILD_MEMBER_REMOVE':
-      return setState('members', d.guild_id, produce((m) => delete m[d.user_id]));
+      return setState(
+        'members',
+        d.guild_id,
+        produce((m) => delete m[d.user_id]),
+      );
     case 'GUILD_ROLES_UPDATE':
       return setRoles(d.guild_id, d.roles);
     case 'GUILD_ROLE_UPDATE':
@@ -108,7 +127,10 @@ function handle(t: string, d: any) {
       return setState('channels', d.id, (c) => ({ ...c, ...d, recipients: c?.recipients }));
     case 'CHANNEL_DELETE':
       return batch(() => {
-        setState('channels', produce((c) => delete c[d.id]));
+        setState(
+          'channels',
+          produce((c) => delete c[d.id]),
+        );
         setState('dmOrder', (o) => o.filter((x) => x !== d.id));
         const view = d.guild_id ?? '@me';
         if (state.selected[view] === d.id) setState('selected', view, d.parent_id ?? undefined);
@@ -159,12 +181,25 @@ function handle(t: string, d: any) {
         setState('relationships', d.id, d.type);
       });
     case 'RELATIONSHIP_REMOVE':
-      return setState('relationships', produce((r) => delete r[d.id]));
+      return setState(
+        'relationships',
+        produce((r) => delete r[d.id]),
+      );
+    case 'VOICE_CHANNEL_STATUS_UPDATE':
+      if (d.status) return setState('voiceStatus', d.channel_id, d.status);
+      return setState(
+        'voiceStatus',
+        produce((s) => delete s[d.channel_id]),
+      );
     case 'VOICE_STATE_UPDATE':
       onVoiceStateFromServer(d as VoiceState, state.voice[d.user_id]);
       return batch(() => {
         if (d.channel_id) setState('voice', d.user_id, d);
-        else setState('voice', produce((v) => delete v[d.user_id]));
+        else
+          setState(
+            'voice',
+            produce((v) => delete v[d.user_id]),
+          );
       });
   }
 }
@@ -186,12 +221,15 @@ function onReady(d: Ready) {
     for (const r of d.relationships) putUser(r.user);
     setState('relationships', reconcile(Object.fromEntries(d.relationships.map((r) => [r.id, r.type]))));
     setState('settings', reconcile(d.settings ?? {}));
-    setState('features', d.features);
     setState('presences', reconcile(d.presences));
     setState('activities', reconcile(d.activities ?? {}));
     setState('customStatus', d.custom_status ?? null);
     setState('readStates', reconcile(d.read_states));
     setState('voice', reconcile(Object.fromEntries(d.voice_states.map((v) => [v.user_id, v]))));
+    setState(
+      'voiceStatus',
+      reconcile(Object.fromEntries((d.voice_channel_statuses ?? []).map((s) => [s.channel_id, s.status]))),
+    );
     // Messages may have been missed while disconnected; refetch lazily.
     setState('messages', reconcile({}));
     if (state.view !== '@me' && !state.guilds[state.view]) setState('view', '@me');
@@ -199,7 +237,10 @@ function onReady(d: Ready) {
     setState('ready', true);
   });
   const ch = state.selected[state.view];
-  if (ch) loadMessages(ch).then(() => maybeAck(ch)).catch(() => {});
+  if (ch)
+    loadMessages(ch)
+      .then(() => maybeAck(ch))
+      .catch(() => {});
 }
 
 function onMessage(m: Message) {
@@ -209,7 +250,11 @@ function onMessage(m: Message) {
   batch(() => {
     if (ch) setState('channels', m.channel_id, 'last_message_id', m.id);
     receiveMessage(m);
-    setState('typing', m.channel_id, produce((t) => t && delete t[m.author.id]));
+    setState(
+      'typing',
+      m.channel_id,
+      produce((t) => t && delete t[m.author.id]),
+    );
   });
   if (!viewing) trimHistory(m.channel_id);
   const me = state.me;
@@ -221,7 +266,9 @@ function onMessage(m: Message) {
   if (viewing && document.hasFocus()) return maybeAck(m.channel_id);
   if (isBlocked(m.author.id)) return;
 
-  const roleMention = (state.members[ch.guild_id ?? '']?.[me.id]?.roles ?? []).some((r) => m.content.includes(`<@&${r}>`));
+  const roleMention = (state.members[ch.guild_id ?? '']?.[me.id]?.roles ?? []).some((r) =>
+    m.content.includes(`<@&${r}>`),
+  );
   const mentioned =
     ch.kind === Kind.Dm ||
     ch.kind === Kind.GroupDm ||
@@ -244,16 +291,23 @@ function onMessage(m: Message) {
 }
 
 function onReaction(add: boolean, d: { channel_id: string; message_id: string; user_id: string; emoji: string }) {
-  setState('messages', d.channel_id, 'list', (m) => m.id === d.message_id, 'reactions', produce((rs: Message['reactions']) => {
-    const r = rs.find((x) => x.emoji === d.emoji);
-    if (add) {
-      if (!r) rs.push({ emoji: d.emoji, users: [d.user_id] });
-      else if (!r.users.includes(d.user_id)) r.users.push(d.user_id);
-    } else if (r) {
-      r.users = r.users.filter((u) => u !== d.user_id);
-      if (!r.users.length) rs.splice(rs.indexOf(r), 1);
-    }
-  }));
+  setState(
+    'messages',
+    d.channel_id,
+    'list',
+    (m) => m.id === d.message_id,
+    'reactions',
+    produce((rs: Message['reactions']) => {
+      const r = rs.find((x) => x.emoji === d.emoji);
+      if (add) {
+        if (!r) rs.push({ emoji: d.emoji, users: [d.user_id] });
+        else if (!r.users.includes(d.user_id)) r.users.push(d.user_id);
+      } else if (r) {
+        r.users = r.users.filter((u) => u !== d.user_id);
+        if (!r.users.length) rs.splice(rs.indexOf(r), 1);
+      }
+    }),
+  );
 }
 
 window.addEventListener('focus', () => {

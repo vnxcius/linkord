@@ -81,7 +81,11 @@ export type ServerCheck = { ok: true; discord: boolean; dev_login: boolean } | {
 
 /** Probes a server and explains in plain words why it can't be used, if it can't. */
 export async function checkServer(url: string): Promise<ServerCheck> {
-  if (!url) return { ok: false, reason: t("That doesn't look like a server address. It should look like https://linkord.example.com") };
+  if (!url)
+    return {
+      ok: false,
+      reason: t("That doesn't look like a server address. It should look like https://linkord.example.com"),
+    };
   const host = new URL(url).host;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 10_000);
@@ -94,7 +98,10 @@ export async function checkServer(url: string): Promise<ServerCheck> {
       reason:
         (e as Error).name === 'AbortError'
           ? t('{host} took too long to answer. Check your internet connection and try again.', { host })
-          : t('Couldn\'t connect to {host}. Check the address and your internet. Antivirus, a firewall or a network filter can also block it: try opening {url}/api/health in your browser, it should show "ok".', { host, url }),
+          : t(
+              'Couldn\'t connect to {host}. Check the address and your internet. Antivirus, a firewall or a network filter can also block it: try opening {url}/api/health in your browser, it should show "ok".',
+              { host, url },
+            ),
     };
   } finally {
     clearTimeout(timer);
@@ -103,7 +110,10 @@ export async function checkServer(url: string): Promise<ServerCheck> {
   if (!res.ok || !body || typeof body.discord !== 'boolean') {
     return {
       ok: false,
-      reason: t('{host} answered, but not like a Linkord server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.', { host, url, status: res.status }),
+      reason: t(
+        '{host} answered, but not like a Linkord server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.',
+        { host, url, status: res.status },
+      ),
     };
   }
   return { ok: true, discord: body.discord, dev_login: body.dev_login };
@@ -128,7 +138,10 @@ export function media(path?: string | null): string | undefined {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }

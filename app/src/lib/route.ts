@@ -2,7 +2,7 @@
 // so a reload (or the back button) lands where you were. The desktop app has no address bar to speak
 // of, so the last place is also remembered per device and reopened on start.
 
-import { createEffect, createRoot, on } from 'solid-js';
+import { createEffect, createRoot, createSignal, on } from 'solid-js';
 import { selectChannel, selectView, openFriends } from './actions';
 import { isTauri } from './platform';
 import { state } from './store';
@@ -37,6 +37,43 @@ function apply(path: string) {
 
 let started = false;
 
+/** Full-window pages over the app (or the sign-in screen): /download and /changelog on the web. The desktop
+ * app opens them too, without touching the URL. */
+export type Page = 'download' | 'changelog';
+const PAGES: Record<string, Page> = { '/download': 'download', '/changelog': 'changelog' };
+const [page, setPage] = createSignal<Page | null>(isTauri ? null : (PAGES[location.pathname] ?? null));
+export { page };
+/** History steps pushed by opening pages; closing goes back over them, unless the visit started on a page. */
+let pushed = 0;
+let landed = page() !== null;
+
+export function openPage(p: Page) {
+  if (page() === p) return;
+  if (!isTauri) {
+    history.pushState(null, '', `/${p}`);
+    pushed++;
+  }
+  setPage(p);
+}
+
+export function closePage() {
+  if (isTauri) return setPage(null);
+  if (pushed && !landed) return history.go(-pushed);
+  // Landed straight on a page: go to the app.
+  history.replaceState(null, '', started ? pathOf(state.view, state.selected[state.view]) : '/');
+  pushed = 0;
+  landed = false;
+  setPage(null);
+}
+
+if (!isTauri)
+  window.addEventListener('popstate', () => {
+    const p = PAGES[location.pathname] ?? null;
+    if (!p) pushed = 0;
+    else if (page() && p !== page()) pushed = Math.max(0, pushed - 1);
+    setPage(p);
+  });
+
 /** Call once the first READY has filled the store. */
 export function initRoute() {
   if (started) return;
@@ -53,7 +90,7 @@ export function initRoute() {
           try {
             localStorage.setItem(KEY, path);
           } catch {}
-          if (isTauri || location.pathname === path) return;
+          if (isTauri || location.pathname === path || page()) return;
           // Moving between channels is a history step; the first sync just tidies the URL.
           if (parse(location.pathname)) history.pushState(null, '', path);
           else history.replaceState(null, '', path);

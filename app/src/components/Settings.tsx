@@ -1,15 +1,48 @@
 // User settings: a full-window screen (like Discord's) with a sidebar of pages. Server settings stay
 // a dialog in SettingsModals.tsx.
-import { createEffect, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch, untrack, type JSX } from 'solid-js';
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+  untrack,
+  type JSX,
+} from 'solid-js';
 import { api, media } from '../lib/api';
 import { logout } from '../lib/actions';
 import { autostartEnabled, checkForUpdates, setAutostart, update, updating } from '../lib/desktop';
 import { normalizePath } from '../lib/game-match';
-import { currentGame, detectableName, gameDetectionAvailable, gameFor, refreshGames, runningApps, scanApps } from '../lib/games';
+import {
+  currentGame,
+  detectableName,
+  gameDetectionAvailable,
+  gameFor,
+  refreshGames,
+  runningApps,
+  scanApps,
+} from '../lib/games';
 import { nativeKeybinds, setRecording } from '../lib/keybinds';
-import { ACTIONS, comboParts, keyFromEvent, keyFromMouse, modifierOf, modsFromEvent, modsLabel, sameCombo, type Combo, type KeyAction, type Keybind } from '../lib/keys';
+import {
+  ACTIONS,
+  comboParts,
+  keyFromEvent,
+  keyFromMouse,
+  modifierOf,
+  modsFromEvent,
+  modsLabel,
+  sameCombo,
+  type Combo,
+  type KeyAction,
+  type Keybind,
+} from '../lib/keys';
 import { dateLocale, LANGUAGES, msg, plural, systemLang, t, type LangPref } from '../lib/i18n';
 import { isTauri, notify, openExternal } from '../lib/platform';
+import { openPage } from '../lib/route';
 import { prefs, setPrefs, type SoundKind } from '../lib/prefs';
 import { sounds } from '../lib/sounds';
 import { state } from '../lib/store';
@@ -22,7 +55,16 @@ import * as I from './Icons';
 import { formatSize } from './MessageItem';
 import { accentCss } from './Profile';
 
-type Page = 'account' | 'profile' | 'connections' | 'voice' | 'keybinds' | 'games' | 'notifications' | 'language' | 'app';
+type Page =
+  | 'account'
+  | 'profile'
+  | 'connections'
+  | 'voice'
+  | 'keybinds'
+  | 'games'
+  | 'notifications'
+  | 'language'
+  | 'app';
 
 interface AccountStats {
   created_at: string;
@@ -60,10 +102,14 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
     pages: [
       ['voice', msg('Voice & Video'), I.Mic],
       ['keybinds', msg('Keybinds'), I.Keyboard],
-      ...(gameDetectionAvailable ? [['games', msg('Registered Games'), I.Gamepad] as [Page, string, (p: { size?: number }) => JSX.Element]] : []),
+      ...(gameDetectionAvailable
+        ? [['games', msg('Registered Games'), I.Gamepad] as [Page, string, (p: { size?: number }) => JSX.Element]]
+        : []),
       ['notifications', msg('Notifications'), I.Bell],
       ['language', msg('Language'), I.Language],
-      ...(isTauri ? [['app', msg('Desktop App'), I.AppIcon] as [Page, string, (p: { size?: number }) => JSX.Element]] : []),
+      ...(isTauri
+        ? [['app', msg('Desktop App'), I.AppIcon] as [Page, string, (p: { size?: number }) => JSX.Element]]
+        : []),
     ],
   },
 ];
@@ -81,7 +127,15 @@ const TITLES: Record<Page, string> = {
 };
 
 export function Settings(p: { tab?: string }) {
-  const legacy: Record<string, Page> = { connections: 'connections', profile: 'profile', voice: 'voice', keybinds: 'keybinds', notifications: 'notifications', language: 'language', app: 'app' };
+  const legacy: Record<string, Page> = {
+    connections: 'connections',
+    profile: 'profile',
+    voice: 'voice',
+    keybinds: 'keybinds',
+    notifications: 'notifications',
+    language: 'language',
+    app: 'app',
+  };
   const [page, setPage] = createSignal<Page>(legacy[p.tab ?? ''] ?? 'account');
   // Phones show the page list first, then one page at a time.
   const [navOpen, setNavOpen] = createSignal(isMobile() && !p.tab);
@@ -124,7 +178,10 @@ export function Settings(p: { tab?: string }) {
             <I.Logout size={17} /> {t('Log Out')}
           </button>
           <div class="settings-version">
-            Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'}
+            Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'} ·{' '}
+            <button class="settings-link" onClick={() => (close(), openPage('changelog'))}>
+              {t('Patch notes')}
+            </button>
           </div>
           <div class="settings-version">
             {t('Emoji by')}{' '}
@@ -151,7 +208,11 @@ export function Settings(p: { tab?: string }) {
               <ProfilePage />
             </Match>
             <Match when={page() === 'connections'}>
-              <ConnectionsPage connections={connections() ?? []} loading={connections.loading} refetch={refetchConnections} />
+              <ConnectionsPage
+                connections={connections() ?? []}
+                loading={connections.loading}
+                refetch={refetchConnections}
+              />
             </Match>
             <Match when={page() === 'voice'}>
               <VoicePage onKeybinds={() => open('keybinds')} />
@@ -188,7 +249,9 @@ export function Settings(p: { tab?: string }) {
 
 /** Discord's Connections page: link Spotify to show what you're listening to. */
 function ConnectionsPage(p: { connections: Connection[]; loading: boolean; refetch: () => void }) {
-  const [config] = createResource(() => api<{ spotify?: boolean }>('GET', '/auth/config').catch(() => ({ spotify: false })));
+  const [config] = createResource(() =>
+    api<{ spotify?: boolean }>('GET', '/auth/config').catch(() => ({ spotify: false })),
+  );
   const spotify = () => p.connections.find((c) => c.type === 'spotify');
   const [waiting, setWaiting] = createSignal(false);
   const connect = async () => {
@@ -206,10 +269,14 @@ function ConnectionsPage(p: { connections: Connection[]; loading: boolean; refet
     }
   };
   createEffect(() => spotify() && setWaiting(false));
-  const patch = (body: Partial<Connection>) => attempt(async () => (await api('PATCH', '/users/@me/connections/spotify', body), p.refetch()));
+  const patch = (body: Partial<Connection>) =>
+    attempt(async () => (await api('PATCH', '/users/@me/connections/spotify', body), p.refetch()));
   return (
     <>
-      <Section title={t('Add accounts to your profile')} description={t('Linked accounts can show on your profile and as your status, like what you are listening to.')}>
+      <Section
+        title={t('Add accounts to your profile')}
+        description={t('Linked accounts can show on your profile and as your status, like what you are listening to.')}
+      >
         <div class="conn-services">
           <button
             class="conn-service"
@@ -238,20 +305,31 @@ function ConnectionsPage(p: { connections: Connection[]; loading: boolean; refet
                 class="icon-btn"
                 aria-label={t('Disconnect Spotify')}
                 data-tip={t('Disconnect')}
-                onClick={() => void attempt(async () => (await api('DELETE', '/users/@me/connections/spotify'), p.refetch()), t('Spotify disconnected'))}
+                onClick={() =>
+                  void attempt(
+                    async () => (await api('DELETE', '/users/@me/connections/spotify'), p.refetch()),
+                    t('Spotify disconnected'),
+                  )
+                }
               >
                 <I.Close size={18} />
               </button>
             </div>
             <Show when={c().revoked}>
               <div class="notice row">
-                <span class="grow">{t('Linkord lost access to this Spotify account. Reconnect to show what you are listening to.')}</span>
+                <span class="grow">
+                  {t('Linkord lost access to this Spotify account. Reconnect to show what you are listening to.')}
+                </span>
                 <button class="btn small-btn" onClick={() => void connect()}>
                   {t('Reconnect')}
                 </button>
               </div>
             </Show>
-            <SwitchRow label={t('Display on profile')} checked={!!c().show_on_profile} onChange={(v) => void patch({ show_on_profile: v })} />
+            <SwitchRow
+              label={t('Display on profile')}
+              checked={!!c().show_on_profile}
+              onChange={(v) => void patch({ show_on_profile: v })}
+            />
             <SwitchRow
               label={t('Display Spotify as your status')}
               hint={t('Shows the song you are playing on your profile and under your name while you are online.')}
@@ -279,7 +357,14 @@ function Section(p: { title: string; description?: string; children: JSX.Element
   );
 }
 
-function SwitchRow(p: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; extra?: JSX.Element }) {
+function SwitchRow(p: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  extra?: JSX.Element;
+}) {
   return (
     <label class="set-row" classList={{ disabled: p.disabled }}>
       <span class="set-row-text">
@@ -289,7 +374,13 @@ function SwitchRow(p: { label: string; hint?: string; checked: boolean; onChange
         </Show>
       </span>
       {p.extra}
-      <input type="checkbox" class="switch" checked={p.checked} disabled={p.disabled} onChange={(e) => p.onChange(e.currentTarget.checked)} />
+      <input
+        type="checkbox"
+        class="switch"
+        checked={p.checked}
+        disabled={p.disabled}
+        onChange={(e) => p.onChange(e.currentTarget.checked)}
+      />
     </label>
   );
 }
@@ -373,10 +464,17 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
 
       <StatsSection />
 
-      <Section title={t('Connections')} description={t('Discord is how you sign in. Your Linkord profile started as a copy of your Discord profile.')}>
+      <Section
+        title={t('Connections')}
+        description={t('Discord is how you sign in. Your Linkord profile started as a copy of your Discord profile.')}
+      >
         <Show
           when={p.discord}
-          fallback={<div class="set-card muted small">{p.loading ? t('Loading…') : t('No Discord account linked (this is a test login).')}</div>}
+          fallback={
+            <div class="set-card muted small">
+              {p.loading ? t('Loading…') : t('No Discord account linked (this is a test login).')}
+            </div>
+          }
         >
           {(d) => (
             <div class="set-card conn-card">
@@ -387,13 +485,24 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
                 <strong>Discord</strong>
                 <div class="muted small">
                   @{d().username ?? t('unknown')} ·{' '}
-                  {t('linked {date}', { date: new Date(d().linked_at).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) })}
+                  {t('linked {date}', {
+                    date: new Date(d().linked_at).toLocaleDateString(dateLocale(), {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    }),
+                  })}
                 </div>
               </div>
               <span class="tag ok">
                 <I.Check size={13} /> {t('Connected')}
               </span>
-              <button class="icon-btn" data-tip={t('Copy Discord ID')} aria-label={t('Copy Discord ID')} onClick={() => navigator.clipboard.writeText(d().id).then(() => toast(t('Discord ID copied')))}>
+              <button
+                class="icon-btn"
+                data-tip={t('Copy Discord ID')}
+                aria-label={t('Copy Discord ID')}
+                onClick={() => navigator.clipboard.writeText(d().id).then(() => toast(t('Discord ID copied')))}
+              >
                 <I.Copy size={16} />
               </button>
             </div>
@@ -425,13 +534,28 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
             <div class="danger-confirm">
               <Show when={owned().length}>
                 <p class="notice">
-                  {plural(owned().length, 'You own a server:', 'You own {n} servers:')} <strong>{owned().map((g) => g.name).join(', ')}</strong>.{' '}
-                  {plural(owned().length, 'Delete it from the server settings first.', 'Delete them from the server settings first.')}
+                  {plural(owned().length, 'You own a server:', 'You own {n} servers:')}{' '}
+                  <strong>
+                    {owned()
+                      .map((g) => g.name)
+                      .join(', ')}
+                  </strong>
+                  .{' '}
+                  {plural(
+                    owned().length,
+                    'Delete it from the server settings first.',
+                    'Delete them from the server settings first.',
+                  )}
                 </p>
               </Show>
               <label class="field">
                 <span>{t('Type your username ({username}) to confirm', { username: me().username })}</span>
-                <input value={typed()} onInput={(e) => setTyped(e.currentTarget.value)} autocomplete="off" spellcheck={false} />
+                <input
+                  value={typed()}
+                  onInput={(e) => setTyped(e.currentTarget.value)}
+                  autocomplete="off"
+                  spellcheck={false}
+                />
               </label>
               <Show when={error()}>
                 <p class="error">{error()}</p>
@@ -440,7 +564,11 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
                 <button class="btn" onClick={() => (setConfirming(false), setTyped(''), setError(''))}>
                   {t('Cancel')}
                 </button>
-                <button class="btn danger" disabled={busy() || typed().trim() !== me().username || owned().length > 0} onClick={() => void remove()}>
+                <button
+                  class="btn danger"
+                  disabled={busy() || typed().trim() !== me().username || owned().length > 0}
+                  onClick={() => void remove()}
+                >
                   {busy() ? t('Deleting…') : t('Delete my account forever')}
                 </button>
               </div>
@@ -468,13 +596,26 @@ function StatsSection() {
       <div class="stat-grid">
         <div class="stat">
           <span class="stat-label">{t('Member since')}</span>
-          <strong>{stats() ? new Date(stats()!.created_at).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'long', day: 'numeric' }) : '…'}</strong>
+          <strong>
+            {stats()
+              ? new Date(stats()!.created_at).toLocaleDateString(dateLocale(), {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })
+              : '…'}
+          </strong>
         </div>
         <div class="stat">
           <span class="stat-label">{t('User ID')}</span>
           <span class="stat-id">
             <code>{id()}</code>
-            <button class="icon-btn tiny" aria-label={t('Copy User ID')} data-tip={t('Copy')} onClick={() => navigator.clipboard.writeText(id()).then(() => toast(t('ID copied')))}>
+            <button
+              class="icon-btn tiny"
+              aria-label={t('Copy User ID')}
+              data-tip={t('Copy')}
+              onClick={() => navigator.clipboard.writeText(id()).then(() => toast(t('ID copied')))}
+            >
               <I.Copy size={14} />
             </button>
           </span>
@@ -505,7 +646,14 @@ function StatsSection() {
         </div>
         <div class="stat">
           <span class="stat-label">{t('Upload space')}</span>
-          <strong>{stats() ? t('{used} of {total}', { used: formatSize(stats()!.upload_bytes), total: formatSize(stats()!.upload_quota) }) : '…'}</strong>
+          <strong>
+            {stats()
+              ? t('{used} of {total}', {
+                  used: formatSize(stats()!.upload_bytes),
+                  total: formatSize(stats()!.upload_quota),
+                })
+              : '…'}
+          </strong>
           <Show when={stats()}>
             {(s) => (
               <div class="stat-bar">
@@ -526,7 +674,11 @@ const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
 function ProfilePage() {
   const me = () => state.users[state.me!.id] ?? state.me!;
-  const saved = () => ({ name: me().display_name ?? '', bio: me().bio, accent: accentCss(me().accent_color) ?? '#2b2d31' });
+  const saved = () => ({
+    name: me().display_name ?? '',
+    bio: me().bio,
+    accent: accentCss(me().accent_color) ?? '#2b2d31',
+  });
   const [name, setName] = createSignal(saved().name);
   const [bio, setBio] = createSignal(saved().bio);
   const [accent, setAccent] = createSignal(saved().accent);
@@ -543,13 +695,21 @@ function ProfilePage() {
     const fd = new FormData();
     fd.append('file', file);
     setUploading(which);
-    await attempt(() => api('POST', `/users/@me/${which}`, fd), t(which === 'avatar' ? 'Avatar updated' : 'Banner updated'));
+    await attempt(
+      () => api('POST', `/users/@me/${which}`, fd),
+      t(which === 'avatar' ? 'Avatar updated' : 'Banner updated'),
+    );
     setUploading(null);
   };
-  const removeImage = (which: 'avatar' | 'banner') => attempt(() => api('DELETE', `/users/@me/${which}`), t(which === 'avatar' ? 'Avatar removed' : 'Banner removed'));
+  const removeImage = (which: 'avatar' | 'banner') =>
+    attempt(() => api('DELETE', `/users/@me/${which}`), t(which === 'avatar' ? 'Avatar removed' : 'Banner removed'));
   const save = async () => {
     setSaving(true);
-    await attempt(() => api('PATCH', '/users/@me', { display_name: name(), bio: bio(), accent_color: parseInt(accent().slice(1), 16) }), t('Profile saved'));
+    await attempt(
+      () =>
+        api('PATCH', '/users/@me', { display_name: name(), bio: bio(), accent_color: parseInt(accent().slice(1), 16) }),
+      t('Profile saved'),
+    );
     setSaving(false);
   };
   const preview = () => ({ ...me(), display_name: name() || null, bio: bio() });
@@ -559,14 +719,25 @@ function ProfilePage() {
       <div class="profile-fields">
         <label class="field">
           <span>{t('Display name')}</span>
-          <input value={name()} onInput={(e) => setName(e.currentTarget.value)} placeholder={me().username} maxLength={32} />
+          <input
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            placeholder={me().username}
+            maxLength={32}
+          />
           <small class="muted">{t('What people see in chat. Leave empty to show your username.')}</small>
         </label>
         <label class="field">
           <span>
             {t('About me')} <em class="counter">{bio().length}/190</em>
           </span>
-          <textarea value={bio()} onInput={(e) => setBio(e.currentTarget.value)} maxLength={190} rows={4} placeholder={t('Say a little about yourself')} />
+          <textarea
+            value={bio()}
+            onInput={(e) => setBio(e.currentTarget.value)}
+            maxLength={190}
+            rows={4}
+            placeholder={t('Say a little about yourself')}
+          />
         </label>
         <div class="field">
           <span>{t('Banner colour')}</span>
@@ -578,12 +749,21 @@ function ProfilePage() {
       <div class="profile-side">
         <div class="field-label">{t('Preview')}</div>
         <div class="profile-preview editable">
-          <label class="edit-banner" style={{ 'background-color': accent() }} classList={{ busy: uploading() === 'banner' }}>
+          <label
+            class="edit-banner"
+            style={{ 'background-color': accent() }}
+            classList={{ busy: uploading() === 'banner' }}
+          >
             <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
             <span class="edit-overlay">
               <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
             </span>
-            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => void upload('banner', e.currentTarget.files?.[0])} />
+            <input
+              type="file"
+              accept={IMAGE_TYPES}
+              hidden
+              onChange={(e) => void upload('banner', e.currentTarget.files?.[0])}
+            />
           </label>
           <label class="edit-avatar profile-avatar" classList={{ busy: uploading() === 'avatar' }}>
             <Avatar user={me()} size={84} />
@@ -591,7 +771,12 @@ function ProfilePage() {
               <I.Photo size={20} />
               <small>{t('Change')}</small>
             </span>
-            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => void upload('avatar', e.currentTarget.files?.[0])} />
+            <input
+              type="file"
+              accept={IMAGE_TYPES}
+              hidden
+              onChange={(e) => void upload('avatar', e.currentTarget.files?.[0])}
+            />
           </label>
           <div class="profile-body">
             <h3>{preview().display_name || me().username}</h3>
@@ -664,7 +849,14 @@ function useMicLevel() {
     stop();
     if (voiceUi.channelId) return;
     navigator.mediaDevices
-      .getUserMedia({ audio: { deviceId: device !== 'default' ? { exact: device } : undefined, noiseSuppression: ns, echoCancellation: ec, autoGainControl: true } })
+      .getUserMedia({
+        audio: {
+          deviceId: device !== 'default' ? { exact: device } : undefined,
+          noiseSuppression: ns,
+          echoCancellation: ec,
+          autoGainControl: true,
+        },
+      })
       .then((s) => {
         stream = s;
         const c = new AudioContext() as AudioContext & { setSinkId?: (id: string) => Promise<void> };
@@ -699,11 +891,14 @@ const toMeter = (rms: number) => Math.max(0, Math.min(1, (20 * Math.log10(Math.m
 const fromMeter = (x: number) => 10 ** ((x * 60 - 60) / 20);
 
 export function useDevices() {
-  const [devices, { refetch }] = createResource(() => navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]));
+  const [devices, { refetch }] = createResource(() =>
+    navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]),
+  );
   const onChange = () => void refetch();
   onMount(() => navigator.mediaDevices?.addEventListener('devicechange', onChange));
   onCleanup(() => navigator.mediaDevices?.removeEventListener('devicechange', onChange));
-  const list = (kind: MediaDeviceKind) => (devices() ?? []).filter((d) => d.kind === kind && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  const list = (kind: MediaDeviceKind) =>
+    (devices() ?? []).filter((d) => d.kind === kind && d.deviceId !== 'default' && d.deviceId !== 'communications');
   return { inputs: () => list('audioinput'), outputs: () => list('audiooutput'), cameras: () => list('videoinput') };
 }
 
@@ -746,7 +941,12 @@ function GamesPage() {
   const add = () => {
     const app = addable().find((a) => a.path === pick());
     if (!app) return;
-    save({ customGames: [...prefs.customGames, { name: app.window!.title.trim().slice(0, 128), path: normalizePath(app.path) }] });
+    save({
+      customGames: [
+        ...prefs.customGames,
+        { name: app.window!.title.trim().slice(0, 128), path: normalizePath(app.path) },
+      ],
+    });
     setPick('');
   };
   return (
@@ -761,7 +961,10 @@ function GamesPage() {
           />
         </div>
       </Section>
-      <Section title={t('Registered Games')} description={t("Linkord detects the games you play. Add one it missed, or remove one you don't want shown.")}>
+      <Section
+        title={t('Registered Games')}
+        description={t("Linkord detects the games you play. Add one it missed, or remove one you don't want shown.")}
+      >
         <div class="now-playing" classList={{ playing: !!currentGame() }}>
           <Show
             when={currentGame()}
@@ -780,7 +983,10 @@ function GamesPage() {
                   <strong>{g().name}</strong>
                 </div>
                 <Show when={g().applicationId}>
-                  <button class="btn ghost small-btn" onClick={() => save({ hiddenGames: [...prefs.hiddenGames, g().applicationId!] })}>
+                  <button
+                    class="btn ghost small-btn"
+                    onClick={() => save({ hiddenGames: [...prefs.hiddenGames, g().applicationId!] })}
+                  >
                     {t('Not a game')}
                   </button>
                 </Show>
@@ -814,12 +1020,18 @@ function GamesPage() {
                       aria-label={t('Game name')}
                       onChange={(e) => {
                         const name = e.currentTarget.value.trim();
-                        if (name) save({ customGames: prefs.customGames.map((x, j) => (j === i() ? { ...x, name } : x)) });
+                        if (name)
+                          save({ customGames: prefs.customGames.map((x, j) => (j === i() ? { ...x, name } : x)) });
                       }}
                     />
                     <small title={g.path}>{g.path.slice(g.path.lastIndexOf('/') + 1)}</small>
                   </span>
-                  <button class="icon-btn" aria-label={t('Remove')} data-tip={t('Remove')} onClick={() => save({ customGames: prefs.customGames.filter((_, j) => j !== i()) })}>
+                  <button
+                    class="icon-btn"
+                    aria-label={t('Remove')}
+                    data-tip={t('Remove')}
+                    onClick={() => save({ customGames: prefs.customGames.filter((_, j) => j !== i()) })}
+                  >
                     <I.Close size={18} />
                   </button>
                 </div>
@@ -833,7 +1045,10 @@ function GamesPage() {
                     <strong>{detectableName(id)}</strong>
                     <small>{t('Not detected')}</small>
                   </span>
-                  <button class="btn ghost small-btn" onClick={() => save({ hiddenGames: prefs.hiddenGames.filter((x) => x !== id) })}>
+                  <button
+                    class="btn ghost small-btn"
+                    onClick={() => save({ hiddenGames: prefs.hiddenGames.filter((x) => x !== id) })}
+                  >
                     {t('Detect again')}
                   </button>
                 </div>
@@ -846,7 +1061,14 @@ function GamesPage() {
   );
 }
 
-function DeviceSelect(p: { label: string; icon: JSX.Element; value: string; devices: MediaDeviceInfo[]; fallback: string; onChange: (id: string) => void }) {
+function DeviceSelect(p: {
+  label: string;
+  icon: JSX.Element;
+  value: string;
+  devices: MediaDeviceInfo[];
+  fallback: string;
+  onChange: (id: string) => void;
+}) {
   return (
     <label class="field device-field">
       <span>{p.label}</span>
@@ -875,11 +1097,15 @@ function VoicePage(p: { onKeybinds: () => void }) {
 
   const [preview, setPreview] = createSignal<MediaStream | null>(null);
   const stopPreview = () => {
-    preview()?.getTracks().forEach((t) => t.stop());
+    preview()
+      ?.getTracks()
+      .forEach((t) => t.stop());
     setPreview(null);
   };
   const startPreview = () =>
-    navigator.mediaDevices.getUserMedia({ video: cameraConstraints() }).then(setPreview, () => toast(t('Could not open that camera')));
+    navigator.mediaDevices
+      .getUserMedia({ video: cameraConstraints() })
+      .then(setPreview, () => toast(t('Could not open that camera')));
   onCleanup(stopPreview);
 
   return (
@@ -887,21 +1113,47 @@ function VoicePage(p: { onKeybinds: () => void }) {
       <Section title={t('Devices')}>
         <div class="set-card">
           <div class="device-grid">
-            <DeviceSelect label={t('Microphone')} icon={<I.Mic size={17} />} value={prefs.inputDevice} devices={inputs()} fallback={t('Microphone')} onChange={(id) => set({ inputDevice: id }, true)} />
-            <DeviceSelect label={t('Speakers')} icon={<I.Headphones size={17} />} value={prefs.outputDevice} devices={outputs()} fallback={t('Speakers')} onChange={(id) => void setOutputDevice(id)} />
+            <DeviceSelect
+              label={t('Microphone')}
+              icon={<I.Mic size={17} />}
+              value={prefs.inputDevice}
+              devices={inputs()}
+              fallback={t('Microphone')}
+              onChange={(id) => set({ inputDevice: id }, true)}
+            />
+            <DeviceSelect
+              label={t('Speakers')}
+              icon={<I.Headphones size={17} />}
+              value={prefs.outputDevice}
+              devices={outputs()}
+              fallback={t('Speakers')}
+              onChange={(id) => void setOutputDevice(id)}
+            />
           </div>
           <div class="mic-test">
             <div class="meter" classList={{ manual: false }}>
-              <div class="meter-fill" classList={{ hot: level() > threshold() }} style={{ width: `${toMeter(level()) * 100}%` }} />
+              <div
+                class="meter-fill"
+                classList={{ hot: level() > threshold() }}
+                style={{ width: `${toMeter(level()) * 100}%` }}
+              />
             </div>
-            <button class="btn" classList={{ primary: monitoring() }} disabled={!!voiceUi.channelId} title={voiceUi.channelId ? t("Leave voice to test your microphone") : undefined} onClick={() => setMonitoring(!monitoring())}>
+            <button
+              class="btn"
+              classList={{ primary: monitoring() }}
+              disabled={!!voiceUi.channelId}
+              title={voiceUi.channelId ? t('Leave voice to test your microphone') : undefined}
+              onClick={() => setMonitoring(!monitoring())}
+            >
               <I.Mic size={16} /> {monitoring() ? t('Stop test') : t('Test microphone')}
             </button>
             <button class="btn" onClick={() => void testOutput(prefs.outputDevice)}>
               <I.Speaker size={16} /> {t('Test speakers')}
             </button>
           </div>
-          <small class="muted">{voiceUi.channelId ? t('Your live mic level in voice.') : t('Talk to see your mic level.')}</small>
+          <small class="muted">
+            {voiceUi.channelId ? t('Your live mic level in voice.') : t('Talk to see your mic level.')}
+          </small>
           <Show when={monitoring()}>
             <small class="muted">{t('You are hearing your own mic. Use headphones to avoid feedback.')}</small>
           </Show>
@@ -910,12 +1162,20 @@ function VoicePage(p: { onKeybinds: () => void }) {
 
       <Section title={t('Input mode')}>
         <div class="choice-grid">
-          <button class="choice" classList={{ active: prefs.inputMode === 'voice' }} onClick={() => set({ inputMode: 'voice' })}>
+          <button
+            class="choice"
+            classList={{ active: prefs.inputMode === 'voice' }}
+            onClick={() => set({ inputMode: 'voice' })}
+          >
             <I.Mic size={22} />
             <strong>{t('Voice Activity')}</strong>
             <small>{t('Your mic opens when you speak.')}</small>
           </button>
-          <button class="choice" classList={{ active: prefs.inputMode === 'ptt' }} onClick={() => set({ inputMode: 'ptt' })}>
+          <button
+            class="choice"
+            classList={{ active: prefs.inputMode === 'ptt' }}
+            onClick={() => set({ inputMode: 'ptt' })}
+          >
             <I.Keyboard size={22} />
             <strong>{t('Push to Talk')}</strong>
             <small>{t('Your mic opens only while you hold a key.')}</small>
@@ -923,10 +1183,18 @@ function VoicePage(p: { onKeybinds: () => void }) {
         </div>
         <Show when={prefs.inputMode === 'voice'}>
           <div class="set-card">
-            <SwitchRow label={t('Automatically determine input sensitivity')} checked={prefs.autoSensitivity} onChange={(v) => set({ autoSensitivity: v })} />
+            <SwitchRow
+              label={t('Automatically determine input sensitivity')}
+              checked={prefs.autoSensitivity}
+              onChange={(v) => set({ autoSensitivity: v })}
+            />
             <Show when={!prefs.autoSensitivity}>
               <div class="meter manual">
-                <div class="meter-fill" classList={{ hot: level() > threshold() }} style={{ width: `${toMeter(level()) * 100}%` }} />
+                <div
+                  class="meter-fill"
+                  classList={{ hot: level() > threshold() }}
+                  style={{ width: `${toMeter(level()) * 100}%` }}
+                />
                 <input
                   type="range"
                   class="meter-range"
@@ -960,8 +1228,18 @@ function VoicePage(p: { onKeybinds: () => void }) {
             </div>
             <label class="field">
               <span>{t('Release delay — {ms} ms', { ms: prefs.pttReleaseDelay })}</span>
-              <input type="range" class="range" min="0" max="1000" step="20" value={prefs.pttReleaseDelay} onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })} />
-              <small class="muted">{t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}</small>
+              <input
+                type="range"
+                class="range"
+                min="0"
+                max="1000"
+                step="20"
+                value={prefs.pttReleaseDelay}
+                onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })}
+              />
+              <small class="muted">
+                {t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}
+              </small>
             </label>
           </div>
         </Show>
@@ -989,7 +1267,12 @@ function VoicePage(p: { onKeybinds: () => void }) {
             ]}
             onChange={(v) => set({ noiseMode: v }, true)}
           />
-          <SwitchRow label={t('Echo cancellation')} hint={t('Stops others hearing themselves when you use speakers.')} checked={prefs.echoCancellation} onChange={(v) => set({ echoCancellation: v }, true)} />
+          <SwitchRow
+            label={t('Echo cancellation')}
+            hint={t('Stops others hearing themselves when you use speakers.')}
+            checked={prefs.echoCancellation}
+            onChange={(v) => set({ echoCancellation: v }, true)}
+          />
         </div>
       </Section>
 
@@ -1132,7 +1415,8 @@ function KeybindsPage() {
     }
     syncVad();
   };
-  const patch = (id: string, change: Partial<Keybind>) => write(binds().map((b) => (b.id === id ? { ...b, ...change } : b)));
+  const patch = (id: string, change: Partial<Keybind>) =>
+    write(binds().map((b) => (b.id === id ? { ...b, ...change } : b)));
   const add = () => {
     const id = Math.random().toString(36).slice(2, 10);
     setFresh(id);
@@ -1147,10 +1431,14 @@ function KeybindsPage() {
           <I.Keyboard size={22} />
         </span>
         <div>
-          <strong>{nativeKeybinds ? t('Keybinds work everywhere') : t('Keybinds work while Linkord is focused')}</strong>
+          <strong>
+            {nativeKeybinds ? t('Keybinds work everywhere') : t('Keybinds work while Linkord is focused')}
+          </strong>
           <p class="muted small">
             {nativeKeybinds
-              ? t('In games, in other apps, with Linkord minimized or closed to the tray. Keys still reach the app you are using.')
+              ? t(
+                  'In games, in other apps, with Linkord minimized or closed to the tray. Keys still reach the app you are using.',
+                )
               : isTauri
                 ? t('Global keybinds are available in the Windows app.')
                 : t('Use the Windows desktop app for keybinds that work in games and other apps.')}{' '}
@@ -1169,7 +1457,10 @@ function KeybindsPage() {
             <div class="kb-row">
               <div class="kb-action">
                 <div class="select-wrap">
-                  <select value={b.action} onChange={(e) => patch(b.id, { action: e.currentTarget.value as KeyAction })}>
+                  <select
+                    value={b.action}
+                    onChange={(e) => patch(b.id, { action: e.currentTarget.value as KeyAction })}
+                  >
                     <For each={Object.entries(ACTIONS)}>{([id, a]) => <option value={id}>{t(a.label)}</option>}</For>
                   </select>
                   <I.Chevron size={16} />
@@ -1177,10 +1468,23 @@ function KeybindsPage() {
                 <small class="muted">{t(ACTIONS[b.action].hint)}</small>
               </div>
               <div class="kb-key">
-                <KeyRecorder combo={b.combo} autoStart={fresh() === b.id} onChange={(c) => (setFresh(null), patch(b.id, { combo: c }))} />
-                <Show when={conflict(b)}>{(o) => <small class="warn">{t('Also used by {action}', { action: t(ACTIONS[o().action].label) })}</small>}</Show>
+                <KeyRecorder
+                  combo={b.combo}
+                  autoStart={fresh() === b.id}
+                  onChange={(c) => (setFresh(null), patch(b.id, { combo: c }))}
+                />
+                <Show when={conflict(b)}>
+                  {(o) => (
+                    <small class="warn">{t('Also used by {action}', { action: t(ACTIONS[o().action].label) })}</small>
+                  )}
+                </Show>
               </div>
-              <button class="icon-btn danger" aria-label={t('Remove keybind')} data-tip={t('Remove')} onClick={() => write(binds().filter((x) => x.id !== b.id))}>
+              <button
+                class="icon-btn danger"
+                aria-label={t('Remove keybind')}
+                data-tip={t('Remove')}
+                onClick={() => write(binds().filter((x) => x.id !== b.id))}
+              >
                 <I.Trash size={17} />
               </button>
             </div>
@@ -1196,8 +1500,18 @@ function KeybindsPage() {
           <div class="set-card">
             <label class="field">
               <span>{t('Release delay — {ms} ms', { ms: prefs.pttReleaseDelay })}</span>
-              <input type="range" class="range" min="0" max="1000" step="20" value={prefs.pttReleaseDelay} onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })} />
-              <small class="muted">{t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}</small>
+              <input
+                type="range"
+                class="range"
+                min="0"
+                max="1000"
+                step="20"
+                value={prefs.pttReleaseDelay}
+                onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })}
+              />
+              <small class="muted">
+                {t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}
+              </small>
             </label>
           </div>
         </Section>
@@ -1213,13 +1527,21 @@ const SOUND_KINDS: [SoundKind, string, string, () => void][] = [
   ['voice', msg('Voice channel'), msg('Joining, leaving, and cameras turning on or off.'), sounds.join],
   ['mute', msg('Mute and deafen'), msg('When you mute, unmute, deafen or undeafen.'), sounds.mute],
   ['ptt', msg('Push to talk'), msg('A click when push to talk opens and closes.'), sounds.pttOn],
-  ['stream', msg('Streams'), msg('Going live, ending a stream, and people starting or stopping watching yours.'), sounds.streamStart],
+  [
+    'stream',
+    msg('Streams'),
+    msg('Going live, ending a stream, and people starting or stopping watching yours.'),
+    sounds.streamStart,
+  ],
 ];
 
 function NotificationsPage() {
   return (
     <>
-      <Section title={t('Desktop notifications')} description={t("Pop-ups for DMs, mentions and replies while Linkord isn't focused.")}>
+      <Section
+        title={t('Desktop notifications')}
+        description={t("Pop-ups for DMs, mentions and replies while Linkord isn't focused.")}
+      >
         <div class="set-card">
           <SwitchRow
             label={t('Enable desktop notifications')}
@@ -1241,7 +1563,12 @@ function NotificationsPage() {
       </Section>
       <Section title={t('Sounds')}>
         <div class="set-card">
-          <SwitchRow label={t('Play sounds')} hint={t('Master switch for every sound below.')} checked={prefs.sounds} onChange={(v) => setPrefs({ sounds: v })} />
+          <SwitchRow
+            label={t('Play sounds')}
+            hint={t('Master switch for every sound below.')}
+            checked={prefs.sounds}
+            onChange={(v) => setPrefs({ sounds: v })}
+          />
           <For each={SOUND_KINDS}>
             {([kind, label, hint, play]) => (
               <SwitchRow
@@ -1270,7 +1597,9 @@ function NotificationsPage() {
         </div>
       </Section>
       <p class="muted small">
-        {t('To silence a server or channel, right-click it and choose Mute. Muted places still notify you when someone @mentions you directly. Do Not Disturb silences everything.')}
+        {t(
+          'To silence a server or channel, right-click it and choose Mute. Muted places still notify you when someone @mentions you directly. Do Not Disturb silences everything.',
+        )}
       </p>
     </>
   );
@@ -1283,9 +1612,14 @@ function LanguagePage() {
     [
       'system',
       t('System default'),
-      t(isTauri ? 'Follows your system language, currently {language}.' : 'Follows your browser language, currently {language}.', {
-        language: LANGUAGES.find((l) => l.id === systemLang())!.name,
-      }),
+      t(
+        isTauri
+          ? 'Follows your system language, currently {language}.'
+          : 'Follows your browser language, currently {language}.',
+        {
+          language: LANGUAGES.find((l) => l.id === systemLang())!.name,
+        },
+      ),
     ],
     ...LANGUAGES.map((l): [LangPref, string, string] => [l.id, l.name, t(l.english)]),
   ];
@@ -1295,7 +1629,12 @@ function LanguagePage() {
         <For each={options()}>
           {([id, name, sub]) => (
             <label class="set-row lang-row">
-              <input type="radio" name="language" checked={prefs.language === id} onChange={() => setPrefs({ language: id })} />
+              <input
+                type="radio"
+                name="language"
+                checked={prefs.language === id}
+                onChange={() => setPrefs({ language: id })}
+              />
               <span class="set-row-text">
                 <strong>{name}</strong>
                 <Show when={sub !== name}>
@@ -1321,7 +1660,9 @@ function AppPage() {
         <div class="set-card">
           <SwitchRow
             label={t('Minimize to tray on close')}
-            hint={t('Closing the window keeps Linkord running in the tray, so you stay in voice and keybinds keep working.')}
+            hint={t(
+              'Closing the window keeps Linkord running in the tray, so you stay in voice and keybinds keep working.',
+            )}
             checked={prefs.closeToTray}
             onChange={(v) => setPrefs({ closeToTray: v })}
           />
@@ -1344,8 +1685,15 @@ function AppPage() {
       <Section title={t('Updates')}>
         <div class="set-card update-card">
           <div class="grow">
-            <strong>Linkord {__APP_VERSION__}</strong>
-            <p class="muted small">{update() ? t('Version {version} is ready to install.', { version: update()!.version }) : t('Updates are checked automatically every 30 minutes.')}</p>
+            <strong>Linkord {__APP_VERSION__}</strong>{' '}
+            <button class="settings-link" onClick={() => (setUi('modal', null), openPage('changelog'))}>
+              {t("See what's new")}
+            </button>
+            <p class="muted small">
+              {update()
+                ? t('Version {version} is ready to install.', { version: update()!.version })
+                : t('Updates are checked automatically every 30 minutes.')}
+            </p>
           </div>
           <Show
             when={update()}

@@ -34,7 +34,12 @@ export function videoPlayer(raw: string, hostname = location.hostname): VideoPla
   const seg = u.pathname.split('/').filter(Boolean);
   const valid = (id: string | null | undefined): id is string => !!id && ID.test(id);
 
-  if (host === 'youtube.com' || host === 'music.youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com') {
+  if (
+    host === 'youtube.com' ||
+    host === 'music.youtube.com' ||
+    host === 'youtu.be' ||
+    host === 'youtube-nocookie.com'
+  ) {
     let id: string | null | undefined;
     let vertical = false;
     if (host === 'youtu.be') id = seg[0];
@@ -56,17 +61,32 @@ export function videoPlayer(raw: string, hostname = location.hostname): VideoPla
     const i = seg.indexOf('video');
     const id = i >= 0 ? seg[i + 1] : seg[0] === 'embed' ? seg.at(-1) : undefined;
     if (!valid(id) || !/^\d+$/.test(id)) return null;
-    return { provider: 'TikTok', src: `https://www.tiktok.com/player/v1/${id}?autoplay=1&rel=0&description=1&music_info=1`, vertical: true, color: '#25f4ee' };
+    return {
+      provider: 'TikTok',
+      src: `https://www.tiktok.com/player/v1/${id}?autoplay=1&rel=0&description=1&music_info=1`,
+      vertical: true,
+      color: '#25f4ee',
+    };
   }
   if (host === 'instagram.com') {
     // Only reels: a /p/ post is usually a photo, and a play button on it would be a lie.
     const i = seg.findIndex((s) => s === 'reel' || s === 'reels' || s === 'tv');
     const id = i >= 0 ? seg[i + 1] : undefined;
     if (!valid(id)) return null;
-    return { provider: 'Instagram', src: `https://www.instagram.com/reel/${id}/embed/`, vertical: true, color: '#e1306c' };
+    return {
+      provider: 'Instagram',
+      src: `https://www.instagram.com/reel/${id}/embed/`,
+      vertical: true,
+      color: '#e1306c',
+    };
   }
   if (host === 'vimeo.com' && /^\d+$/.test(seg[0] ?? '')) {
-    return { provider: 'Vimeo', src: `https://player.vimeo.com/video/${seg[0]}?autoplay=1`, vertical: false, color: '#1ab7ea' };
+    return {
+      provider: 'Vimeo',
+      src: `https://player.vimeo.com/video/${seg[0]}?autoplay=1`,
+      vertical: false,
+      color: '#1ab7ea',
+    };
   }
   if (host === 'twitch.tv' || host === 'clips.twitch.tv') {
     // Twitch refuses to play unless told which site embeds it.
@@ -74,17 +94,29 @@ export function videoPlayer(raw: string, hostname = location.hostname): VideoPla
     const clip = host === 'clips.twitch.tv' ? seg[0] : seg[1] === 'clip' ? seg[2] : undefined;
     let src: string | undefined;
     if (valid(clip)) src = `https://clips.twitch.tv/embed?clip=${clip}&${parent}&autoplay=true`;
-    else if (seg[0] === 'videos' && /^\d+$/.test(seg[1] ?? '')) src = `https://player.twitch.tv/?video=${seg[1]}&${parent}&autoplay=true`;
-    else if (seg.length === 1 && /^\w{3,25}$/.test(seg[0])) src = `https://player.twitch.tv/?channel=${seg[0]}&${parent}&autoplay=true`;
+    else if (seg[0] === 'videos' && /^\d+$/.test(seg[1] ?? ''))
+      src = `https://player.twitch.tv/?video=${seg[1]}&${parent}&autoplay=true`;
+    else if (seg.length === 1 && /^\w{3,25}$/.test(seg[0]))
+      src = `https://player.twitch.tv/?channel=${seg[0]}&${parent}&autoplay=true`;
     return src ? { provider: 'Twitch', src, vertical: false, color: '#9146ff' } : null;
   }
   if (host === 'streamable.com' && seg.length === 1 && valid(seg[0])) {
-    return { provider: 'Streamable', src: `https://streamable.com/e/${seg[0]}?autoplay=1`, vertical: false, color: '#0f90fa' };
+    return {
+      provider: 'Streamable',
+      src: `https://streamable.com/e/${seg[0]}?autoplay=1`,
+      vertical: false,
+      color: '#0f90fa',
+    };
   }
   if (host === 'dailymotion.com' || host === 'dai.ly') {
     const id = host === 'dai.ly' ? seg[0] : seg[0] === 'video' ? seg[1] : undefined;
     if (!valid(id)) return null;
-    return { provider: 'Dailymotion', src: `https://www.dailymotion.com/embed/video/${id}?autoplay=1`, vertical: false, color: '#0a0aff' };
+    return {
+      provider: 'Dailymotion',
+      src: `https://www.dailymotion.com/embed/video/${id}?autoplay=1`,
+      vertical: false,
+      color: '#0a0aff',
+    };
   }
   return null;
 }
