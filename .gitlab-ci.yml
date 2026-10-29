@@ -32,12 +32,21 @@ test:
     BUN_INSTALL_CACHE_DIR: $CI_PROJECT_DIR/.bun-cache
     PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.playwright
     DATA: /tmp/linkord-data
+    # No incremental state and only line tables: faster cold builds and a much smaller target/ to cache.
+    CARGO_INCREMENTAL: "0"
+    CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  # One cache per toolchain, so a JS lockfile change keeps the Rust build (unchanged caches aren't re-uploaded).
+  # Saved after failures too, or every failing run rebuilds the Rust deps and downloads Chromium again.
   cache:
-    key:
-      files: [server/Cargo.lock, app/bun.lock]
-    # Also after a failure, or every failing run rebuilds the Rust deps and downloads Chromium again.
-    when: always
-    paths: [.cargo/registry, .cargo/git, server/target, .bun-cache, .playwright]
+    - key: { prefix: cargo, files: [server/Cargo.lock] }
+      paths: [.cargo/registry, server/target]
+      when: always
+    - key: { prefix: bun, files: [app/bun.lock] }
+      paths: [.bun-cache]
+      when: always
+    - key: { prefix: playwright, files: [tests/package-lock.json] }
+      paths: [.playwright]
+      when: always
   before_script:
     # ffmpeg: the server remuxes voice messages to Ogg with it (the UI test checks for .ogg)
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs ffmpeg
