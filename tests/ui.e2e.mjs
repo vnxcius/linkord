@@ -92,7 +92,8 @@ await step('second user joins with an invite', async () => {
   await a.page.waitForFunction(() => document.querySelector('.copy-row input')?.value.includes('/invite/'));
   const link = await a.page.inputValue('.copy-row input');
   await a.page.keyboard.press('Escape');
-  await a.page.click('.modal-close').catch(() => {});
+  // Escape usually closed it already; don't sit out the 30 s default waiting for the button.
+  await a.page.click('.modal-close', { timeout: 1000 }).catch(() => {});
   await b.page.click('[aria-label="Add a server"]');
   await b.page.fill('.modal form:nth-of-type(2) input', link);
   await b.page.click('.modal form:nth-of-type(2) button');
@@ -181,7 +182,8 @@ await step('chat: sending jumps to the bottom, reply/edit/upload focus the compo
 
   await tall.hover();
   await tall.locator('[data-tip="Edit"]').click();
-  await pg.waitForSelector('.edit-box textarea');
+  // The edit box takes focus a tick after it appears; Escape before that never reaches it.
+  await pg.waitForFunction(() => document.activeElement?.closest('.edit-box'));
   await pg.keyboard.press('Escape');
   assert.ok(await composerFocused(), 'cancelling an edit should focus the composer');
   assert.equal(await pg.locator('.edit-box').count(), 0);

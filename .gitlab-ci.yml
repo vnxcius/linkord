@@ -19,6 +19,8 @@ workflow:
 test:
   stage: test
   image: rust:1-trixie
+  # A newer push cancels this run instead of letting both finish.
+  interruptible: true
   services:
     - name: postgres:16-alpine
       alias: postgres
@@ -33,15 +35,20 @@ test:
   cache:
     key:
       files: [server/Cargo.lock, app/bun.lock]
+    # Also after a failure, or every failing run rebuilds the Rust deps and downloads Chromium again.
+    when: always
     paths: [.cargo/registry, .cargo/git, server/target, .bun-cache, .playwright]
   before_script:
-    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs
-    - npm i -g bun@1
+    # ffmpeg: the server remuxes voice messages to Ogg with it (the UI test checks for .ogg)
+    - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs ffmpeg
   script:
+    # Cheapest checks first, so a broken translation fails in seconds instead of after the Rust build.
+    - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs)
+    - npm i -g bun@1
     - (cd app && bun install --frozen-lockfile && bun run build)
     - (cd server && cargo test && cargo build)
-    - (cd tests && npm ci && npx -y playwright@1 install --with-deps chromium)
-    - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs)
+    # The installed playwright-core picks the matching browser; the headless shell isn't used.
+    - (cd tests && npm ci && npx playwright-core install --with-deps --no-shell chromium)
     # Throwaway server, same settings as tests/run-local.sh
     - mkdir -p "$DATA"
     - node tests/spotify-mock.mjs 7702 &
@@ -61,7 +68,7 @@ test:
     - export LINKORD_TEST_URL=http://localhost:7701 LINKORD_TEST_DATA_DIR="$DATA"
     - export CHROMIUM=$(ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome | tail -1)
     - node --test --test-timeout=20000 api.test.mjs
-    - node ui.e2e.mjs
+    - E2E_FAILFAST=1 node ui.e2e.mjs
   after_script:
     - '[ "$CI_JOB_STATUS" = success ] || cat /tmp/linkord-data/server.log'
 
