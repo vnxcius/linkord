@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
 const run = Math.random().toString(36).slice(2, 7);
@@ -319,6 +320,72 @@ test('avatar and banner can be removed', async () => {
   fd.append('file', new Blob([png], { type: 'image/png' }), 'b.png');
   assert.ok((await ok(member.token, 'POST', '/users/@me/banner', fd)).banner);
   assert.equal((await ok(member.token, 'DELETE', '/users/@me/banner')).banner, null);
+});
+
+test('avatar history keeps the last 8 uploads, restores one, and ignores banners', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+  const send = (which) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([png], { type: 'image/png' }), 'a.png');
+    return ok(member.token, 'POST', `/users/@me/${which}`, fd);
+  };
+  await send('banner');
+  const first = (await send('avatar')).avatar;
+  for (let i = 0; i < 9; i++) await send('avatar');
+  const list = await ok(member.token, 'GET', '/users/@me/avatars');
+  assert.equal(list.length, 8);
+  assert.ok(!list.includes(first), 'the oldest picture is dropped');
+  const old = list[7];
+  assert.equal((await ok(member.token, 'PUT', '/users/@me/avatar', { url: old })).avatar, old);
+  assert.equal((await ok(member.token, 'GET', '/users/@me/avatars'))[0], old);
+  const bad = await fetch(`${BASE}/api/users/@me/avatar`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${member.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ url: first }),
+  });
+  assert.equal(bad.status, 400);
+  await ok(member.token, 'DELETE', '/users/@me/banner');
+});
+
+test('nameplates: defaults come from the server folder, can be picked, uploaded and removed', async () => {
+  const defaults = await ok(member.token, 'GET', '/nameplates');
+  assert.ok(defaults.length >= 1 && defaults.every((u) => u.startsWith('/nameplates/')));
+  assert.equal((await ok(member.token, 'PUT', '/users/@me/nameplate', { url: defaults[0] })).nameplate, defaults[0]);
+  assert.equal((await fetch(`${BASE}${defaults[0]}`)).status, 200);
+  const res = await fetch(`${BASE}/api/users/@me/nameplate`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${member.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ url: '/nameplates/../../etc/passwd' }),
+  });
+  assert.equal(res.status, 400);
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+  const fd = new FormData();
+  fd.append('file', new Blob([png], { type: 'image/png' }), 'n.png');
+  assert.match((await ok(member.token, 'POST', '/users/@me/nameplate', fd)).nameplate, /^\/uploads\/nameplates\//);
+  assert.equal((await ok(member.token, 'DELETE', '/users/@me/nameplate')).nameplate, null);
+});
+
+test('nameplates: WebM videos work as defaults and uploads; a fake WebM is refused', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const webm = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0xe3b341:s=132x24:d=1', '-c:v', 'libvpx-vp9', '-f', 'webm', 'pipe:1']);
+  fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'zz-shimmer.webm'), webm);
+  const defaults = await ok(member.token, 'GET', '/nameplates');
+  assert.equal(defaults.at(-1), '/nameplates/zz-shimmer.webm');
+  const served = await fetch(`${BASE}/nameplates/zz-shimmer.webm`);
+  assert.equal(served.headers.get('content-type'), 'video/webm');
+  assert.equal((await ok(member.token, 'PUT', '/users/@me/nameplate', { url: '/nameplates/zz-shimmer.webm' })).nameplate, '/nameplates/zz-shimmer.webm');
+
+  // Uploaded ones are saved as .webm whatever the file was called, so every client knows to play them.
+  const fd = new FormData();
+  fd.append('file', new Blob([webm], { type: 'video/webm' }), 'loop.png');
+  assert.match((await ok(member.token, 'POST', '/users/@me/nameplate', fd)).nameplate, /^\/uploads\/nameplates\/.+\/nameplate\.webm$/);
+  const fake = new FormData();
+  fake.append('file', new Blob(['not a video'], { type: 'video/webm' }), 'fake.webm');
+  assert.equal((await call(member.token, 'POST', '/users/@me/nameplate', fake)).body.error, "that file isn't a WebM video");
+  // Only nameplates can be videos.
+  const avatar = new FormData();
+  avatar.append('file', new Blob([webm], { type: 'video/webm' }), 'a.webm');
+  assert.equal((await call(member.token, 'POST', '/users/@me/avatar', avatar)).status, 400);
+  await ok(member.token, 'DELETE', '/users/@me/nameplate');
 });
 
 test('deleting an account leaves servers and friendships, keeps messages, unlinks the login', async () => {
@@ -786,4 +853,329 @@ test('direct access (skips Cloudflare): client IP from the connection, not heade
   };
   assert.equal(await authUrl(BASE), 'http://localhost:7701/api/connections/spotify/callback');
   assert.equal(await authUrl(DIRECT), 'http://localhost:7703/api/connections/spotify/callback');
+});
+
+test('Kass, the music bot: /play joins your voice channel and streams music; queue, remove, repeat, pause, skip and stop', { skip: !process.env.LINKORD_TEST_DATA_DIR, timeout: 60000 }, async () => {
+  // run-local.sh points LINKORD_YTDLP at tests/ytdlp-mock.sh: every "video" is 8 s of a tone.
+  const voiceCh = guild.channels.find((c) => c.kind === 2);
+  const cmd = (u, name, query = '') => call(u.token, 'POST', `/channels/${general.id}/commands`, { name, query });
+  const watch = await gateway(owner.token);
+  const packets = [];
+  let ws;
+  try {
+    assert.equal((await cmd(outsider, 'play', 'x')).status, 404);
+    assert.equal((await cmd(member, 'play', 'some song')).body.error, 'join a voice channel first');
+
+    ws = await new Promise((resolve, reject) => {
+      const s = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/connect`);
+      s.binaryType = 'arraybuffer';
+      s.onopen = () => s.send(JSON.stringify({ token: member.token, channel_id: voiceCh.id }));
+      s.onmessage = (e) => {
+        if (typeof e.data === 'string') return JSON.parse(e.data).op === 'ready' && resolve(s);
+        const v = new DataView(e.data);
+        packets.push({ kind: v.getUint8(0), from: v.getBigUint64(1).toString(), at: Date.now() });
+      };
+      s.onerror = reject;
+    });
+    assert.equal((await cmd(member, 'play', 'https://example.com/song.mp3')).body.error, 'only YouTube and Spotify links can be played');
+    assert.equal((await cmd(member, 'play', 'nothing at all')).body.error, "couldn't find that video");
+    assert.equal((await cmd(member, 'play', '   ')).status, 400);
+
+    const first = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'play', query: 'https://youtu.be/x?v=one' });
+    assert.ok(first.author.bot);
+    assert.equal(first.author.username, 'kass');
+    assert.equal(first.interaction.name, 'play');
+    assert.equal(first.interaction.user.id, member.id);
+    assert.equal(first.embeds[0].type, 'rich');
+    assert.equal(first.embeds[0].site_name, 'Now playing');
+    assert.equal(first.embeds[0].title, 'Mock Song one');
+    const bot = first.author.id;
+
+    // Kass becomes a member of the server, joins the member's channel (deafened) and his music arrives as kind 5.
+    await until(() => watch.events.some((e) => e.t === 'GUILD_MEMBER_ADD' && e.d.member.user.id === bot));
+    const botState = await until(() => watch.events.filter((e) => e.t === 'VOICE_STATE_UPDATE' && e.d.user_id === bot).pop()?.d);
+    assert.equal(botState.channel_id, voiceCh.id);
+    assert.ok(botState.self_deaf);
+    await until(() => packets.filter((p) => p.kind === 5 && p.from === bot).length >= 10);
+    // Paced in real time: ~50 packets a second, not the whole song at once.
+    const music = () => packets.filter((p) => p.kind === 5);
+    assert.ok(music().length < 40, `${music().length} packets right after starting`);
+    const presence = (await gateway(owner.token).then((g) => (g.ws.close(), g.first.d))).presences;
+    assert.equal(presence[bot], 'online');
+
+    const queued = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'play', query: 'never gonna' });
+    assert.equal(queued.embeds[0].site_name, 'Queued · #1');
+    assert.equal(queued.embeds[0].title, 'Mock Song search');
+    const q = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' });
+    assert.match(q.content, /\*\*Now playing:\*\* \[Mock Song one\]/);
+    assert.match(q.content, /`1\.` \[Mock Song search\]/);
+
+    // /remove takes a song out of the queue by its number in /queue or by part of its name.
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'play', query: 'https://youtu.be/x?v=two' });
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'play', query: 'https://youtu.be/x?v=three' });
+    assert.equal((await cmd(member, 'remove', '4')).body.error, 'no song with that number in the queue');
+    assert.equal((await cmd(member, 'remove', 'zzz')).body.error, 'no song in the queue matches that');
+    assert.equal((await cmd(member, 'remove')).body.error, 'tell me which song to remove: its number in /queue or part of its name');
+    assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'remove', query: '3' })).content, 'Removed **Mock Song three** from the queue');
+    assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'remove', query: 'SONG TWO' })).content, 'Removed **Mock Song two** from the queue');
+    const left = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' });
+    assert.doesNotMatch(left.content, /Mock Song (two|three)/);
+    assert.match(left.content, /`1\.` \[Mock Song search\]/);
+
+    // Only people in Kass's channel control him.
+    assert.equal((await cmd(owner, 'skip')).body.error, "join Kass's voice channel first");
+
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'pause' });
+    assert.equal((await cmd(member, 'pause')).body.error, 'already paused');
+    await new Promise((r) => setTimeout(r, 150));
+    const paused = music().length;
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(music().length - paused <= 1, 'no music while paused');
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'resume' });
+    await until(() => music().length > paused + 5);
+
+    const skipped = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'skip' });
+    assert.equal(skipped.content, 'Skipped **Mock Song one**');
+    // The queued song starts with its own "Now playing", credited to whoever asked for it.
+    const next = await until(() =>
+      watch.events.find((e) => e.t === 'MESSAGE_CREATE' && e.d.author.id === bot && e.d.embeds[0]?.title === 'Mock Song search' && e.d.embeds[0].site_name === 'Now playing'),
+    );
+    assert.equal(next.d.interaction.user.id, member.id);
+
+    // /repeat on its own repeats the current song: it plays past its end with no new "Now playing" and /queue says so.
+    assert.equal((await cmd(member, 'repeat', 'sometimes')).body.error, 'repeat takes song, queue or off');
+    const started = music().length;
+    const nowPlaying = () => watch.events.filter((e) => e.t === 'MESSAGE_CREATE' && e.d.author.id === bot && e.d.embeds[0]?.site_name === 'Now playing').length;
+    const announced = nowPlaying();
+    assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'repeat' })).content, 'Repeating **Mock Song search**');
+    assert.match((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' })).content, /\*\*Repeating\*\* this song/);
+    await until(() => music().length > started + 450, 15000); // past the 8 s song
+    assert.equal(nowPlaying(), announced);
+    assert.match((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' })).content, /Now playing:\*\* \[Mock Song search\]/);
+    // Repeating the queue: a skipped song goes to the back and comes round again (here, right away: it's alone).
+    assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'repeat', query: 'queue' })).content, 'Repeating the queue');
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'skip' });
+    await until(() => nowPlaying() === announced + 1);
+    assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'repeat', query: 'off' })).content, 'Stopped repeating');
+
+    const stopped = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'stop' });
+    assert.match(stopped.content, /Stopped/);
+    await until(() => watch.events.filter((e) => e.t === 'VOICE_STATE_UPDATE' && e.d.user_id === bot).pop()?.d.channel_id === null);
+    const history = await ok(member.token, 'GET', `/channels/${general.id}/messages`);
+    assert.equal(history.find((m) => m.id === first.id).interaction.user.id, member.id, 'interactions are stored');
+
+    // YouTube refusing the download (e.g. its bot check) is reported in the channel.
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'play', query: 'https://www.youtube.com/watch?v=broken' });
+    await until(() => watch.events.find((e) => e.t === 'MESSAGE_CREATE' && e.d.author.id === bot && /^Couldn't play \*\*Mock Song broken\*\*/.test(e.d.content)));
+    await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'stop' });
+  } finally {
+    ws?.close();
+    watch.ws.close();
+  }
+});
+
+/** Joins a voice channel (or DM call) over the voice socket; resolves once the server says ready. */
+function voiceJoin(u, channelId, onText) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/connect`);
+    ws.onopen = () => ws.send(JSON.stringify({ token: u.token, channel_id: channelId }));
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      const m = JSON.parse(e.data);
+      if (m.op === 'ready') resolve(ws);
+      else onText?.(m);
+    };
+    ws.onerror = reject;
+    ws.onclose = (e) => reject(new Error(`closed ${e.code}`));
+  });
+}
+
+test('system messages: joining a server posts in the first text channel; pinning posts a "pinned" message', async () => {
+  const g = await ok(owner.token, 'POST', '/guilds', { name: `Sys ${run}` });
+  const text = g.channels.find((c) => c.kind === 0);
+  const inv = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(member.token, 'POST', `/invites/${inv.code}`);
+  const msgs = await ok(owner.token, 'GET', `/channels/${text.id}/messages`);
+  const join = msgs.find((m) => m.type === 7);
+  assert.equal(join?.author.id, member.id);
+  const m = await ok(owner.token, 'POST', `/channels/${text.id}/messages`, { content: 'pin me' });
+  await ok(owner.token, 'PUT', `/channels/${text.id}/pins/${m.id}`);
+  await ok(owner.token, 'PUT', `/channels/${text.id}/pins/${m.id}`);
+  const after = await ok(owner.token, 'GET', `/channels/${text.id}/messages`);
+  const pins = after.filter((x) => x.type === 6);
+  assert.equal(pins.length, 1, 'pinning twice posts once');
+  assert.equal(pins[0].reply_to, m.id);
+  assert.equal((await call(owner.token, 'PATCH', `/channels/${text.id}/messages/${pins[0].id}`, { content: 'x' })).status, 400);
+  // Turned off: nothing is posted.
+  await ok(owner.token, 'PATCH', `/guilds/${g.id}`, { join_messages: false });
+  await ok(outsider.token, 'POST', `/invites/${inv.code}`);
+  const last = await ok(owner.token, 'GET', `/channels/${text.id}/messages`);
+  assert.ok(!last.some((x) => x.type === 7 && x.author.id === outsider.id));
+  await ok(owner.token, 'DELETE', `/guilds/${g.id}`);
+});
+
+test('server settings: system channel, AFK channel and timeout are checked', async () => {
+  const voice = guild.channels.find((c) => c.kind === 2);
+  assert.equal((await call(owner.token, 'PATCH', `/guilds/${guild.id}`, { afk_channel_id: general.id })).status, 400);
+  assert.equal((await call(owner.token, 'PATCH', `/guilds/${guild.id}`, { afk_timeout: 7 })).status, 400);
+  const g = await ok(owner.token, 'PATCH', `/guilds/${guild.id}`, { afk_channel_id: voice.id, afk_timeout: 900, system_channel_id: general.id });
+  assert.equal(g.afk_channel_id, voice.id);
+  assert.equal(g.afk_timeout, 900);
+  assert.equal(g.system_channel_id, general.id);
+  const cleared = await ok(owner.token, 'PATCH', `/guilds/${guild.id}`, { afk_channel_id: null, system_channel_id: null });
+  assert.equal(cleared.afk_channel_id, null);
+  assert.equal((await call(member.token, 'PATCH', `/guilds/${guild.id}`, { afk_timeout: 60 })).status, 403);
+});
+
+test('voice channels have their own chat', async () => {
+  const voice = guild.channels.find((c) => c.kind === 2);
+  const m = await ok(member.token, 'POST', `/channels/${voice.id}/messages`, { content: 'in the call chat' });
+  assert.equal(m.channel_id, voice.id);
+});
+
+test('search: everywhere you are, and the mentions/pinned/date filters', async () => {
+  await ok(owner.token, 'POST', `/channels/${general.id}/messages`, { content: `hey <@${member.id}> zebracorn` });
+  const all = await ok(member.token, 'GET', '/users/@me/messages/search?q=zebracorn');
+  assert.ok(all.total >= 1);
+  const mentions = await ok(owner.token, 'GET', `/guilds/${guild.id}/messages/search?mentions=${member.id}`);
+  assert.ok(mentions.messages.every((m) => m.content.includes(`<@${member.id}>`)) && mentions.total >= 1);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  assert.ok((await ok(owner.token, 'GET', `/guilds/${guild.id}/messages/search?q=zebracorn&before=${tomorrow}`)).total >= 1);
+  assert.equal((await ok(owner.token, 'GET', `/guilds/${guild.id}/messages/search?q=zebracorn&after=${tomorrow}`)).total, 0);
+  assert.equal((await ok(owner.token, 'GET', `/guilds/${guild.id}/messages/search?q=zebracorn&pinned=true`)).total, 0);
+  assert.equal((await ok(outsider.token, 'GET', '/users/@me/messages/search?q=zebracorn')).total, 0);
+});
+
+test('notification levels are synced settings', async () => {
+  const s = await ok(member.token, 'PATCH', '/users/@me/settings', {
+    guild_notifications: { [guild.id]: 'mentions' },
+    channel_notifications: { [general.id]: 'all' },
+  });
+  assert.equal(s.guild_notifications[guild.id], 'mentions');
+});
+
+test('logs: only admins can read them, clients can report errors', async () => {
+  assert.equal((await call(owner.token, 'GET', '/admin/logs/days')).status, 403);
+  assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'error', message: 'test error from api tests' })).status, 204);
+  assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'shout', message: 'x' })).status, 400);
+});
+
+test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const defaults = await ok(member.token, 'GET', '/soundboard/default');
+  assert.ok(defaults.some((s) => s.name === 'quack' && s.emoji === '🦆'), JSON.stringify(defaults.slice(0, 2)));
+  const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=1', '-f', 'mp3', 'pipe:1']);
+  const form = () => {
+    const fd = new FormData();
+    fd.append('payload_json', JSON.stringify({ name: 'beep', emoji: '🔔', volume: 0.5 }));
+    fd.append('file', new Blob([mp3], { type: 'audio/mpeg' }), 'beep.mp3');
+    return fd;
+  };
+  assert.equal((await call(member.token, 'POST', `/guilds/${guild.id}/soundboard`, form())).status, 403);
+  const sound = await ok(owner.token, 'POST', `/guilds/${guild.id}/soundboard`, form());
+  assert.equal(sound.volume, 0.5);
+  // A long file is cut: the part you pick (5.2 s at most), and it can be trimmed again later from the original.
+  const long = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=8', '-b:a', '32k', '-f', 'mp3', 'pipe:1']);
+  const lf = new FormData();
+  lf.append('payload_json', JSON.stringify({ name: 'long one', trim_start: 1, trim_end: 4 }));
+  lf.append('file', new Blob([long], { type: 'audio/mpeg' }), 'long.mp3');
+  const cut = await ok(owner.token, 'POST', `/guilds/${guild.id}/soundboard`, lf);
+  assert.equal(cut.trim_start, 1);
+  assert.equal(cut.trim_end, 4);
+  assert.ok(cut.source && cut.source !== cut.url);
+  const lengthOf = (url) =>
+    Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(process.env.LINKORD_TEST_DATA_DIR, 'uploads', url.replace('/uploads/', ''))]).toString());
+  assert.ok(Math.abs(lengthOf(cut.url) - 3) < 0.2, `cut is ${lengthOf(cut.url)} s`);
+  const retrimmed = await ok(owner.token, 'PATCH', `/guilds/${guild.id}/soundboard/${cut.id}`, { trim_start: 6, trim_end: 7.5, volume: 0.3 });
+  assert.notEqual(retrimmed.url, cut.url);
+  assert.equal(retrimmed.volume, 0.3);
+  assert.ok(Math.abs(lengthOf(retrimmed.url) - 1.5) < 0.2);
+  assert.equal((await call(owner.token, 'PATCH', `/guilds/${guild.id}/soundboard/${cut.id}`, { trim_start: 0, trim_end: 7 })).body.error, 'sounds can be at most 5 seconds long');
+  await ok(owner.token, 'DELETE', `/guilds/${guild.id}/soundboard/${cut.id}`);
+  const voice = guild.channels.find((c) => c.kind === 2);
+  const heard = [];
+  const a = await voiceJoin(owner, voice.id);
+  const b = await voiceJoin(member, voice.id, (m) => m.op === 'sound' && heard.push(m));
+  try {
+    a.send(JSON.stringify({ op: 'sound', sound_id: sound.id }));
+    a.send(JSON.stringify({ op: 'sound', sound_id: defaults[0].id }));
+    await until(() => heard.length === 2);
+    assert.equal(heard[0].user_id, owner.id);
+    assert.equal(heard[0].sound.name, 'beep');
+  } finally {
+    a.close();
+    b.close();
+  }
+  await ok(owner.token, 'DELETE', `/guilds/${guild.id}/soundboard/${sound.id}`);
+  assert.equal((await ok(owner.token, 'GET', `/guilds/${guild.id}/soundboard`)).length, 0);
+});
+
+test('watch together: only people in the call start or control it; it ends with the call', async () => {
+  const voice = guild.channels.find((c) => c.kind === 2);
+  const url = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ';
+  assert.equal((await call(owner.token, 'PUT', `/channels/${voice.id}/watch`, { url })).body.error, 'join the call first');
+  const watch = await gateway(member.token);
+  const a = await voiceJoin(owner, voice.id);
+  try {
+    assert.equal((await call(owner.token, 'PUT', `/channels/${voice.id}/watch`, { url: 'https://evil.example/x' })).status, 400);
+    const w = await ok(owner.token, 'PUT', `/channels/${voice.id}/watch`, { url });
+    assert.equal(w.provider, 'youtube');
+    assert.equal(w.media, 'aqz-KE-bpKQ');
+    const paused = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { playing: false, position: 42 });
+    assert.equal(paused.playing, false);
+    assert.equal(paused.position, 42);
+    await until(() => watch.events.some((e) => e.t === 'WATCH_UPDATE' && e.d.watch?.position === 42));
+    // Reaching the end: "ended" for everyone (reported once), until someone plays it again.
+    const ended = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { ended: true, position: 635 });
+    assert.equal(ended.ended, true);
+    assert.equal(ended.playing, false);
+    const again = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { position: 0, playing: true });
+    assert.equal(again.ended, false);
+    assert.equal(again.playing, true);
+  } finally {
+    a.close();
+  }
+  await until(() => watch.events.some((e) => e.t === 'WATCH_UPDATE' && e.d.watch === null));
+  watch.ws.close();
+});
+
+test('DM calls: starting one rings the other person; joining or declining stops it', async () => {
+  const x = await login('callx');
+  const y = await login('cally');
+  await ok(x.token, 'PUT', `/users/@me/relationships/${y.id}`, {});
+  await ok(y.token, 'PUT', `/users/@me/relationships/${x.id}`, {});
+  const dm = await ok(x.token, 'POST', '/users/@me/channels', { recipient_id: y.id });
+  const gw = await gateway(y.token);
+  const ringing = () => gw.events.filter((e) => e.t === 'CALL_UPDATE' && e.d.channel_id === dm.id).pop()?.d.ringing;
+  const a = await voiceJoin(x, dm.id);
+  try {
+    await until(() => ringing()?.includes(y.id));
+    await ok(y.token, 'POST', `/channels/${dm.id}/call/decline`);
+    await until(() => ringing()?.length === 0);
+    await ok(x.token, 'POST', `/channels/${dm.id}/call/ring`, {});
+    await until(() => ringing()?.includes(y.id));
+    const b = await voiceJoin(y, dm.id);
+    await until(() => ringing()?.length === 0);
+    const vs = gw.events.filter((e) => e.t === 'VOICE_STATE_UPDATE' && e.d.user_id === x.id).pop()?.d;
+    assert.equal(vs.guild_id, null);
+    assert.equal(vs.channel_id, dm.id);
+    b.close();
+  } finally {
+    a.close();
+    gw.ws.close();
+  }
+  // Outsiders can't join someone else's DM call.
+  await assert.rejects(voiceJoin(outsider, dm.id), /closed 4004/);
+});
+
+test('group DMs: the owner can hand the group over and remove people', async () => {
+  const [p, q, r] = await Promise.all([login('gp'), login('gq'), login('gr')]);
+  for (const u of [q, r]) {
+    await ok(p.token, 'PUT', `/users/@me/relationships/${u.id}`, {});
+    await ok(u.token, 'PUT', `/users/@me/relationships/${p.id}`, {});
+  }
+  const g = await ok(p.token, 'POST', '/users/@me/channels', { recipients: [q.id, r.id] });
+  assert.equal((await call(q.token, 'PATCH', `/channels/${g.id}`, { owner_id: q.id })).status, 400);
+  assert.equal((await ok(p.token, 'PATCH', `/channels/${g.id}`, { owner_id: q.id })).owner_id, q.id);
+  assert.equal((await call(p.token, 'DELETE', `/channels/${g.id}/recipients/${r.id}`)).status, 403);
+  await ok(q.token, 'DELETE', `/channels/${g.id}/recipients/${r.id}`);
 });

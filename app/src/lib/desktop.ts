@@ -7,7 +7,7 @@ import { msg, t } from './i18n';
 import { initKeybinds } from './keybinds';
 import { isTauri } from './platform';
 import { prefs } from './prefs';
-import { state, totalMentions } from './store';
+import { anyAlert, state, totalMentions } from './store';
 import { voiceUi } from './voice';
 import { initZoom } from './zoom';
 
@@ -48,10 +48,16 @@ function badgePng(count: number): Promise<Uint8Array> {
   g.arc(16, 16, 15, 0, Math.PI * 2);
   g.fill();
   g.fillStyle = '#fff';
+  // No count (only server messages): a white dot, like the server list's badge.
+  if (!count) {
+    g.beginPath();
+    g.arc(16, 16, 6, 0, Math.PI * 2);
+    g.fill();
+  }
   g.font = `bold ${count > 9 ? 16 : 20}px system-ui, sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(count > 99 ? '99+' : String(count), 16, 17);
+  if (count) g.fillText(count > 99 ? '99+' : String(count), 16, 17);
   return new Promise((resolve) =>
     c.toBlob((b) => b!.arrayBuffer().then((a) => resolve(new Uint8Array(a))), 'image/png'),
   );
@@ -78,11 +84,14 @@ export async function initDesktop() {
     createEffect(() => void invoke('set_close_to_tray', { enabled: prefs.closeToTray }).catch(() => {}));
     createEffect(() => void invoke('set_start_minimized', { enabled: prefs.startMinimized }).catch(() => {}));
     createEffect(
-      on(totalMentions, async (count, prev) => {
-        if (isWindows) await win.setOverlayIcon(count ? await badgePng(count) : undefined).catch(() => {});
-        if (count > (prev ?? 0) && !document.hasFocus())
-          await win.requestUserAttention(UserAttentionType.Informational).catch(() => {});
-      }),
+      on(
+        () => [totalMentions(), anyAlert()] as const,
+        async ([count, alert], prev) => {
+          if (isWindows) await win.setOverlayIcon(count || alert ? await badgePng(count) : undefined).catch(() => {});
+          if ((count > (prev?.[0] ?? 0) || (alert && !prev?.[1])) && !document.hasFocus())
+            await win.requestUserAttention(UserAttentionType.Informational).catch(() => {});
+        },
+      ),
     );
   });
 

@@ -1,5 +1,5 @@
-import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
-import { api } from '../lib/api';
+import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from 'solid-js';
+import { api, media } from '../lib/api';
 import {
   currentOrder,
   logout,
@@ -11,12 +11,16 @@ import {
   toggleCategory,
   toggleMuteChannel,
   toggleMuteGuild,
+  openVoiceChat,
+  setChannelNotify,
+  setGuildNotify,
 } from '../lib/actions';
 import { msg, plural, t } from '../lib/i18n';
 import { can, P } from '../lib/perms';
 import { prefs, setPrefs } from '../lib/prefs';
 import {
   activeThreads,
+  channelNumber,
   dmName,
   dmRecipient,
   channelLayout,
@@ -28,9 +32,10 @@ import {
   state,
   voiceMembers,
 } from '../lib/store';
-import type { Channel, Status } from '../lib/types';
+import type { Channel, NotifyLevel, Status } from '../lib/types';
 import { Kind, Rel } from '../lib/types';
-import { attempt, openMenu, openProfile, setUi, type MenuEntry } from '../lib/ui';
+import { attempt, openMenu, openProfile, setUi, ui, type MenuEntry } from '../lib/ui';
+import { openPage } from '../lib/route';
 import {
   canSendVideo,
   joinVoice,
@@ -53,7 +58,12 @@ import { canSetVoiceStatus, editVoiceStatus, VoiceStatusLine } from './VoiceStat
 import { ActivityLine, CustomStatusView, elapsedSince, GameIcon } from './Activity';
 import { clearCustomStatusNow, openCustomStatus } from './CustomStatus';
 import { Avatar } from './Avatar';
+import { SoundboardButton } from './Soundboard';
+import { watches } from '../lib/watch';
+
+const WATCH_SITES = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' } as const;
 import * as I from './Icons';
+import { UserVolumeSlider } from './VolumeControl';
 import { comboLabel } from '../lib/keys';
 import { currentGame, toggleGameStream } from '../lib/games';
 
@@ -67,17 +77,50 @@ export function Sidebar() {
   );
 }
 
-/** Game, voice and your user controls in one floating panel across the bottom of the rail and channel list.
- *  Publishes its height as --dock-h on the nav pane so both columns can scroll clear of it. */
-export function Dock() {
+/**
+ * The server's banner across the top of the left panel: behind the server list and the server name, fading
+ * into the panel at the bottom of the header. Sized to wherever the header ends (the server list can wrap).
+ */
+export function GuildBanner() {
+  const banner = () => (state.view !== '@me' ? media(state.guilds[state.view]?.banner) : undefined);
+  const [height, setHeight] = createSignal(0);
   let el!: HTMLDivElement;
-  onMount(() => {
-    const ro = new ResizeObserver(() => el.parentElement?.style.setProperty('--dock-h', `${el.offsetHeight}px`));
-    ro.observe(el);
-    onCleanup(() => ro.disconnect());
+  const measure = () => {
+    const pane = el?.parentElement;
+    const head = pane?.querySelector('.guild-header');
+    if (pane && head) setHeight(head.getBoundingClientRect().bottom - pane.getBoundingClientRect().top);
+  };
+  const ro = new ResizeObserver(measure);
+  createEffect(() => {
+    if (!banner()) return;
+    queueMicrotask(() => {
+      const pane = el?.parentElement;
+      if (!pane) return;
+      ro.disconnect();
+      ro.observe(pane);
+      pane.querySelectorAll('.rail, .guild-header').forEach((x) => ro.observe(x));
+      measure();
+    });
   });
+  onCleanup(() => ro.disconnect());
   return (
-    <div class="dock" ref={el}>
+    <Show when={banner()}>
+      {(src) => (
+        <div
+          ref={el}
+          class="guild-banner"
+          style={{ height: `${height()}px`, 'background-image': `url("${src()}")` }}
+          aria-hidden="true"
+        />
+      )}
+    </Show>
+  );
+}
+
+/** Game, voice and your user controls, stacked at the bottom of the channel list's panel. */
+export function Dock() {
+  return (
+    <div class="dock">
       <GamePanel />
       <VoicePanel />
       <UserPanel />
@@ -135,6 +178,16 @@ function DmItem(p: { c: Channel }) {
     if (group()) {
       items.push('separator');
       items.push({
+        label: t('Change Group Name'),
+        icon: () => <I.Edit size={16} />,
+        run: () => setUi('modal', { type: 'channel-settings', channelId: p.c.id }),
+      });
+      items.push({
+        label: t('Add Friends to Group'),
+        icon: () => <I.UserPlus size={16} />,
+        run: () => setUi('modal', { type: 'create-group', channelId: p.c.id }),
+      });
+      items.push({
         label: t('Leave Group'),
         danger: true,
         run: () =>
@@ -172,6 +225,11 @@ function DmItem(p: { c: Channel }) {
       </Show>
       <span class="dm-text">
         <span class="dm-name">{dmName(p.c)}</span>
+        <Show when={voiceMembers(p.c.id).length}>
+          <span class="dm-call-icon" title={t('In a call')}>
+            <I.Phone size={14} />
+          </span>
+        </Show>
         <Show when={group()} fallback={<ActivityLine userId={dmRecipient(p.c)?.id ?? ''} />}>
           <span class="dm-sub">{plural(p.c.recipients?.length ?? 0, '{n} member', '{n} members')}</span>
         </Show>
@@ -208,6 +266,9 @@ export function guildMenu(guildId: string): MenuEntry[] {
     icon: () => (state.settings.muted_guilds?.includes(guildId) ? <I.Bell size={16} /> : <I.BellOff size={16} />),
     run: () => attempt(() => toggleMuteGuild(guildId)),
   });
+  items.push(
+    ...notifyItems(state.settings.guild_notifications?.[guildId] ?? 'all', (level) => setGuildNotify(guildId, level)),
+  );
   items.push({
     label: t('Edit Server Profile'),
     icon: () => <I.Edit size={16} />,
@@ -271,16 +332,27 @@ function GuildSidebar(p: { guildId: string }) {
   const g = () => state.guilds[p.guildId];
   const layout = () => channelLayout(p.guildId);
   const muted = () => state.settings.muted_guilds?.includes(p.guildId);
+  const memberIds = () => Object.keys(state.members[p.guildId] ?? {}).filter((id) => state.users[id]);
+  const online = () => memberIds().filter((id) => presenceOf(id) !== 'offline').length;
   return (
     <Show when={g()}>
       <header
         class="sidebar-header guild-header"
+        classList={{ 'has-banner': !!g()!.banner }}
         onClick={(e) => {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           setUi('menu', { x: r.left + 10, y: r.bottom + 4, items: guildMenu(p.guildId) });
         }}
       >
-        <span class="sidebar-title">{g()!.name}</span>
+        <span class="guild-head-text">
+          <span class="sidebar-title">{g()!.name}</span>
+          <span class="guild-counts">
+            <span>
+              <i class="online-dot" /> {t('{n} online', { n: online() })}
+            </span>
+            <span>{plural(memberIds().length, '{n} member', '{n} members')}</span>
+          </span>
+        </span>
         <Show when={muted()}>
           <I.BellOff size={14} class="muted" />
         </Show>
@@ -322,7 +394,14 @@ function dragProps(c: Channel) {
 }
 
 function channelDnd(guildId: string) {
-  const row = (e: DragEvent) => (e.target as HTMLElement).closest<HTMLElement>('[data-channel-id]');
+  // A voice channel's people and status are part of its row: dropping on them works like dropping on it.
+  const block = (e: DragEvent) =>
+    (e.target as HTMLElement).closest<HTMLElement>('.voice-channel') ??
+    (e.target as HTMLElement).closest<HTMLElement>('[data-channel-id]');
+  const row = (e: DragEvent) =>
+    (e.target as HTMLElement).closest<HTMLElement>('[data-channel-id]') ??
+    (e.target as HTMLElement).closest('.voice-channel')?.querySelector<HTMLElement>('[data-channel-id]') ??
+    null;
   const kindOf = (id: string | null) => (id ? state.channels[id]?.kind : undefined);
   const clear = () => {
     setDragging(null);
@@ -346,7 +425,7 @@ function channelDnd(guildId: string) {
       // Categories only go between categories.
       if (draggingCategory && !onCategory) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
+      const r = (block(e) ?? el).getBoundingClientRect();
       const before = e.clientY < r.top + r.height / 2;
       setDropMark({ id: target, before, into: onCategory && !draggingCategory });
     },
@@ -494,6 +573,31 @@ function Category(p: { guildId: string; category: Channel; channels: Channel[] }
   );
 }
 
+const NOTIFY_LEVELS: [NotifyLevel, string][] = [
+  ['all', msg('All Messages')],
+  ['mentions', msg('Only @mentions')],
+  ['none', msg('Nothing')],
+];
+
+/** "Notifications" choices in a server or channel menu; channels can also follow their server (undefined). */
+function notifyItems(
+  current: NotifyLevel | undefined,
+  set: (l: NotifyLevel | undefined) => Promise<unknown>,
+  inherits = false,
+): MenuEntry[] {
+  const choices: [NotifyLevel | undefined, string][] = [...NOTIFY_LEVELS];
+  if (inherits) choices.unshift([undefined, msg('Use Server Default')]);
+  return [
+    'separator',
+    { label: t('Notifications'), render: () => <div class="menu-title">{t('Notifications')}</div> },
+    ...choices.map(([level, label]) => ({
+      label: t(label),
+      checked: current === level,
+      run: () => attempt(() => set(level)),
+    })),
+  ];
+}
+
 function channelMenu(c: Channel): MenuEntry[] {
   const items: MenuEntry[] = [];
   if (c.kind !== Kind.Voice) items.push({ label: t('Mark As Read'), run: () => markRead([c.id]) });
@@ -511,6 +615,10 @@ function channelMenu(c: Channel): MenuEntry[] {
     icon: () => <I.BellOff size={16} />,
     run: () => attempt(() => toggleMuteChannel(c.id)),
   });
+  if (c.kind !== Kind.Voice)
+    items.push(
+      ...notifyItems(state.settings.channel_notifications?.[c.id], (level) => setChannelNotify(c.id, level), true),
+    );
   const manage =
     c.kind === Kind.Thread
       ? c.owner_id === state.me?.id || can(c.guild_id, P.MANAGE_THREADS)
@@ -575,7 +683,7 @@ function TextChannelItem(p: { channel: Channel }) {
         onClick={() => selectChannel(p.channel.id)}
         onContextMenu={(e) => openMenu(e, channelMenu(p.channel))}
       >
-        <I.Hash size={18} class="channel-icon" />
+        <span class="channel-num">{channelNumber(p.channel)}</span>
         <span class="channel-name">{p.channel.name}</span>
         <Show when={state.mentions[p.channel.id]}>
           <span class="badge">{state.mentions[p.channel.id]}</span>
@@ -610,25 +718,35 @@ export function volumeMenu(userId: string): MenuEntry[] {
     {
       label: t('User Volume'),
       render: () => (
-        <label class="volume-slider">
-          <span>
-            {t('User Volume')} <strong>{Math.round(v() * 100)}%</strong>
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.05"
-            value={v()}
-            onInput={(e) => {
-              setV(+e.currentTarget.value);
-              setUserVolume(userId, +e.currentTarget.value);
-            }}
-          />
-        </label>
+        <UserVolumeSlider
+          label={t('User Volume')}
+          value={v()}
+          onChange={(x) => {
+            setV(x);
+            setUserVolume(userId, x);
+          }}
+        />
       ),
     },
     { label: v() === 0 ? t('Unmute') : t('Mute (just for you)'), run: () => setUserVolume(userId, v() === 0 ? 1 : 0) },
+    ...soundboardMenu(userId),
+  ];
+}
+
+/** Your volume for someone's soundboard sounds (0 mutes them), in their right-click menu. */
+function soundboardMenu(userId: string): MenuEntry[] {
+  const [v, setV] = createSignal(prefs.soundboardUserVolumes[userId] ?? 1);
+  const set = (x: number) => {
+    setV(x);
+    setPrefs({ soundboardUserVolumes: { ...prefs.soundboardUserVolumes, [userId]: x } });
+  };
+  return [
+    'separator',
+    {
+      label: t('Soundboard Volume'),
+      render: () => <UserVolumeSlider label={t('Soundboard Volume')} value={v()} onChange={set} />,
+    },
+    { label: t('Mute Soundboard'), checked: v() === 0, run: () => set(v() === 0 ? 1 : 0) },
   ];
 }
 
@@ -643,7 +761,7 @@ function VoiceChannelItem(p: { channel: Channel }) {
     return starts.length ? Math.min(...starts) : connected() ? voiceUi.joinedAt : null;
   };
   return (
-    <div class="voice-channel">
+    <div class="voice-channel" classList={{ occupied: members().length > 0, connected: connected() }}>
       <button
         class="channel-item"
         {...dragProps(p.channel)}
@@ -661,23 +779,58 @@ function VoiceChannelItem(p: { channel: Channel }) {
       >
         <I.Speaker size={18} class="channel-icon" />
         <span class="channel-name">{p.channel.name}</span>
+        <Show when={watches[p.channel.id]}>
+          {(w) => (
+            <span class="watch-badge" title={t('Watching together on {site}', { site: WATCH_SITES[w().provider] })}>
+              <I.Tv size={12} />
+            </span>
+          )}
+        </Show>
+        <span
+          role="button"
+          tabIndex={0}
+          class="voice-chat-btn"
+          classList={{ unread: isUnread(p.channel) && !isMuted(p.channel), open: ui.voiceChat === p.channel.id }}
+          aria-label={t('Open chat')}
+          data-tip={t('Open chat')}
+          onClick={(e) => {
+            e.stopPropagation();
+            openVoiceChat(p.channel.id);
+          }}
+        >
+          <I.ChatBubble size={15} />
+          <Show when={state.mentions[p.channel.id]}>
+            <span class="badge voice-chat-badge">{state.mentions[p.channel.id]}</span>
+          </Show>
+        </span>
         <Show when={callStart()}>{(since) => <CallTimer since={since()} />}</Show>
       </button>
       <VoiceStatusLine channel={p.channel} />
       <For each={members()}>
         {(v) => {
           const u = () => state.users[v.user_id];
+          // A stream you're already looking at: the click opens their card like for anyone else.
+          const showing = () =>
+            state.selected[gid()] === p.channel.id &&
+            (v.user_id === state.me?.id ? voiceUi.focus === `${v.user_id}-screen` : !!voiceUi.watching[v.user_id]);
           return (
             <button
               class="voice-user"
-              title={v.self_stream ? t("Watch {name}'s stream", { name: nameOf(v.user_id, gid()) }) : undefined}
+              title={
+                v.self_stream && !showing() ? t("Watch {name}'s stream", { name: nameOf(v.user_id, gid()) }) : undefined
+              }
               onClick={(e) =>
-                v.self_stream ? void goToStream(p.channel.id, v.user_id) : openProfile(v.user_id, e, gid())
+                v.self_stream && !showing()
+                  ? void goToStream(p.channel.id, v.user_id)
+                  : openProfile(v.user_id, e, gid())
               }
               onContextMenu={(e) => v.user_id !== state.me?.id && openMenu(e, volumeMenu(v.user_id))}
             >
               <Avatar user={u()} size={22} speaking={!!voiceUi.speaking[v.user_id] && !v.self_mute} />
               <span>{nameOf(v.user_id, gid())}</span>
+              <Show when={voiceUi.soundPlaying[v.user_id]}>
+                <span class="sound-mini">{voiceUi.soundPlaying[v.user_id]}</span>
+              </Show>
               <span class="voice-flags">
                 <Show when={v.self_video}>
                   <I.Camera size={14} />
@@ -831,10 +984,12 @@ function VoicePanel() {
               <PingIndicator />
               <div class="voice-status" onClick={() => selectChannel(ch()!.id)}>
                 <strong classList={{ connecting: voiceUi.connecting }}>
-                  {voiceUi.connecting ? t('Connecting…') : t('Voice Connected')}
+                  {voiceUi.connecting ? t('Connecting…') : t('Voice online')}
                 </strong>
                 <span>
-                  {ch()!.name} / {state.guilds[ch()!.guild_id!]?.name}
+                  <Show when={ch()!.guild_id} fallback={dmName(ch()!)}>
+                    {ch()!.name} / {state.guilds[ch()!.guild_id!]?.name}
+                  </Show>
                 </span>
               </div>
               <Show when={prefs.inputMode === 'ptt'}>
@@ -862,6 +1017,7 @@ function VoicePanel() {
         {/* Like Discord: camera and screen share without opening the voice channel. */}
         <Show when={voiceUi.channelId && !voiceUi.connecting}>
           <div class="voice-panel-actions">
+            <SoundboardButton class="panel-btn" label size={18} />
             <Show when={canSendVideo}>
               <button class="panel-btn" classList={{ on: voiceUi.camera }} onClick={() => void toggleCamera()}>
                 <I.Camera size={18} /> {t('Video')}
@@ -985,6 +1141,9 @@ function UserPanel() {
           icon: () => <I.Copy size={16} />,
           run: () => navigator.clipboard.writeText(me().username),
         },
+        ...(state.admin
+          ? [{ label: t('Logs'), icon: () => <I.Tune size={16} />, run: () => openPage('logs') } as MenuEntry]
+          : []),
         { label: t('Log Out'), danger: true, icon: () => <I.Logout size={16} />, run: () => logout() },
       ],
     });

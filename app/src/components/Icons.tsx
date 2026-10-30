@@ -6,6 +6,7 @@ import { splitProps } from 'solid-js';
 import adjustmentsHorizontal from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
 import arrowDownTray from 'heroicons/24/outline/arrow-down-tray.svg?raw';
 import arrowPath from 'heroicons/24/outline/arrow-path.svg?raw';
+import arrowRight from 'heroicons/24/outline/arrow-right.svg?raw';
 import arrowRightStartOnRectangle from 'heroicons/24/outline/arrow-right-start-on-rectangle.svg?raw';
 import arrowTopRightOnSquare from 'heroicons/24/outline/arrow-top-right-on-square.svg?raw';
 import arrowUturnLeft from 'heroicons/24/outline/arrow-uturn-left.svg?raw';
@@ -27,12 +28,14 @@ import computerDesktop from 'heroicons/24/outline/computer-desktop.svg?raw';
 import documentDuplicate from 'heroicons/24/outline/document-duplicate.svg?raw';
 import exclamationTriangle from 'heroicons/24/outline/exclamation-triangle.svg?raw';
 import eye from 'heroicons/24/outline/eye.svg?raw';
+import eyeSlash from 'heroicons/24/outline/eye-slash.svg?raw';
 import faceSmile from 'heroicons/24/outline/face-smile.svg?raw';
 import folder from 'heroicons/24/outline/folder.svg?raw';
 import folderOpen from 'heroicons/24/outline/folder-open.svg?raw';
 import forward from 'heroicons/24/outline/forward.svg?raw';
 import globeAlt from 'heroicons/24/outline/globe-alt.svg?raw';
 import hashtag from 'heroicons/24/outline/hashtag.svg?raw';
+import informationCircle from 'heroicons/24/outline/information-circle.svg?raw';
 import language from 'heroicons/24/outline/language.svg?raw';
 import link from 'heroicons/24/outline/link.svg?raw';
 import lockClosed from 'heroicons/24/outline/lock-closed.svg?raw';
@@ -45,13 +48,17 @@ import pause from 'heroicons/24/outline/pause.svg?raw';
 import pencil from 'heroicons/24/outline/pencil.svg?raw';
 import pencilSquare from 'heroicons/24/outline/pencil-square.svg?raw';
 import phoneXMark from 'heroicons/24/outline/phone-x-mark.svg?raw';
+import phone from 'heroicons/24/outline/phone.svg?raw';
+import tv from 'heroicons/24/outline/tv.svg?raw';
 import photo from 'heroicons/24/outline/photo.svg?raw';
 import play from 'heroicons/24/outline/play.svg?raw';
 import plus from 'heroicons/24/outline/plus.svg?raw';
 import speakerWave from 'heroicons/24/outline/speaker-wave.svg?raw';
 import speakerXMark from 'heroicons/24/outline/speaker-x-mark.svg?raw';
 import speakerWaveSolid from 'heroicons/24/solid/speaker-wave.svg?raw';
+import chatBubbleOvalSolid from 'heroicons/24/solid/chat-bubble-oval-left.svg?raw';
 import star from 'heroicons/24/outline/star.svg?raw';
+import musicalNote from 'heroicons/24/outline/musical-note.svg?raw';
 import stop from 'heroicons/24/outline/stop.svg?raw';
 import trash from 'heroicons/24/outline/trash.svg?raw';
 import userCircle from 'heroicons/24/outline/user-circle.svg?raw';
@@ -113,6 +120,12 @@ const bars = (n: number) =>
 
 export const Hash = hero(hashtag);
 export const Speaker = heroSolid(speakerWaveSolid);
+export const ChatBubble = heroSolid(chatBubbleOvalSolid);
+export const Phone = hero(phone);
+export const Tv = hero(tv);
+export const Music = hero(musicalNote);
+/** Group DM owner: a crown on Heroicons' grid. */
+export const Crown = icon(path('M3.75 18.75h16.5M4.5 15.75 3 6.75l5.25 4.5L12 4.5l3.75 6.75L21 6.75l-1.5 9H4.5Z'));
 export const Mic = hero(microphone);
 export const MicOff = icon(slashed(body(microphone)));
 export const Headphones = icon(headphones);
@@ -126,6 +139,7 @@ export const Edit = hero(pencil);
 export const EditProfile = hero(pencilSquare);
 export const Language = hero(language);
 export const Trash = hero(trash);
+export const Info = hero(informationCircle);
 export const Smile = hero(faceSmile);
 export const Paperclip = hero(paperClip);
 export const Screen = hero(computerDesktop);
@@ -144,6 +158,7 @@ export const Link = hero(link);
 export const Compass = hero(globeAlt);
 export const Logout = hero(arrowRightStartOnRectangle);
 export const Minimize = hero(minus);
+export const Minus = hero(minus);
 export const Maximize = hero(stop);
 const PinIcon = icon(
   path('M9 3.75h6') +
@@ -164,6 +179,7 @@ export const Fullscreen = hero(arrowsPointingOut);
 export const Back = hero(chevronLeft);
 export const At = hero(atSymbol);
 export const Eye = hero(eye);
+export const EyeOff = hero(eyeSlash);
 export const Switch = hero(arrowsRightLeft);
 export const PopOut = icon(
   path(
@@ -208,6 +224,7 @@ export const External = hero(arrowTopRightOnSquare);
 export const EnterFullscreen = hero(arrowsPointingOut);
 export const ExitFullscreen = hero(arrowsPointingIn);
 export const Rejoin = hero(arrowPath);
+export const ArrowRight = hero(arrowRight);
 
 /** The Triforce, in the one accent gold. */
 export function Emblem(p: { size?: number }) {

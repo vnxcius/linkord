@@ -56,6 +56,8 @@ class Playback extends AudioWorkletProcessor {
   private readonly target = Math.round(sampleRate * 0.06);
   private readonly max = Math.round(sampleRate * 0.3);
   private sources = new Map<string, Source>();
+  /** Volumes by source id, kept when a source goes away so a stream watched again keeps its volume. */
+  private gains = new Map<string, number>();
   private worker: MessagePort | null = null;
   /** When on, everything we play is sent back to the worker (reference for removing it from system audio). */
   private captureRef = false;
@@ -85,8 +87,12 @@ class Playback extends AudioWorkletProcessor {
       return;
     }
     if (msg.remove) return void this.sources.delete(msg.id);
+    if (msg.gain !== undefined) this.gains.set(msg.id, msg.gain);
     let s = this.sources.get(msg.id);
-    if (!s) this.sources.set(msg.id, (s = new Source()));
+    if (!s) {
+      this.sources.set(msg.id, (s = new Source()));
+      s.gain = this.gains.get(msg.id) ?? 1;
+    }
     if (msg.gain !== undefined) s.gain = msg.gain;
     if (!msg.pcm) return;
     s.channels = msg.channels ?? 1;

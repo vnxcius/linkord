@@ -1,9 +1,9 @@
 import { createSignal, For, onCleanup, Show } from 'solid-js';
 import { msg, t } from '../lib/i18n';
-import { prefs } from '../lib/prefs';
+import { prefs, setPrefs } from '../lib/prefs';
 import { nameOf, state, voiceMembers } from '../lib/store';
 import type { Channel } from '../lib/types';
-import { openMenu, setUi } from '../lib/ui';
+import { openMenu, setUi, type MenuEntry } from '../lib/ui';
 import {
   canSendVideo,
   joinVoice,
@@ -20,11 +20,19 @@ import {
   voiceUi,
   watchStream,
   setVoiceUi,
+  canPopOut,
+  popOut,
+  closePopOut,
+  switchCamera,
+  updateStreamQuality,
+  type StreamQuality,
 } from '../lib/voice';
 import { Avatar } from './Avatar';
 import * as I from './Icons';
 import { openSwitchSource, volumeMenu } from './Sidebar';
-import { VolumeControl } from './VolumeControl';
+import { UserVolumeSlider, VolumeControl } from './VolumeControl';
+import { SoundboardButton } from './Soundboard';
+import { WatchButton, WatchCard, watchExpanded } from './Watch';
 
 export const canShareScreen = canSendVideo && !!navigator.mediaDevices?.getDisplayMedia;
 
@@ -41,6 +49,8 @@ export function VoiceView(p: { channel: Channel }) {
   const members = () => liveFirst(voiceMembers(p.channel.id));
   const me = () => state.me!.id;
   const gid = () => p.channel.guild_id;
+  /** DM calls: people being rung who haven't picked up. */
+  const ringing = () => (p.channel.guild_id ? [] : (state.calls[p.channel.id] ?? []));
 
   const videos = (): VideoItem[] => {
     const out: VideoItem[] = [];
@@ -69,6 +79,9 @@ export function VoiceView(p: { channel: Channel }) {
         onContextMenu={(e) => v.user_id !== me() && openMenu(e, volumeMenu(v.user_id))}
       >
         <Avatar user={state.users[v.user_id]} size={64} />
+        <Show when={voiceUi.soundPlaying[v.user_id]}>
+          <span class="sound-bubble">{voiceUi.soundPlaying[v.user_id]}</span>
+        </Show>
         <span class="voice-tile-name">
           <span class="name">{nameOf(v.user_id, gid())}</span>
           <Show when={v.self_stream}>
@@ -96,7 +109,8 @@ export function VoiceView(p: { channel: Channel }) {
         keyed
         fallback={
           <div class="voice-stage">
-            <Show when={videos().length}>
+            <WatchCard channelId={p.channel.id} guildId={gid()} />
+            <Show when={videos().length && !watchExpanded(p.channel.id)}>
               <div class="grid-show seg" role="tablist">
                 <For each={GRID_SHOW}>
                   {([id, label]) => (
@@ -107,25 +121,38 @@ export function VoiceView(p: { channel: Channel }) {
                 </For>
               </div>
             </Show>
-            <Show
-              when={voiceUi.gridShow === 'video' && videos().length}
-              fallback={
-                <div class="voice-grid">
-                  <Show when={voiceUi.gridShow !== 'people'}>
-                    <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} />}</For>
-                  </Show>
-                  <Show when={voiceUi.gridShow !== 'video'}>
-                    <For each={members()} fallback={<p class="muted">{t('No one is here yet.')}</p>}>
-                      {(v) => ParticipantTile(v)}
-                    </For>
-                  </Show>
+            <Show when={!watchExpanded(p.channel.id)}>
+              <Show
+                when={voiceUi.gridShow === 'video' && videos().length}
+                fallback={
+                  <div class="voice-grid">
+                    <Show when={voiceUi.gridShow !== 'people'}>
+                      <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} />}</For>
+                    </Show>
+                    <Show when={voiceUi.gridShow !== 'video'}>
+                      <For each={members()} fallback={<p class="muted">{t('No one is here yet.')}</p>}>
+                        {(v) => ParticipantTile(v)}
+                      </For>
+                      <For each={ringing()}>
+                        {(id) => (
+                          <div class="voice-tile ringing">
+                            <Avatar user={state.users[id]} size={64} />
+                            <span class="voice-tile-name">
+                              <span class="name">{nameOf(id, gid())}</span>
+                            </span>
+                            <span class="ringing-label">{t('Calling…')}</span>
+                          </div>
+                        )}
+                      </For>
+                    </Show>
+                  </div>
+                }
+              >
+                {/* Only streams and cameras, sized to fill the stage so several can be watched at once. */}
+                <div class="stream-grid" style={gridSize(videos().length)}>
+                  <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} tiled />}</For>
                 </div>
-              }
-            >
-              {/* Only streams and cameras, sized to fill the stage so several can be watched at once. */}
-              <div class="stream-grid" style={gridSize(videos().length)}>
-                <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} tiled />}</For>
-              </div>
+              </Show>
             </Show>
           </div>
         }
@@ -161,7 +188,7 @@ export function VoiceView(p: { channel: Channel }) {
           when={voiceUi.channelId === p.channel.id}
           fallback={
             <button class="btn primary" onClick={() => void joinVoice(p.channel.id)}>
-              {t('Join voice')}
+              {p.channel.guild_id ? t('Join voice') : t('Join call')}
             </button>
           }
         >
@@ -225,6 +252,10 @@ export function VoiceView(p: { channel: Channel }) {
               </button>
             </Show>
           </Show>
+          <Show when={connected()}>
+            <WatchButton channelId={p.channel.id} />
+          </Show>
+          <SoundboardButton class="round-btn" />
           <button class="round-btn hangup" data-tip={t('Disconnect')} onClick={() => void leaveVoice()}>
             <I.Hangup />
           </button>
@@ -258,50 +289,250 @@ export function viewersOf(userId: string): string[] {
     .map((v) => v.user_id);
 }
 
-/** Floats a stream over other apps (OS picture-in-picture), where the webview supports it. */
-export const canPopOut =
-  typeof document !== 'undefined' &&
-  !!document.pictureInPictureEnabled &&
-  'captureStream' in HTMLCanvasElement.prototype;
-
-export async function popOut(canvas: HTMLCanvasElement | undefined) {
-  if (!canvas) return;
-  const video = document.createElement('video');
-  video.muted = true;
-  video.srcObject = canvas.captureStream(60);
-  await video.play();
-  await video.requestPictureInPicture().catch(() => {});
-  video.addEventListener('leavepictureinpicture', () => (video.srcObject = null), { once: true });
-}
+export { canPopOut, popOut };
 
 export function Viewers(p: { userId: string; guildId?: string | null }) {
   const ids = () => viewersOf(p.userId);
+  const open = (e: MouseEvent) => {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setUi('menu', { x: r.left, y: r.bottom + 6, items: viewerItems(p.userId, p.guildId) });
+  };
   return (
     <Show when={ids().length}>
-      <span
+      <button
         class="viewers"
-        title={t('Watching: {names}', {
-          names: ids()
-            .map((id) => nameOf(id, p.guildId))
-            .join(', '),
-        })}
+        aria-label={t('{n} watching', { n: ids().length })}
+        onClick={open}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <I.Eye size={14} />
         {ids().length}
         <span class="viewer-avatars">
           <For each={ids().slice(0, 4)}>{(id) => <Avatar user={state.users[id]} size={18} />}</For>
         </span>
-      </span>
+      </button>
     </Show>
   );
 }
 
+/** Who's watching a stream, as a menu: a header, then each viewer (click opens their card). */
+export function viewerItems(userId: string, guildId?: string | null): MenuEntry[] {
+  const ids = viewersOf(userId);
+  return [
+    {
+      label: t('Watching'),
+      render: () => <div class="menu-title">{t('Watching — {n}', { n: ids.length })}</div>,
+    },
+    ...ids.map((id) => ({
+      label: nameOf(id, guildId),
+      icon: () => <Avatar user={state.users[id]} size={22} />,
+      run: () => setUi('profile', { userId: id, x: innerWidth / 2 - 150, y: 120, guildId: guildId ?? undefined }),
+    })),
+  ];
+}
+
+/** A row of choices inside a menu (resolution, frame rate...). */
+function MenuChoice<T extends string | number>(p: {
+  label: string;
+  value: T | undefined;
+  options: [T, string][];
+  onPick: (v: T) => void;
+}) {
+  return (
+    <div class="menu-choice">
+      <span>{p.label}</span>
+      <div class="seg">
+        <For each={p.options}>
+          {([v, label]) => (
+            <button classList={{ active: p.value === v }} onClick={() => p.onPick(v)}>
+              {label}
+            </button>
+          )}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+/** Changes one setting of our running stream (resolution, frame rate, optimization) without stopping it. */
+function setQuality(patch: Partial<StreamQuality>) {
+  const q = voiceUi.streamQuality ?? prefs.screenQuality;
+  void updateStreamQuality({ ...q, ...patch });
+}
+
+const debugItem = (): MenuEntry => ({
+  label: t('Show debug info'),
+  checked: prefs.streamDebug,
+  run: () => setPrefs({ streamDebug: !prefs.streamDebug }),
+});
+
+/** Right-click on a stream or camera: its settings without stopping it, volume, preview and debug info. */
+async function videoMenu(
+  e: MouseEvent,
+  item: VideoItem,
+  guildId: string | null | undefined,
+  actions: { focus: () => void; fullscreen: () => void; large?: boolean },
+) {
+  e.preventDefault();
+  e.stopPropagation();
+  const { x, y } = { x: e.clientX, y: e.clientY };
+  const own = item.userId === state.me?.id;
+  const items: MenuEntry[] = [];
+  if (item.source === 'screen' && own) {
+    items.push(
+      {
+        label: t('Resolution'),
+        render: () => (
+          <MenuChoice
+            label={t('Resolution')}
+            value={voiceUi.streamQuality?.height}
+            options={[
+              [720, '720p'],
+              [1080, '1080p'],
+            ]}
+            onPick={(height) => setQuality({ height })}
+          />
+        ),
+      },
+      {
+        label: t('Frame rate'),
+        render: () => (
+          <MenuChoice
+            label={t('Frame rate')}
+            value={voiceUi.streamQuality?.fps}
+            options={[
+              [15, '15'],
+              [30, '30'],
+              [60, '60'],
+            ]}
+            onPick={(fps) => setQuality({ fps })}
+          />
+        ),
+      },
+      {
+        label: t('Optimize for'),
+        render: () => (
+          <MenuChoice
+            label={t('Optimize for')}
+            value={voiceUi.streamQuality?.optimize}
+            options={[
+              ['clarity', t('Clarity')],
+              ['motion', t('Motion')],
+            ]}
+            onPick={(optimize) => setQuality({ optimize })}
+          />
+        ),
+      },
+      'separator',
+      { label: t('Switch what you share'), icon: () => <I.Switch size={16} />, run: openSwitchSource },
+      {
+        label: t('Show my stream preview'),
+        checked: !voiceUi.hidePreview,
+        run: () => setVoiceUi('hidePreview', !voiceUi.hidePreview),
+      },
+      debugItem(),
+      'separator',
+      { label: t('Stop streaming'), danger: true, icon: () => <I.Close size={16} />, run: stopScreenShare },
+    );
+  } else if (item.source === 'screen') {
+    const [v, setV] = createSignal(streamVolume(item.userId));
+    items.push(
+      {
+        label: t('Stream volume'),
+        render: () => (
+          <UserVolumeSlider
+            label={t('Stream volume')}
+            value={v()}
+            onChange={(x) => {
+              setV(x);
+              setStreamVolume(item.userId, x);
+            }}
+          />
+        ),
+      },
+      {
+        label: v() === 0 ? t('Unmute stream') : t('Mute stream'),
+        run: () => toggleStreamMute(item.userId),
+      },
+      'separator',
+      {
+        label: actions.large ? t('Back to grid') : t('Focus'),
+        icon: () => <I.Maximize size={16} />,
+        run: actions.focus,
+      },
+      { label: t('Fullscreen'), icon: () => <I.Fullscreen size={16} />, run: actions.fullscreen },
+    );
+    if (canPopOut) items.push({ label: t('Pop out'), icon: () => <I.PopOut size={16} />, run: () => popOut(item.key) });
+    items.push(debugItem(), 'separator', {
+      label: t('Stop watching'),
+      danger: true,
+      icon: () => <I.Close size={16} />,
+      run: () => watchStream(item.userId, false),
+    });
+  } else if (own) {
+    const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[])).filter(
+      (d) => d.kind === 'videoinput' && d.deviceId,
+    );
+    items.push({ label: t('Camera'), render: () => <div class="menu-title">{t('Camera')}</div> });
+    for (const d of [{ deviceId: 'default', label: t('System default') }, ...cams])
+      items.push({
+        label: d.label || t('Camera'),
+        checked: prefs.videoDevice === d.deviceId,
+        run: () => switchCamera(d.deviceId),
+      });
+    items.push('separator', debugItem(), 'separator', {
+      label: t('Turn off camera'),
+      danger: true,
+      icon: () => <I.Close size={16} />,
+      run: () => toggleCamera(),
+    });
+  } else {
+    items.push(
+      ...volumeMenu(item.userId),
+      'separator',
+      {
+        label: actions.large ? t('Back to grid') : t('Focus'),
+        icon: () => <I.Maximize size={16} />,
+        run: actions.focus,
+      },
+      { label: t('Fullscreen'), icon: () => <I.Fullscreen size={16} />, run: actions.fullscreen },
+    );
+    if (canPopOut) items.push({ label: t('Pop out'), icon: () => <I.PopOut size={16} />, run: () => popOut(item.key) });
+    items.push(debugItem(), 'separator', {
+      label: t('View Profile'),
+      run: () => setUi('modal', { type: 'user-profile', userId: item.userId, guildId: guildId ?? undefined }),
+    });
+  }
+  setUi('menu', { x, y, items });
+}
+
+/** Shown where a stream would play while it's in the pop-out window. */
+export function PoppedOut() {
+  return (
+    <div class="popped-out" onClick={(e) => e.stopPropagation()}>
+      <I.PopOut size={26} />
+      <span>{t('Playing in the pop-out window')}</span>
+      <button class="btn small-btn" onClick={closePopOut}>
+        {t('Bring it back')}
+      </button>
+    </div>
+  );
+}
+
+/** Resolution and frame rate, shown on the video. */
 function formatStats(key: string): string {
   const s = voiceUi.stats[key];
-  if (!s || !s.height) return '';
+  return s?.height ? `${s.height}p ${s.fps}fps` : '';
+}
+
+/** Bitrate and codec, for the debug info. */
+function statsDebugLine(key: string): string[] {
+  const s = voiceUi.stats[key];
+  if (!s?.height) return [];
   const mbps = s.kbps >= 1000 ? `${(s.kbps / 1000).toFixed(1)} Mbps` : `${s.kbps} kbps`;
   const codec = s.codec.startsWith('avc1') ? 'H.264' : s.codec.startsWith('vp09') ? 'VP9' : 'VP8';
-  return `${s.height}p ${s.fps}fps · ${mbps} · ${codec}`;
+  return [`${s.width}×${s.height} · ${s.fps} fps · ${mbps} · ${codec} (${s.codec})`];
 }
 
 /** Our own stream's audio readout (Windows 10 echo diagnostics): one entry per line. */
@@ -396,6 +627,10 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
   });
   const toggleFullscreen = () =>
     document.fullscreenElement ? void document.exitFullscreen() : void wrap.requestFullscreen?.();
+  const debugLines = () => [
+    ...statsDebugLine(p.item.key),
+    ...(own() && isScreen() ? [...audioDiagLines(), ...captureTimingLines()] : []),
+  ];
   const focus = () => setVoiceUi('focus', voiceUi.focus === p.item.key ? null : p.item.key);
   // A click focuses a tile, or takes a focused one back to the grid. Wait a moment so a double click
   // (fullscreen) doesn't also count as a click.
@@ -426,6 +661,9 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
       onMouseMove={poke}
       onDblClick={onDblClick}
       onClick={onClick}
+      onContextMenu={(e) =>
+        void videoMenu(e, p.item, p.guildId, { focus, fullscreen: toggleFullscreen, large: p.large })
+      }
     >
       <Show
         when={watching()}
@@ -445,38 +683,54 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
         }
       >
         <Show
-          when={own() && localStream()}
+          when={!(own() && isScreen() && voiceUi.hidePreview)}
           fallback={
-            <Show
-              when={!voiceUi.unsupported[p.item.key]}
-              fallback={
-                <p class="video-msg">
-                  {t("This device can't play this stream ({codec}).", { codec: voiceUi.unsupported[p.item.key] })}
-                </p>
-              }
-            >
-              <canvas
-                ref={(c) => {
-                  canvas = c;
-                  registerCanvas(p.item.key, c, true);
-                  onCleanup(() => registerCanvas(p.item.key, c, false));
-                }}
-              />
-              <Show when={!voiceUi.stats[p.item.key]?.fps}>
-                <div class="video-msg">
-                  <div class="spinner" />
-                </div>
-              </Show>
-            </Show>
+            <div class="popped-out" onClick={(e) => e.stopPropagation()}>
+              <I.EyeOff size={24} />
+              <span>{t('Your stream preview is hidden')}</span>
+              <button class="btn small-btn" onClick={() => setVoiceUi('hidePreview', false)}>
+                {t('Show preview')}
+              </button>
+            </div>
           }
         >
-          <video ref={(v) => (v.srcObject = localStream() ?? null)} autoplay playsinline muted />
+          <Show
+            when={own() && localStream()}
+            fallback={
+              <Show
+                when={!voiceUi.unsupported[p.item.key]}
+                fallback={
+                  <p class="video-msg">
+                    {t("This device can't play this stream ({codec}).", { codec: voiceUi.unsupported[p.item.key] })}
+                  </p>
+                }
+              >
+                <canvas
+                  ref={(c) => {
+                    canvas = c;
+                    registerCanvas(p.item.key, c, true);
+                    onCleanup(() => registerCanvas(p.item.key, c, false));
+                  }}
+                />
+                <Show when={!voiceUi.stats[p.item.key]?.fps && voiceUi.poppedOut !== p.item.key}>
+                  <div class="video-msg">
+                    <div class="spinner" />
+                  </div>
+                </Show>
+                <Show when={voiceUi.poppedOut === p.item.key}>
+                  <PoppedOut />
+                </Show>
+              </Show>
+            }
+          >
+            <video ref={(v) => (v.srcObject = localStream() ?? null)} autoplay playsinline muted />
+          </Show>
         </Show>
       </Show>
 
-      <Show when={own() && isScreen() && !p.small && (voiceUi.streamAudio || voiceUi.captureTimings)}>
+      <Show when={prefs.streamDebug && watching() && !p.small && debugLines().length}>
         <div class="audio-diag">
-          <For each={[...audioDiagLines(), ...captureTimingLines()]}>{(line) => <div>{line}</div>}</For>
+          <For each={debugLines()}>{(line) => <div>{line}</div>}</For>
         </div>
       </Show>
 
@@ -508,7 +762,11 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
               <I.Maximize size={16} />
             </button>
             <Show when={canPopOut && canvas}>
-              <button class="vp-btn" data-tip={t('Pop out')} onClick={() => void popOut(canvas)}>
+              <button
+                class="vp-btn"
+                data-tip={voiceUi.poppedOut === p.item.key ? t('Bring it back') : t('Pop out')}
+                onClick={() => (voiceUi.poppedOut === p.item.key ? closePopOut() : void popOut(p.item.key))}
+              >
                 <I.PopOut size={18} />
               </button>
             </Show>

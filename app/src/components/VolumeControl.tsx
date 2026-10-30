@@ -48,3 +48,63 @@ export function VolumeControl(p: {
     </div>
   );
 }
+
+/**
+ * Someone's volume in the right-click menu: any whole percentage from 0 to 200%, dragged (1% steps; arrow keys 1%,
+ * Page Up/Down 10%) or typed into the number, with 100% marked and one click away.
+ */
+export function UserVolumeSlider(p: { label: string; value: number; onChange: (v: number) => void }) {
+  const pct = () => Math.round(p.value * 100);
+  const set = (n: number) => p.onChange(Math.min(200, Math.max(0, Math.round(n))) / 100);
+  let field!: HTMLInputElement;
+  return (
+    <div class="uv">
+      <div class="uv-head">
+        <span class="uv-label">{p.label}</span>
+        <label class="uv-value">
+          <input
+            ref={field}
+            inputmode="numeric"
+            maxlength="3"
+            aria-label={p.label}
+            value={pct()}
+            onFocus={(e) => e.currentTarget.select()}
+            onInput={(e) => {
+              const digits = e.currentTarget.value.replace(/\D/g, '');
+              if (digits !== e.currentTarget.value) e.currentTarget.value = digits;
+              if (digits) set(+digits);
+            }}
+            onBlur={(e) => (e.currentTarget.value = String(pct()))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') field.blur();
+              else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                set(pct() + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1));
+                field.value = String(pct());
+              }
+            }}
+          />
+          <span>%</span>
+        </label>
+      </div>
+      <input
+        class="uv-range"
+        type="range"
+        min="0"
+        max="200"
+        step="1"
+        aria-label={p.label}
+        value={pct()}
+        style={{ '--fill': `${pct() / 2}%` }}
+        onInput={(e) => set(+e.currentTarget.value)}
+      />
+      <div class="uv-scale">
+        <span>0%</span>
+        <button classList={{ on: pct() === 100 }} onClick={() => set(100)}>
+          100%
+        </button>
+        <span>200%</span>
+      </div>
+    </div>
+  );
+}

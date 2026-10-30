@@ -79,7 +79,8 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
       });
     }
   }
-  const friends = friendItems(userId);
+  if (state.users[userId]?.bot && state.admin) items.push('separator', ...botPictureItems());
+  const friends = state.users[userId]?.bot ? [] : friendItems(userId);
   if (friends.length) items.push('separator', ...friends);
   items.push('separator', {
     label: t('Copy User ID'),
@@ -87,6 +88,27 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
     run: () => navigator.clipboard.writeText(userId),
   });
   return items;
+}
+
+/** Admins (LINKORD_ADMINS) choose the music bot's picture. */
+function botPictureItems(): MenuEntry[] {
+  const pick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      void attempt(() => api('POST', '/bots/music/avatar', fd), t('Picture updated'));
+    };
+    input.click();
+  };
+  return [
+    { label: t('Change Picture'), icon: () => <I.AddImage size={16} />, run: pick },
+    { label: t('Reset Picture'), run: () => attempt(() => api('DELETE', '/bots/music/avatar')) },
+  ];
 }
 
 /** Roles you can hand out or take away from members: below your highest role, with Manage Roles. */
@@ -236,6 +258,9 @@ export function ProfilePopout() {
               <h3>{nameOf(u().id, gid())}</h3>
               <div class="profile-username">
                 {u().username}
+                <Show when={u().bot}>
+                  <span class="bot-tag">{t('BOT')}</span>
+                </Show>
                 <Show when={rel() === Rel.Friend}>
                   <span class="tag">{t('Friend')}</span>
                 </Show>

@@ -2,7 +2,7 @@
 import { createStore } from 'solid-js/store';
 import { DEFAULT_KEYBINDS, type Keybind } from './keys';
 
-export type SoundKind = 'messages' | 'voice' | 'mute' | 'ptt' | 'stream';
+export type SoundKind = 'messages' | 'voice' | 'mute' | 'ptt' | 'stream' | 'calls';
 
 export interface Prefs {
   inputDevice: string;
@@ -49,6 +49,19 @@ export interface Prefs {
   downloadBannerDismissed: boolean;
   /** Last version whose "Linkord was updated" banner was seen ('' = first run). */
   lastSeenVersion: string;
+  /** Show the "Linkord was updated" banner after each update. */
+  updateBanner: boolean;
+  /** Stream/camera debug info (bitrate, codec, audio and capture diagnostics) over the video. */
+  streamDebug: boolean;
+  /** Soundboard volume (0-1) for everyone's sounds, and per person (0 = muted). */
+  soundboardVolume: number;
+  soundboardUserVolumes: Record<string, number>;
+  /** Spellcheck in the message box, its language ('auto' = the app's language) and words you added. */
+  spellcheck: boolean;
+  spellLanguage: 'auto' | 'en' | 'pt' | 'es';
+  spellWords: string[];
+  /** Height of the call above DM chats, set by dragging its edge (0 = automatic). */
+  dmCallHeight: number;
 }
 
 const DEFAULTS: Prefs = {
@@ -66,7 +79,7 @@ const DEFAULTS: Prefs = {
   closeToTray: true,
   startMinimized: true,
   sounds: true,
-  soundKinds: { messages: true, voice: true, mute: true, ptt: true, stream: true },
+  soundKinds: { messages: true, voice: true, mute: true, ptt: true, stream: true, calls: true },
   desktopNotifications: true,
   screenQuality: { height: 1080, fps: 30, optimize: 'clarity', audio: true },
   mediaVolume: 1,
@@ -79,6 +92,14 @@ const DEFAULTS: Prefs = {
   emojiTone: 0,
   downloadBannerDismissed: false,
   lastSeenVersion: '',
+  updateBanner: true,
+  streamDebug: false,
+  soundboardVolume: 0.8,
+  soundboardUserVolumes: {},
+  spellcheck: true,
+  spellLanguage: 'auto',
+  spellWords: [],
+  dmCallHeight: 0,
 };
 
 const KEY = 'linkord.prefs';

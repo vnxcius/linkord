@@ -7,12 +7,16 @@ import { cmpId } from './ids';
 import { notify } from './platform';
 import { prefs } from './prefs';
 import { sounds } from './sounds';
+import { report } from './report';
+import { setSounds } from './soundboard';
+import { putWatch, setServerNow, setWatches, type Watch } from './watch';
 import {
   addDm,
   addGuild,
   isBlocked,
   isMuted,
   nameOf,
+  notifyLevel,
   putMember,
   putUser,
   removeGuild,
@@ -51,6 +55,7 @@ export function connectGateway() {
       handle(t, d);
     } catch (err) {
       console.error('gateway event failed', t, err);
+      report('error', `Gateway event ${t} failed`, err);
     }
   };
   sock.onclose = (e) => {
@@ -87,6 +92,10 @@ interface Ready {
   read_states: Record<string, string>;
   voice_states: VoiceState[];
   voice_channel_statuses?: { channel_id: string; status: string }[];
+  admin?: boolean;
+  calls?: { channel_id: string; ringing: string[] }[];
+  watches?: { channel_id: string; watch: Watch }[];
+  server_now?: number;
 }
 
 function handle(t: string, d: any) {
@@ -119,6 +128,8 @@ function handle(t: string, d: any) {
       return setRoles(d.guild_id, d.roles);
     case 'GUILD_ROLE_UPDATE':
       return setState('roles', d.guild_id, d.role.id, d.role);
+    case 'GUILD_SOUNDBOARD_UPDATE':
+      return setSounds('guilds', d.guild_id, d.sounds);
     case 'GUILD_EMOJIS_UPDATE':
       return setState('emojis', d.guild_id, d.emojis);
     case 'CHANNEL_CREATE':
@@ -145,8 +156,11 @@ function handle(t: string, d: any) {
     case 'MESSAGE_CREATE':
       return onMessage(d as Message);
     case 'MESSAGE_UPDATE':
+      // Channels we haven't opened yet have nothing to update.
+      if (!state.messages[d.channel_id]) return;
       return setState('messages', d.channel_id, 'list', (m) => m.id === d.id, reconcile(d as Message));
     case 'MESSAGE_DELETE':
+      if (!state.messages[d.channel_id]) return;
       return setState('messages', d.channel_id, 'list', (l) => l?.filter((m) => m.id !== d.id));
     case 'MESSAGE_ACK':
       return batch(() => {
@@ -185,6 +199,11 @@ function handle(t: string, d: any) {
         'relationships',
         produce((r) => delete r[d.id]),
       );
+    case 'WATCH_UPDATE':
+      setServerNow(d.server_now);
+      return putWatch(d.channel_id, d.watch);
+    case 'CALL_UPDATE':
+      return setState('calls', d.channel_id, d.ringing);
     case 'VOICE_CHANNEL_STATUS_UPDATE':
       if (d.status) return setState('voiceStatus', d.channel_id, d.status);
       return setState(
@@ -211,6 +230,10 @@ function onReady(d: Ready) {
   seq = 0;
   batch(() => {
     setState('sessionId', d.session_id);
+    setState('admin', !!d.admin);
+    setServerNow(d.server_now);
+    setWatches(reconcile(Object.fromEntries((d.watches ?? []).map((w) => [w.channel_id, w.watch]))));
+    setState('calls', reconcile(Object.fromEntries((d.calls ?? []).map((c) => [c.channel_id, c.ringing]))));
     setState('me', d.user);
     putUser(d.user);
     setState('guildOrder', []);
@@ -269,16 +292,20 @@ function onMessage(m: Message) {
   const roleMention = (state.members[ch.guild_id ?? '']?.[me.id]?.roles ?? []).some((r) =>
     m.content.includes(`<@&${r}>`),
   );
+  const direct = m.content.includes(`<@${me.id}>`);
   const mentioned =
     ch.kind === Kind.Dm ||
     ch.kind === Kind.GroupDm ||
-    m.content.includes(`<@${me.id}>`) ||
+    direct ||
     roleMention ||
     !!m.mention_everyone ||
     m.referenced_message?.author.id === me.id;
-  // Muting silences everything except direct @mentions, like Discord.
-  if (!mentioned || (isMuted(ch) && !m.content.includes(`<@${me.id}>`))) return;
-  setState('mentions', m.channel_id, (n) => (n ?? 0) + 1);
+  // Muting silences everything except direct @mentions, like Discord; "Nothing" silences even those.
+  const level = ch.guild_id ? notifyLevel(ch) : 'all';
+  if (level === 'none' || (isMuted(ch) && !direct)) return;
+  if (mentioned) setState('mentions', m.channel_id, (n) => (n ?? 0) + 1);
+  // Other server messages notify too when the channel is on "All messages" (the server badge shows a dot).
+  else if (level !== 'all' || !ch.guild_id || m.author.bot || m.type) return;
   if (me.status === 'dnd') return;
   sounds.message();
   if (!prefs.desktopNotifications) return;
@@ -291,6 +318,7 @@ function onMessage(m: Message) {
 }
 
 function onReaction(add: boolean, d: { channel_id: string; message_id: string; user_id: string; emoji: string }) {
+  if (!state.messages[d.channel_id]) return;
   setState(
     'messages',
     d.channel_id,

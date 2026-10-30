@@ -2,13 +2,14 @@
 # Releases a new desktop version: bumps the patch version, builds an optimized signed installer,
 # and publishes it to the server's update feed. Running apps pick it up within 30 minutes.
 #   ./publish-windows.sh "What changed"   (one change per line; they become the patch notes page's bullets)
+#   LINKORD_VERSION=0.2.0 ./publish-windows.sh "..."   releases that version instead of the next patch
 set -euo pipefail
 cd "$(dirname "$0")"
 notes="${1:-Bug fixes and improvements}"
 updates="${LINKORD_UPDATES_DIR:-../server/data/updates}"
 
 current=$(node -p "require('./src-tauri/tauri.conf.json').version")
-next=$(node -p "const [a,b,c]='$current'.split('.').map(Number); [a,b,c+1].join('.')")
+next=${LINKORD_VERSION:-$(node -p "const [a,b,c]='$current'.split('.').map(Number); [a,b,c+1].join('.')")}
 node -e "
   const fs = require('fs');
   for (const f of ['src-tauri/tauri.conf.json', 'package.json']) {

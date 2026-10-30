@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 
 const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
@@ -99,6 +100,21 @@ await step('second user joins with an invite', async () => {
   await b.page.click('.modal form:nth-of-type(2) button');
   await b.page.click('.modal button.primary:has-text("Accept invite")');
   await b.page.waitForSelector('.chat-header h2:has-text("general")');
+});
+
+await step('nameplates: a WebM default plays behind your name in everyone\'s member list', async () => {
+  const webm = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=264x48:d=2', '-c:v', 'libvpx-vp9', '-f', 'webm', 'pipe:1']);
+  fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'zz-e2e.webm'), webm);
+  await a.page.click('[aria-label="Settings"]');
+  await a.page.click('.settings-nav button:has-text("Profile")');
+  // Picker videos only load while on screen; data-src says which nameplate each one is.
+  await a.page.click('.nameplate-option:has(video[data-src$="zz-e2e.webm"])');
+  await a.page.waitForSelector('.nameplate-option.current:has(video[data-src$="zz-e2e.webm"])');
+  await a.page.click('.settings-close');
+  const plate = `.members .member:has-text("${a.name}") video.nameplate[src$="zz-e2e.webm"]`;
+  const video = await b.page.waitForSelector(plate);
+  await b.page.waitForFunction((v) => !v.paused && v.currentTime > 0, video, { timeout: 8000 });
+  await shot(b.page, 'e2e-nameplate-video');
 });
 
 await step('messages, link preview, reactions via context menu', async () => {
@@ -540,7 +556,7 @@ await step('invites: invite a friend from the list; the DM shows an invite card 
 });
 
 await step('server folders: drop a server on another to make a folder, open it', async () => {
-  await a.page.dragAndDrop(`.rail-item:has(.rail-btn[aria-label="Outpost ${run}"])`, `.rail-item:has(.rail-btn[aria-label="Keep ${run}"])`, { targetPosition: { x: 36, y: 24 } });
+  await a.page.dragAndDrop(`.rail-item:has(.rail-btn[aria-label="Outpost ${run}"])`, `.rail-item:has(.rail-btn[aria-label="Keep ${run}"])`, { targetPosition: { x: 19, y: 19 } });
   await a.page.waitForSelector('.rail-folder');
   assert.equal(await a.page.locator(`.rail-btn[aria-label="Keep ${run}"]`).count(), 0, 'closed folder hides its servers');
   await a.page.click('.rail-folder .folder-btn');
@@ -572,7 +588,7 @@ await step('voice: both connect, hear each other, mute, per-user volume', async 
   for (const u of [a, b]) {
     await u.page.click(`.rail-btn[aria-label="Keep ${run}"]`);
     await u.page.click('.channel-item:has-text("Campfire")');
-    await u.page.waitForSelector('.voice-status strong:has-text("Voice Connected")', { timeout: 15000 });
+    await u.page.waitForSelector('.voice-status strong:has-text("Voice online")', { timeout: 15000 });
   }
   // Aria's tone reaches Bram.
   await b.page.waitForSelector(`.voice-tile.speaking:has-text("${a.name}")`, { timeout: 8000 });
@@ -593,9 +609,45 @@ await step('voice: both connect, hear each other, mute, per-user volume', async 
   await a.page.click('[aria-label="Mute"]');
   await b.page.waitForSelector(`.voice-tile:not(.speaking):has-text("${a.name}") svg`, { timeout: 5000 });
   await a.page.click(`.voice-tile:has-text("${b.name}")`, { button: 'right' });
-  await a.page.waitForSelector('.context-menu .volume-slider');
+  await a.page.waitForSelector('.context-menu .uv');
+  // Any whole percentage: typed into the number (the slider follows), kept when the menu opens again, 100% one click away.
+  await a.page.fill('.uv-value input', '137');
+  assert.equal(await a.page.inputValue('.uv-range'), '137');
   await shot(a.page, 'e2e-voice');
   await a.page.keyboard.press('Escape');
+  await a.page.click(`.voice-tile:has-text("${b.name}")`, { button: 'right' });
+  assert.equal(await a.page.inputValue('.uv-value input'), '137');
+  await a.page.focus('.uv-range');
+  await a.page.keyboard.press('ArrowRight');
+  assert.equal(await a.page.inputValue('.uv-value input'), '138');
+  await a.page.click('.uv-scale button:has-text("100%")');
+  assert.equal(await a.page.inputValue('.uv-range'), '100');
+  await a.page.keyboard.press('Escape');
+});
+
+await step('Kass, the music bot: "/" lists his commands; /play brings him into the call and everyone hears him; /stop', async () => {
+  await a.page.click('.channel-item:has-text("general")');
+  await a.page.fill('.composer textarea', '/');
+  await a.page.waitForSelector('.autocomplete-title:has-text("Commands")');
+  await a.page.waitForSelector('.autocomplete button:has-text("/play")');
+  await a.page.keyboard.type('pl');
+  await a.page.keyboard.press('Enter');
+  assert.equal(await a.page.inputValue('.composer textarea'), '/play ');
+  // tests/ytdlp-mock.sh stands in for YouTube: any search is an 8 s tone.
+  await a.page.keyboard.type('never gonna give you up');
+  await a.page.keyboard.press('Enter');
+  const card = '.message:has(.bot-tag):has(.interaction-name:has-text("/play"))';
+  await a.page.waitForSelector(`${card} .embed-title:has-text("Mock Song search")`, { timeout: 10000 });
+  assert.equal(await a.page.inputValue('.composer textarea'), '', 'a command is not sent as a message');
+  // Bram (still looking at the call) sees Kass's tile light up: the music reached his browser and was decoded.
+  await b.page.waitForSelector('.voice-tile.speaking:has-text("Kass")', { timeout: 10000 });
+  await shot(b.page, 'e2e-music');
+  await shot(a.page, 'e2e-music-chat');
+  await a.page.fill('.composer textarea', '/stop');
+  await a.page.keyboard.press('Enter');
+  await a.page.waitForSelector('.message:has-text("Stopped the music")');
+  await b.page.waitForSelector('.voice-tile:has-text("Kass")', { state: 'detached', timeout: 5000 });
+  await a.page.click('.channel-item:has-text("Campfire")');
 });
 
 await step('voice channel status: set it from the header; everyone sees it under the channel and in the header', async () => {
@@ -661,7 +713,13 @@ await step('screen share: go live, LIVE badge, click name to watch, stats, hide 
   await b.page.waitForFunction(() => /\d+p \d+fps/.test(document.querySelector('.video-card.large .video-stats')?.textContent ?? ''), null, { timeout: 15000 });
   const stats = await b.page.textContent('.video-card.large .video-stats');
   console.log(`  viewer stats: ${stats}`);
-  // The streamer's own tile carries the stream-audio diagnostics (Windows 10 echo investigation).
+  // Resolution and frame rate only; bitrate and codec are debug info now.
+  assert.ok(!/Mbps|kbps|H\.264|VP[89]/.test(stats ?? ''), `stats still show bitrate/codec: ${stats}`);
+  // The streamer's own tile carries the stream-audio diagnostics (Windows 10 echo investigation), shown from the
+  // stream's right-click menu, which also changes the stream's settings live.
+  await a.page.click('.video-card.large', { button: 'right' });
+  await a.page.waitForSelector('.context-menu .menu-choice:has-text("1080p")');
+  await a.page.click('.context-menu button:has-text("Show debug info")');
   const diag = await a.page.waitForSelector('.video-card.large .audio-diag', { state: 'attached', timeout: 5000 }).then((el) => el.textContent());
   assert.match(diag, /Stream audio: browser capture/);
   console.log(`  streamer audio: ${diag}`);
@@ -738,11 +796,11 @@ await step('screen share: go live, LIVE badge, click name to watch, stats, hide 
 
 await step('reload keeps the channel in the URL and rejoins voice; leaving on purpose does not', async () => {
   await b.page.click('.channel-item:has-text("Campfire")');
-  await b.page.waitForSelector('.voice-status strong:has-text("Voice Connected")', { timeout: 15000 });
+  await b.page.waitForSelector('.voice-status strong:has-text("Voice online")', { timeout: 15000 });
   const url = b.page.url();
   assert.match(new URL(url).pathname, /^\/channels\/\d+\/\d+$/);
   await b.page.reload();
-  await b.page.waitForSelector('.voice-status strong:has-text("Voice Connected")', { timeout: 15000 });
+  await b.page.waitForSelector('.voice-status strong:has-text("Voice online")', { timeout: 15000 });
   assert.equal(b.page.url(), url);
   assert.equal(await b.page.locator('.channel-item.active:has-text("Campfire")').count(), 1);
   await b.page.click('[aria-label="Disconnect"]');

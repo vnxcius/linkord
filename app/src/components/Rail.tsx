@@ -1,12 +1,12 @@
-// Server list, like Discord's: drag a server up or down to reorder, onto another server to make a
-// folder, or onto a folder to add it. Folders open in place; the order syncs across devices
+// Server list, a strip of tiles across the top of the channel list: drag a server left or right to
+// reorder, onto another server to make a folder, or onto a folder to add it. Folders open in place; the order syncs across devices
 // (settings.guild_folders), which folders are open is per device.
 import { createSignal, For, Show } from 'solid-js';
 import { markRead, patchSettings, selectView } from '../lib/actions';
 import { t } from '../lib/i18n';
 import { openPage } from '../lib/route';
 import { isTauri } from '../lib/platform';
-import { guildMentions, guildUnread, state } from '../lib/store';
+import { guildAlert, guildMentions, guildUnread, state } from '../lib/store';
 import type { GuildFolder } from '../lib/types';
 import { attempt, isMobile, openMenu, setUi, type MenuEntry } from '../lib/ui';
 import { guildMenu } from './Sidebar';
@@ -143,9 +143,9 @@ function dnd(key: string, combine: boolean) {
       e.preventDefault();
       e.stopPropagation();
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const y = (e.clientY - r.top) / r.height;
-      const into = combine && !isFolderKey(from) && y > 0.25 && y < 0.75;
-      setMark({ key, zone: into ? 'into' : y < 0.5 ? 'before' : 'after' });
+      const x = (e.clientX - r.left) / r.width;
+      const into = combine && !isFolderKey(from) && x > 0.25 && x < 0.75;
+      setMark({ key, zone: into ? 'into' : x < 0.5 ? 'before' : 'after' });
     },
     onDragLeave: () => mark()?.key === key && setMark(null),
     onDrop: (e: DragEvent) => {
@@ -208,6 +208,7 @@ function GuildItem(p: { id: string; inFolder?: boolean }) {
         active={state.view === p.id}
         unread={guildUnread(p.id)}
         badge={guildMentions(p.id)}
+        alert={guildAlert(p.id)}
         label={g()!.name}
         muted={state.settings.muted_guilds?.includes(p.id)}
         onClick={() => selectView(p.id)}
@@ -227,6 +228,7 @@ function FolderItem(p: { folder: GuildFolder }) {
   const color = () => accentCss(p.folder.color) ?? 'var(--glow)';
   const mentions = () => p.folder.guild_ids.reduce((n, id) => n + guildMentions(id), 0);
   const unread = () => p.folder.guild_ids.some(guildUnread);
+  const alert = () => p.folder.guild_ids.some(guildAlert);
   const active = () => p.folder.guild_ids.includes(state.view);
   return (
     <div class="rail-folder" classList={{ open: open() }} style={{ '--folder': color() }}>
@@ -234,6 +236,7 @@ function FolderItem(p: { folder: GuildFolder }) {
         active={!open() && active()}
         unread={!open() && unread()}
         badge={open() ? 0 : mentions()}
+        alert={!open() && alert()}
         label={folderName(p.folder)}
         onClick={() => toggleFolder(p.folder.id!)}
         onContextMenu={(e) => openMenu(e, folderMenu(p.folder))}
@@ -264,6 +267,8 @@ function RailItem(p: {
   unread?: boolean;
   muted?: boolean;
   badge?: number;
+  /** Unread messages that notify, without a mention: a red badge with a dot instead of a number. */
+  alert?: boolean;
   label: string;
   add?: boolean;
   folder?: boolean;
@@ -275,7 +280,12 @@ function RailItem(p: {
   children: any;
 }) {
   return (
-    <div class="rail-item" classList={{ active: p.active, unread: p.unread, muted: p.muted, ...p.marks }} {...p.drag}>
+    <div
+      class="rail-item"
+      classList={{ active: p.active, unread: p.unread, muted: p.muted, ...p.marks }}
+      data-tip={p.label}
+      {...p.drag}
+    >
       <span class="rail-pill" />
       <button
         class="rail-btn"
@@ -283,11 +293,19 @@ function RailItem(p: {
         onClick={p.onClick}
         onContextMenu={p.onContextMenu}
         aria-label={p.label}
-        data-tip={p.label}
       >
         {p.children}
       </button>
-      <Show when={p.badge}>
+      <Show
+        when={p.badge}
+        fallback={
+          <Show when={p.alert}>
+            <span class="badge rail-badge rail-alert" aria-label={t('New messages')}>
+              <i />
+            </span>
+          </Show>
+        }
+      >
         <span class="badge rail-badge">{p.badge! > 99 ? '99+' : p.badge}</span>
       </Show>
     </div>

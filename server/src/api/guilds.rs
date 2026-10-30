@@ -8,7 +8,7 @@ use crate::auth::AuthUser;
 use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::guild_members;
 use crate::id::Id;
-use crate::models::{kind, prefixed, Channel, Emoji, Guild, GuildRow, Member, Role, User, CHANNEL_COLS, ROLE_COLS, USER_COLS};
+use crate::models::{kind, prefixed, Channel, Emoji, Guild, GuildRow, Member, Role, User, CHANNEL_COLS, GUILD_COLS, ROLE_COLS, USER_COLS};
 use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::{uploads, voice};
@@ -18,6 +18,7 @@ pub fn routes() -> Router<AppState> {
         .route("/guilds", post(create))
         .route("/guilds/{id}", patch(update).delete(remove))
         .route("/guilds/{id}/icon", post(upload_icon))
+        .route("/guilds/{id}/banner", post(upload_banner).delete(remove_banner))
         .route("/guilds/{id}/members/@me", delete(leave).patch(update_me))
         .route("/guilds/{id}/members/{user}", delete(kick).patch(update_member))
 }
@@ -67,7 +68,7 @@ pub async fn load_emojis(db: &PgPool, guild: Id) -> ApiResult<Vec<Emoji>> {
 }
 
 pub async fn load_guild(db: &PgPool, id: Id) -> ApiResult<Guild> {
-    let guild = sqlx::query_as::<_, GuildRow>("SELECT id, name, icon, owner_id FROM guilds WHERE id = $1")
+    let guild = sqlx::query_as::<_, GuildRow>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = $1"))
         .bind(id)
         .fetch_optional(db)
         .await?
@@ -91,9 +92,10 @@ pub async fn load_guild(db: &PgPool, id: Id) -> ApiResult<Guild> {
 
 /// Loads the guild row if `me` is a member.
 pub async fn guild_for(db: &PgPool, id: Id, me: Id) -> ApiResult<GuildRow> {
-    sqlx::query_as::<_, GuildRow>(
-        "SELECT g.id, g.name, g.icon, g.owner_id FROM guilds g JOIN members m ON m.guild_id = g.id AND m.user_id = $2 WHERE g.id = $1",
-    )
+    sqlx::query_as::<_, GuildRow>(&format!(
+        "SELECT {} FROM guilds g JOIN members m ON m.guild_id = g.id AND m.user_id = $2 WHERE g.id = $1",
+        prefixed(GUILD_COLS, "g")
+    ))
     .bind(id)
     .bind(me)
     .fetch_optional(db)
@@ -119,6 +121,7 @@ struct NewGuild {
 
 async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<NewGuild>) -> ApiResult<Json<Guild>> {
     st.limits.check(format!("guild-create:{me}"), 3.0, 1.0 / 60.0)?;
+    tracing::info!(user = %me, "server created");
     let name = guild_name(&body.name)?;
     let template = match body.template.as_deref().filter(|t| !t.trim().is_empty()) {
         Some(t) => super::templates::fetch(&st, me, t).await?,
@@ -143,14 +146,93 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): 
 #[derive(Deserialize)]
 struct GuildUpdate {
     name: Option<String>,
+    /// Channel for "joined the server" messages; null = the first text channel.
+    #[serde(default, deserialize_with = "double_option")]
+    system_channel_id: Option<Option<Id>>,
+    join_messages: Option<bool>,
+    /// AFK voice channel; null turns moving idle people off.
+    #[serde(default, deserialize_with = "double_option")]
+    afk_channel_id: Option<Option<Id>>,
+    /// Seconds without talking before someone is moved to the AFK channel.
+    afk_timeout: Option<i32>,
 }
+
+/// Tells "missing" (leave as it is) apart from `null` (clear it).
+fn double_option<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
+}
+
+/// Channel kinds an id must be in this server: for the system channel (text) and the AFK channel (voice).
+async fn guild_channel_of_kind(db: &PgPool, guild: Id, channel: Id, k: i16) -> ApiResult<()> {
+    let ok: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM channels WHERE id = $1 AND guild_id = $2 AND kind = $3)")
+        .bind(channel)
+        .bind(guild)
+        .bind(k)
+        .fetch_one(db)
+        .await?;
+    if ok {
+        Ok(())
+    } else {
+        Err(bad("unknown channel"))
+    }
+}
+
+/// Seconds of silence the AFK channel can be set to, like Discord's choices.
+const AFK_TIMEOUTS: [i32; 5] = [60, 300, 900, 1800, 3600];
 
 async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<GuildUpdate>) -> ApiResult<Json<GuildRow>> {
     guild_perms(&st.db, id, me).await?.require(perms::MANAGE_GUILD)?;
     if let Some(n) = body.name {
         sqlx::query("UPDATE guilds SET name = $2 WHERE id = $1").bind(id).bind(guild_name(&n)?).execute(&st.db).await?;
     }
+    if let Some(ch) = body.system_channel_id {
+        if let Some(c) = ch {
+            guild_channel_of_kind(&st.db, id, c, kind::TEXT).await?;
+        }
+        sqlx::query("UPDATE guilds SET system_channel_id = $2 WHERE id = $1").bind(id).bind(ch).execute(&st.db).await?;
+    }
+    if let Some(on) = body.join_messages {
+        sqlx::query("UPDATE guilds SET join_messages = $2 WHERE id = $1").bind(id).bind(on).execute(&st.db).await?;
+    }
+    if let Some(ch) = body.afk_channel_id {
+        if let Some(c) = ch {
+            guild_channel_of_kind(&st.db, id, c, kind::VOICE).await?;
+        }
+        sqlx::query("UPDATE guilds SET afk_channel_id = $2 WHERE id = $1").bind(id).bind(ch).execute(&st.db).await?;
+    }
+    if let Some(t) = body.afk_timeout {
+        if !AFK_TIMEOUTS.contains(&t) {
+            return Err(bad("unknown AFK timeout"));
+        }
+        sqlx::query("UPDATE guilds SET afk_timeout = $2 WHERE id = $1").bind(id).bind(t).execute(&st.db).await?;
+    }
     announce_update(&st, id, me).await
+}
+
+/// "<user> joined the server." in the server's system channel (the first text channel unless set).
+pub async fn welcome(st: &AppState, g: &GuildRow, user: Id) {
+    tracing::info!(user = %user, guild = %g.id, "joined a server");
+    if !g.join_messages {
+        return;
+    }
+    let channel = match g.system_channel_id {
+        Some(c) => Some(c),
+        None => sqlx::query_scalar(
+            "SELECT c.id FROM channels c LEFT JOIN channels p ON p.id = c.parent_id
+             WHERE c.guild_id = $1 AND c.kind = $2 ORDER BY (c.parent_id IS NOT NULL), p.position, c.position, c.id LIMIT 1",
+        )
+        .bind(g.id)
+        .bind(kind::TEXT)
+        .fetch_optional(&st.db)
+        .await
+        .ok()
+        .flatten(),
+    };
+    if let Some(c) = channel {
+        if let Err(e) = crate::api::messages::post_system_message(st, c, user, crate::models::message_type::JOIN, None).await {
+            tracing::warn!("join message failed: {e}");
+        }
+    }
 }
 
 async fn announce_update(st: &AppState, id: Id, me: Id) -> ApiResult<Json<GuildRow>> {
@@ -171,6 +253,27 @@ async fn upload_icon(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
     uploads::reserve(&st, me, bytes.len()).await?;
     let url = uploads::save(&st, &format!("icons/{id}"), &name, &bytes).await?;
     sqlx::query("UPDATE guilds SET icon = $2 WHERE id = $1").bind(id).bind(url).execute(&st.db).await?;
+    announce_update(&st, id, me).await
+}
+
+/// The picture at the top of the channel list, behind the server name.
+async fn upload_banner(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, mut mp: Multipart) -> ApiResult<Json<GuildRow>> {
+    guild_perms(&st.db, id, me).await?.require(perms::MANAGE_GUILD)?;
+    let field = mp.next_field().await.map_err(|e| bad(e.body_text()))?.ok_or_else(|| bad("missing file"))?;
+    if !uploads::is_image(field.content_type().unwrap_or_default()) {
+        return Err(bad("must be a png, jpeg, gif or webp image"));
+    }
+    let name = field.file_name().unwrap_or("banner").to_string();
+    let bytes = uploads::read_field(field, 8 * 1024 * 1024).await?;
+    uploads::reserve(&st, me, bytes.len()).await?;
+    let url = uploads::save(&st, &format!("banners/{id}"), &name, &bytes).await?;
+    sqlx::query("UPDATE guilds SET banner = $2 WHERE id = $1").bind(id).bind(url).execute(&st.db).await?;
+    announce_update(&st, id, me).await
+}
+
+async fn remove_banner(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<GuildRow>> {
+    guild_perms(&st.db, id, me).await?.require(perms::MANAGE_GUILD)?;
+    sqlx::query("UPDATE guilds SET banner = NULL WHERE id = $1").bind(id).execute(&st.db).await?;
     announce_update(&st, id, me).await
 }
 

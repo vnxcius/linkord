@@ -3,7 +3,8 @@
 // of, so the last place is also remembered per device and reopened on start.
 
 import { createEffect, createRoot, createSignal, on } from 'solid-js';
-import { selectChannel, selectView, openFriends } from './actions';
+import { jumpToMessage, selectChannel, selectView, openFriends } from './actions';
+import { defaultServer, knownServers } from './api';
 import { isTauri } from './platform';
 import { state } from './store';
 
@@ -13,9 +14,29 @@ function pathOf(view: string, channelId: string | undefined) {
   return `/channels/${view}${channelId ? `/${channelId}` : ''}`;
 }
 
-function parse(path: string): { view: string; channelId?: string } | null {
-  const m = path.match(/^\/channels\/(@me|\d+)(?:\/(\d+))?\/?$/);
-  return m ? { view: m[1], channelId: m[2] } : null;
+function parse(path: string): { view: string; channelId?: string; messageId?: string } | null {
+  const m = path.match(/^\/channels\/(@me|\d+)(?:\/(\d+))?(?:\/(\d+))?\/?$/);
+  return m ? { view: m[1], channelId: m[2], messageId: m[3] } : null;
+}
+
+/** A shareable link to a message, like Discord's: <server>/channels/<server or @me>/<channel>/<message>. */
+export function messageLink(channelId: string, messageId: string): string {
+  const ch = state.channels[channelId];
+  const base = isTauri ? defaultServer() || knownServers()[0] : location.origin;
+  return `${base}${pathOf(ch?.guild_id ?? '@me', channelId)}/${messageId}`;
+}
+
+/** Opens a link to a place in this app (a channel or message) in the app itself; false for any other link. */
+export function openAppLink(href: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  if (!knownServers().some((s) => new URL(s).host === url.host) || !parse(url.pathname)) return false;
+  apply(url.pathname);
+  return true;
 }
 
 function remembered(): string | null {
@@ -30,7 +51,8 @@ function apply(path: string) {
   const r = parse(path);
   if (!r) return;
   const ch = r.channelId ? state.channels[r.channelId] : undefined;
-  if (ch && (ch.guild_id ?? '@me') === r.view) selectChannel(ch.id);
+  if (ch && (ch.guild_id ?? '@me') === r.view && r.messageId) void jumpToMessage(ch.id, r.messageId).catch(() => {});
+  else if (ch && (ch.guild_id ?? '@me') === r.view) selectChannel(ch.id);
   else if (r.view === '@me') openFriends();
   else if (state.guilds[r.view]) selectView(r.view);
 }
@@ -39,8 +61,8 @@ let started = false;
 
 /** Full-window pages over the app (or the sign-in screen): /download and /changelog on the web. The desktop
  * app opens them too, without touching the URL. */
-export type Page = 'download' | 'changelog';
-const PAGES: Record<string, Page> = { '/download': 'download', '/changelog': 'changelog' };
+export type Page = 'download' | 'changelog' | 'logs';
+const PAGES: Record<string, Page> = { '/download': 'download', '/changelog': 'changelog', '/logs': 'logs' };
 const [page, setPage] = createSignal<Page | null>(isTauri ? null : (PAGES[location.pathname] ?? null));
 export { page };
 /** History steps pushed by opening pages; closing goes back over them, unless the visit started on a page. */

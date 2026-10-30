@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgPool};
 use crate::error::{ApiError, ApiResult};
 use crate::id::Id;
 
-pub const USER_COLS: &str = "id, username, display_name, avatar, banner, accent_color, bio, status";
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, status, bot";
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct User {
@@ -15,8 +15,11 @@ pub struct User {
     pub display_name: Option<String>,
     pub avatar: Option<String>,
     pub banner: Option<String>,
+    pub nameplate: Option<String>,
     pub accent_color: Option<i32>,
     pub bio: String,
+    /// A bot account (music.rs), shown with a BOT tag.
+    pub bot: bool,
     /// The user's chosen status. Only sent to the user themselves; others see presence.
     #[serde(skip)]
     pub status: String,
@@ -82,8 +85,9 @@ pub mod kind {
         k == DM || k == GROUP_DM
     }
 
+    /// Voice channels have their own chat, like Discord's text in voice.
     pub fn has_messages(k: i16) -> bool {
-        matches!(k, TEXT | DM | GROUP_DM | THREAD)
+        matches!(k, TEXT | DM | GROUP_DM | THREAD | VOICE)
     }
 }
 
@@ -130,6 +134,25 @@ pub struct GuildRow {
     pub name: String,
     pub icon: Option<String>,
     pub owner_id: Id,
+    /// Where "joined the server" messages go; None = the first text channel.
+    pub system_channel_id: Option<Id>,
+    pub join_messages: bool,
+    /// Picture behind the server name at the top of the channel list.
+    pub banner: Option<String>,
+    /// Voice channel idle people are moved to, after `afk_timeout` seconds.
+    pub afk_channel_id: Option<Id>,
+    pub afk_timeout: i32,
+}
+
+pub const GUILD_COLS: &str = "id, name, icon, owner_id, system_channel_id, join_messages, banner, afk_channel_id, afk_timeout";
+
+/// Message types (Discord's numbers).
+pub mod message_type {
+    pub const DEFAULT: i16 = 0;
+    /// "<user> pinned a message to this channel"; reply_to is the pinned message.
+    pub const PINNED: i16 = 6;
+    /// "<user> joined the server."
+    pub const JOIN: i16 = 7;
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -201,10 +224,27 @@ pub struct MessageRow {
     pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub forwarded: Option<Json<Forwarded>>,
+    pub interaction: Option<Json<InteractionRow>>,
+    #[sqlx(rename = "type")]
+    pub kind: i16,
 }
 
 pub const MESSAGE_COLS: &str =
-    "id, channel_id, author_id, content, reply_to, attachments, embeds, mention_everyone, pinned_at, thread_id, edited_at, created_at, forwarded";
+    "id, channel_id, author_id, content, reply_to, attachments, embeds, mention_everyone, pinned_at, thread_id, edited_at, created_at, forwarded, interaction, type";
+
+/// The slash command a bot message answers, as stored.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InteractionRow {
+    pub name: String,
+    pub user_id: Id,
+}
+
+/// The slash command a bot message answers, with who used it.
+#[derive(Serialize, Clone)]
+pub struct Interaction {
+    pub name: String,
+    pub user: User,
+}
 
 /// A forwarded message's copy of the original (Discord's message snapshot): content, attachments and embeds as
 /// they were, plus where the original was so people who can see that channel can jump to it.
@@ -237,6 +277,9 @@ pub struct MessageRef {
 #[derive(Serialize, Clone)]
 pub struct Message {
     pub id: Id,
+    /// 0 for normal messages; see [`message_type`].
+    #[serde(rename = "type")]
+    pub kind: i16,
     pub channel_id: Id,
     pub author: User,
     pub content: String,
@@ -252,6 +295,8 @@ pub struct Message {
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forwarded: Option<Forwarded>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interaction: Option<Interaction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
 }

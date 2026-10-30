@@ -1,6 +1,6 @@
 [package]
 name = "linkord"
-version = "0.1.38"
+version = "0.2.11"
 description = "Linkord desktop client"
 edition = "2021"
 publish = false
@@ -20,6 +20,9 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-window-state = "2"
+# Already in the tree through tauri; the window-state save waits on its timer.
+tokio = { version = "1", features = ["time"] }
 # Used by the code tauri::generate_context! / generate_handler! expand to.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -17,6 +17,8 @@ import undeafenUrl from '../assets/sounds/undeafen.mp3';
 import unmuteUrl from '../assets/sounds/unmute.mp3';
 import viewerJoinUrl from '../assets/sounds/viewer-join.mp3';
 import viewerLeaveUrl from '../assets/sounds/viewer-leave.mp3';
+import ringIncomingUrl from '../assets/sounds/ring-incoming.mp3';
+import ringOutgoingUrl from '../assets/sounds/ring-outgoing.mp3';
 
 /** The files are mastered loud; this keeps them in line with voice. */
 const GAIN = 0.5;
@@ -50,7 +52,34 @@ function play(kind: SoundKind, url: string) {
   });
 }
 
+/** Plays a sound over and over (ringtones) until the returned function is called. */
+function loop(kind: SoundKind, url: string): () => void {
+  if (!prefs.sounds || !prefs.soundKinds[kind]) return () => {};
+  ctx ??= new AudioContext();
+  let src: AudioBufferSourceNode | null = null;
+  let stopped = false;
+  void ctx.resume().catch(() => {});
+  void load(url).then((buffer) => {
+    if (!buffer || !ctx || stopped) return;
+    src = ctx.createBufferSource();
+    const g = ctx.createGain();
+    src.buffer = buffer;
+    src.loop = true;
+    g.gain.value = GAIN;
+    src.connect(g).connect(ctx.destination);
+    src.start();
+  });
+  return () => {
+    stopped = true;
+    src?.stop();
+  };
+}
+
 export const sounds = {
+  /** Someone is calling you (loops until stopped). */
+  ringIncoming: () => loop('calls', ringIncomingUrl),
+  /** You're calling someone and they haven't picked up yet. */
+  ringOutgoing: () => loop('calls', ringOutgoingUrl),
   join: () => play('voice', joinUrl),
   leave: () => play('voice', leaveUrl),
   selfJoin: () => play('voice', joinUrl),

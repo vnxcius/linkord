@@ -296,7 +296,7 @@ export function AppPreview() {
         </For>
         <div class="preview-connected">
           <span class="login-dot online" />
-          <span>{t('Voice Connected')}</span>
+          <span>{t('Voice online')}</span>
         </div>
       </div>
       <div class="preview-chat">

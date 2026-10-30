@@ -34,7 +34,9 @@ export type WorkerIn =
   | { type: 'gain'; id: string; gain: number }
   | { type: 'vad'; threshold: number; auto: boolean; ptt: boolean }
   | { type: 'ptt'; active: boolean }
-  | { type: 'denoise'; kind: DenoiseKind | null };
+  | { type: 'denoise'; kind: DenoiseKind | null }
+  /** Play a soundboard sound for everyone in the channel. */
+  | { type: 'sound'; sound_id: string };
 
 export type WorkerOut =
   | { type: 'ready' }
@@ -48,7 +50,11 @@ export type WorkerOut =
   | { type: 'muted_talking' }
   | { type: 'ping'; ms: number }
   | { type: 'denoiser'; kind: DenoiseKind | null }
-  | { type: 'stream_audio'; stats: StreamAudioStats };
+  | { type: 'stream_audio'; stats: StreamAudioStats }
+  /** The server moves us to another channel (the AFK channel after a while without talking). */
+  | { type: 'move'; channelId: string; reason?: string }
+  /** Someone in the channel (maybe us) played a soundboard sound. */
+  | { type: 'sound'; userId: string; sound: import('./soundboard').Sound };
 
 /** Once a second while streaming audio: what the capture delivers and what the echo canceller does with it. */
 export interface StreamAudioStats {
@@ -88,6 +94,8 @@ const MAX_VIDEO_BUFFER = 768 * 1024;
 
 const KIND_VOICE = 1;
 const KIND_SCREEN_AUDIO = 4;
+/** Music from a bot (Kass): stereo Opus on the voice socket, played and volume-controlled like their voice. */
+const KIND_MUSIC = 5;
 
 let ws: WebSocket | null = null;
 /** Second connection for video and stream audio, so they never delay voice. */
@@ -110,6 +118,8 @@ let noiseFloor = 0.003;
 let frameCount = 0;
 let lastMutedHint = 0;
 const lastHeard = new Map<string, number>();
+/** Per-user volumes. They arrive before `connect` hands us the mixer, so they're kept and applied once it does. */
+const gains = new Map<string, number>();
 /** Streamers we're watching; stream audio from anyone else is dropped. */
 const watched = new Set<string>();
 // Advanced noise suppression (RNNoise) and its speech probability for the current frame.
@@ -265,12 +275,21 @@ async function onStreamAudio(id: string, packet: Uint8Array) {
   playback?.postMessage({ id: key, pcm, channels: 2 }, [pcm.buffer]);
 }
 
+async function onMusic(id: string, packet: Uint8Array) {
+  if (deafened) return;
+  const pcm = (await decoderFor(`${id}:music`, 2)).decodeFloat(packet);
+  playback?.postMessage({ id, pcm, channels: 2 }, [pcm.buffer]);
+  if (!lastHeard.has(id)) post({ type: 'speaking', id, on: true });
+  lastHeard.set(id, performance.now());
+}
+
 function onBinary(buf: ArrayBuffer) {
   const view = new DataView(buf);
   const kind = view.getUint8(0);
   const id = view.getBigUint64(1).toString();
   if (kind === KIND_VOICE) void onAudio(id, new Uint8Array(buf, 9));
   else if (kind === KIND_SCREEN_AUDIO) void onStreamAudio(id, new Uint8Array(buf, 9));
+  else if (kind === KIND_MUSIC) void onMusic(id, new Uint8Array(buf, 9));
   else if (kind === 2 || kind === 3) {
     const data = buf.slice(9);
     post({ type: 'video', id, source: kind === 2 ? 'camera' : 'screen', data }, [data]);
@@ -303,6 +322,7 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
   connectMsg = msg;
   playback = msg.playback;
   playback.onmessage = (e) => onReference(e.data);
+  for (const [id, gain] of gains) playback.postMessage({ id, gain });
   encoder = await createEncoder({
     sampleRate: 48000,
     channels: 1,
@@ -332,6 +352,8 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
       if (m.source === 'screen') playback?.postMessage({ id: `${m.user_id}:screen`, remove: true });
       post({ type: 'video_stop', id: m.user_id, source: m.source });
     } else if (m.op === 'keyframe') post({ type: 'keyframe', source: m.source });
+    else if (m.op === 'move') post({ type: 'move', channelId: m.channel_id, reason: m.reason });
+    else if (m.op === 'sound') post({ type: 'sound', userId: m.user_id, sound: m.sound });
   };
   sock.onclose = (e) => {
     clearInterval(pingTimer);
@@ -419,7 +441,10 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       return sendJson({ op: 'watch', user_id: m.user_id, on: m.on });
     case 'request_keyframe':
       return sendJson({ op: 'request_keyframe', user_id: m.user_id, source: m.source });
+    case 'sound':
+      return sendJson({ op: 'sound', sound_id: m.sound_id });
     case 'gain':
+      gains.set(m.id, m.gain);
       playback?.postMessage({ id: m.id, gain: m.gain });
       return;
     case 'vad':

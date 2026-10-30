@@ -11,7 +11,8 @@
 //! Wire format (binary):
 //!   client -> server: [kind u8][payload]
 //!   server -> client: [kind u8][sender id u64 BE][payload]
-//! kinds: 1 = voice (Opus), 2 = camera video, 3 = screen video, 4 = screen audio (Opus, stereo).
+//! kinds: 1 = voice (Opus), 2 = camera video, 3 = screen video, 4 = screen audio (Opus, stereo),
+//! 5 = music (Opus, stereo; only sent by bots, on the voice lane, to everyone).
 //! Video payload: [flags u8][seq u16 BE][codec: len u8 + ascii, only on keyframes][frame]; flag bit 0 = keyframe.
 //!
 //! Screen shares are only forwarded to people watching them ("Watch Stream").
@@ -55,13 +56,15 @@ const KIND_VOICE: u8 = 1;
 const KIND_CAMERA: u8 = 2;
 const KIND_SCREEN: u8 = 3;
 const KIND_SCREEN_AUDIO: u8 = 4;
+const KIND_MUSIC: u8 = 5;
 
 static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Serialize)]
 pub struct VoiceState {
     pub user_id: Id,
-    pub guild_id: Id,
+    /// None for calls in DMs and group DMs.
+    pub guild_id: Option<Id>,
     pub channel_id: Option<Id>,
     pub self_mute: bool,
     pub self_deaf: bool,
@@ -76,6 +79,9 @@ pub struct VoiceState {
     /// The voice socket that owns this state.
     #[serde(skip)]
     conn: u64,
+    /// The channel this session was in, kept after leaving so a DM call's members hear about it.
+    #[serde(skip)]
+    home: Id,
 }
 
 type MediaTx = mpsc::Sender<(Instant, WsMsg)>;
@@ -83,6 +89,8 @@ type MediaTx = mpsc::Sender<(Instant, WsMsg)>;
 struct Peer {
     user: Id,
     conn: u64,
+    /// Last time they talked (or joined, or changed mute/camera/stream), for the AFK channel.
+    active: Mutex<Instant>,
     tx: mpsc::Sender<WsMsg>,
     /// Set while the peer's media socket is connected.
     media: Mutex<Option<MediaTx>>,
@@ -91,7 +99,12 @@ struct Peer {
 
 /// A voice channel's call: it starts when the first person joins and ends when the last one leaves.
 struct Call {
-    guild_id: Id,
+    /// None for DM calls.
+    guild_id: Option<Id>,
+    /// DM calls: who is being rung (and hasn't joined or declined yet).
+    ringing: HashSet<Id>,
+    /// Bumped each time ringing starts, so an old ringing timeout doesn't cut a newer one short.
+    ring_gen: u64,
     started_at: i64,
     /// Set while nobody is in it, so a lone user reconnecting keeps the call going.
     empty_since: Option<Instant>,
@@ -110,7 +123,7 @@ const MAX_STATUS: usize = 500;
 
 #[derive(Clone, Serialize)]
 pub struct ChannelStatus {
-    pub guild_id: Id,
+    pub guild_id: Option<Id>,
     pub channel_id: Id,
     pub status: Option<String>,
 }
@@ -127,14 +140,28 @@ pub struct VoiceStates {
 
 impl VoiceStates {
     pub fn for_guilds(&self, guilds: &[Id]) -> Vec<VoiceState> {
-        self.by_user.iter().filter(|v| guilds.contains(&v.guild_id)).map(|v| v.clone()).collect()
+        self.by_user.iter().filter(|v| v.guild_id.is_some_and(|g| guilds.contains(&g))).map(|v| v.clone()).collect()
+    }
+
+    /// People in calls in these (DM) channels.
+    pub fn for_channels(&self, channels: &[Id]) -> Vec<VoiceState> {
+        self.by_user.iter().filter(|v| v.channel_id.is_some_and(|c| channels.contains(&c))).map(|v| v.clone()).collect()
+    }
+
+    /// DM calls going on in these channels, with who is being rung.
+    pub fn calls_for(&self, channels: &[Id]) -> Vec<CallInfo> {
+        self.calls
+            .iter()
+            .filter(|c| channels.contains(c.key()) && c.guild_id.is_none() && c.empty_since.is_none())
+            .map(|c| CallInfo { channel_id: *c.key(), ringing: c.ringing.iter().copied().collect() })
+            .collect()
     }
 
     /// Statuses of the calls going on in these guilds.
     pub fn statuses_for(&self, guilds: &[Id]) -> Vec<ChannelStatus> {
         self.calls
             .iter()
-            .filter(|c| guilds.contains(&c.guild_id) && !c.ended())
+            .filter(|c| c.guild_id.is_some_and(|g| guilds.contains(&g)) && !c.ended())
             .filter_map(|c| c.status.clone().map(|s| ChannelStatus { guild_id: c.guild_id, channel_id: *c.key(), status: Some(s) }))
             .collect()
     }
@@ -146,7 +173,7 @@ impl VoiceStates {
         let now = Instant::now();
         let screen = kind == KIND_SCREEN || kind == KIND_SCREEN_AUDIO;
         for p in room.iter().filter(|p| p.conn != from) {
-            if kind == KIND_VOICE || kind == 0 {
+            if kind == KIND_VOICE || kind == KIND_MUSIC || kind == 0 {
                 let _ = p.tx.try_send(msg.clone());
                 continue;
             }
@@ -157,6 +184,15 @@ impl VoiceStates {
                 Some(media) => drop(media.try_send((now, msg.clone()))),
                 // Apps older than 0.1.7 have no media socket yet.
                 None => drop(p.tx.try_send(msg.clone())),
+            }
+        }
+    }
+
+    /// Sends a control message to everyone in the channel, the sender included.
+    fn send_all(&self, channel: Id, msg: WsMsg) {
+        if let Some(room) = self.rooms.get(&channel) {
+            for p in room.iter() {
+                let _ = p.tx.try_send(msg.clone());
             }
         }
     }
@@ -195,9 +231,16 @@ impl VoiceStates {
 
     /// The start of the channel's call, beginning one if it had none (or it ended a while ago), and
     /// whether an old call's status was cleared by that.
-    fn join_call(&self, channel: Id, guild_id: Id) -> (i64, bool) {
+    fn join_call(&self, channel: Id, guild_id: Option<Id>) -> (i64, bool) {
         let now = chrono::Utc::now().timestamp_millis();
-        let mut call = self.calls.entry(channel).or_insert(Call { guild_id, started_at: now, empty_since: None, status: None });
+        let mut call = self.calls.entry(channel).or_insert(Call {
+            guild_id,
+            ringing: HashSet::new(),
+            ring_gen: 0,
+            started_at: now,
+            empty_since: None,
+            status: None,
+        });
         let mut cleared = false;
         if call.ended() {
             call.started_at = now;
@@ -232,9 +275,62 @@ impl VoiceStates {
     }
 }
 
+/// Who hears about a voice session: the server's members, or the people in the DM.
+async fn audience(st: &AppState, guild: Option<Id>, channel: Id) -> Vec<Id> {
+    let r = match guild {
+        Some(g) => guild_members(&st.db, g).await,
+        None => crate::api::dms::recipients(&st.db, channel).await,
+    };
+    r.unwrap_or_default()
+}
+
 async fn announce(st: &AppState, vs: &VoiceState) {
-    if let Ok(members) = guild_members(&st.db, vs.guild_id).await {
-        st.hub.send(&members, "VOICE_STATE_UPDATE", vs);
+    let to = audience(st, vs.guild_id, vs.home).await;
+    st.hub.send(&to, "VOICE_STATE_UPDATE", vs);
+}
+
+/// A DM call and who it's ringing, as clients get it.
+#[derive(Clone, Serialize)]
+pub struct CallInfo {
+    pub channel_id: Id,
+    pub ringing: Vec<Id>,
+}
+
+/// Tells the DM's people who is being rung (an empty list: nobody, or the call ended).
+async fn announce_call(st: &AppState, channel: Id) {
+    let ringing: Vec<Id> = st.voice.calls.get(&channel).map(|c| c.ringing.iter().copied().collect()).unwrap_or_default();
+    let to = audience(st, None, channel).await;
+    st.hub.send(&to, "CALL_UPDATE", &CallInfo { channel_id: channel, ringing });
+}
+
+/// How long a DM call rings before giving up, like Discord's.
+const RING_FOR: Duration = Duration::from_secs(60);
+
+/// Rings `users` for the DM call in `channel` (people already in it are skipped), for RING_FOR.
+pub async fn ring(st: &AppState, channel: Id, users: Vec<Id>) {
+    let inside: HashSet<Id> = st.voice.rooms.get(&channel).map(|r| r.iter().map(|p| p.user).collect()).unwrap_or_default();
+    let gen = {
+        let Some(mut call) = st.voice.calls.get_mut(&channel) else { return };
+        call.ringing.extend(users.into_iter().filter(|u| !inside.contains(u)));
+        call.ring_gen += 1;
+        call.ring_gen
+    };
+    announce_call(st, channel).await;
+    let st = st.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(RING_FOR).await;
+        let stopped = st.voice.calls.get_mut(&channel).filter(|c| c.ring_gen == gen && !c.ringing.is_empty()).map(|mut c| c.ringing.clear()).is_some();
+        if stopped {
+            announce_call(&st, channel).await;
+        }
+    });
+}
+
+/// Stops ringing `user` (they joined or declined).
+pub async fn stop_ringing(st: &AppState, channel: Id, user: Id) {
+    let changed = st.voice.calls.get_mut(&channel).is_some_and(|mut c| c.ringing.remove(&user));
+    if changed {
+        announce_call(st, channel).await;
     }
 }
 
@@ -252,13 +348,124 @@ pub async fn leave(st: &AppState, user: Id) {
                 announce(st, &viewer).await;
             }
         }
+        let left = vs.channel_id;
         vs.channel_id = None;
         vs.self_stream = false;
         vs.self_video = false;
         vs.watching.clear();
         vs.call_started_at = None;
         announce(st, &vs).await;
+        if let Some(ch) = left {
+            if st.voice.rooms.get(&ch).is_none_or(|r| r.is_empty()) {
+                crate::watch::call_ended(st, ch, vs.guild_id).await;
+            }
+            if vs.guild_id.is_none() {
+                end_dm_call_if_empty(st, ch).await;
+            }
+        }
     }
+}
+
+/// A DM call nobody is in any more stops ringing.
+async fn end_dm_call_if_empty(st: &AppState, channel: Id) {
+    let empty = st.voice.rooms.get(&channel).is_none_or(|r| r.is_empty());
+    if empty && st.voice.calls.get_mut(&channel).is_some_and(|mut c| !std::mem::take(&mut c.ringing).is_empty() || c.guild_id.is_none()) {
+        announce_call(st, channel).await;
+    }
+}
+
+/// Puts `me` in a voice channel (ending any other voice session of theirs) and tells the guild.
+/// Returns the session's connection id and the queue of what others send it.
+pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self_mute: bool, self_deaf: bool) -> (u64, mpsc::Receiver<WsMsg>) {
+    // One voice session per user: joining here ends any session in another channel or on another device.
+    leave(st, me).await;
+    let conn = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
+    let (tx, rx) = mpsc::channel(VOICE_QUEUE);
+    st.voice.rooms.entry(channel).or_default().push(Peer {
+        user: me,
+        conn,
+        tx,
+        active: Mutex::new(Instant::now()),
+        media: Mutex::new(None),
+        watching: Mutex::new(HashSet::new()),
+    });
+    let (started_at, status_cleared) = st.voice.join_call(channel, guild_id);
+    let vs = VoiceState {
+        user_id: me,
+        guild_id,
+        channel_id: Some(channel),
+        self_mute,
+        self_deaf,
+        self_stream: false,
+        self_video: false,
+        watching: Vec::new(),
+        call_started_at: Some(started_at),
+        conn,
+        home: channel,
+    };
+    st.voice.by_user.insert(me, vs.clone());
+    tracing::info!(user = %me, channel = %channel, "voice: joined");
+    announce(st, &vs).await;
+    if status_cleared {
+        announce_status(st, &ChannelStatus { guild_id, channel_id: channel, status: None }).await;
+    }
+    if guild_id.is_none() {
+        // Joining a DM call answers it; starting one rings everyone else in the DM.
+        let alone = st.voice.rooms.get(&channel).is_some_and(|r| r.len() == 1);
+        if alone {
+            let others: Vec<Id> = crate::api::dms::recipients(&st.db, channel).await.unwrap_or_default().into_iter().filter(|u| *u != me).collect();
+            ring(st, channel, others).await;
+        } else {
+            stop_ringing(st, channel, me).await;
+        }
+    }
+    (conn, rx)
+}
+
+/// Ends the voice session `conn` (when it still is in `channel`) and tells the guild.
+pub async fn part(st: &AppState, me: Id, conn: u64, channel: Id) {
+    if let Some(peer) = st.voice.remove_peer(channel, conn) {
+        if let Some(media) = peer.media.lock().unwrap().take() {
+            let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+        }
+    }
+    for viewer in st.voice.unwatch(channel, me) {
+        announce(st, &viewer).await;
+    }
+    if let Some((_, mut vs)) = st.voice.by_user.remove_if(&me, |_, v| v.conn == conn) {
+        tracing::info!(user = %me, channel = %channel, "voice: left");
+        vs.channel_id = None;
+        vs.self_stream = false;
+        vs.self_video = false;
+        vs.watching.clear();
+        vs.call_started_at = None;
+        announce(st, &vs).await;
+        if st.voice.rooms.get(&channel).is_none_or(|r| r.is_empty()) {
+            crate::watch::call_ended(st, channel, vs.guild_id).await;
+        }
+        if vs.guild_id.is_none() {
+            end_dm_call_if_empty(st, channel).await;
+        }
+    }
+}
+
+/// The voice channel a user is in (and its server; None for DM calls).
+pub fn channel_of(st: &AppState, user: Id) -> Option<(Option<Id>, Id)> {
+    st.voice.by_user.get(&user).and_then(|v| v.channel_id.map(|c| (v.guild_id, c)))
+}
+
+/// Who else is in the channel.
+pub fn others_in(st: &AppState, channel: Id, me: Id) -> usize {
+    st.voice.rooms.get(&channel).map_or(0, |r| r.iter().filter(|p| p.user != me).count())
+}
+
+/// Sends a bot's music packet (Opus, stereo, 20 ms) to everyone else in the channel.
+pub fn send_music(st: &AppState, channel: Id, conn: u64, me: Id, packet: &[u8]) {
+    let mut out = Vec::with_capacity(packet.len() + 9);
+    out.push(KIND_MUSIC);
+    out.extend_from_slice(&(me.0 as u64).to_be_bytes());
+    out.extend_from_slice(packet);
+    st.voice.relay(channel, conn, me, KIND_MUSIC, WsMsg::Binary(out.into()));
 }
 
 pub fn routes() -> Router<AppState> {
@@ -266,12 +473,13 @@ pub fn routes() -> Router<AppState> {
         .route("/voice/connect", get(voice_handler))
         .route("/voice/media", get(media_handler))
         .route("/channels/{id}/voice-status", put(set_status))
+        .route("/channels/{id}/call/decline", axum::routing::post(decline_call))
+        .route("/channels/{id}/call/ring", axum::routing::post(ring_again))
 }
 
 async fn announce_status(st: &AppState, status: &ChannelStatus) {
-    if let Ok(members) = guild_members(&st.db, status.guild_id).await {
-        st.hub.send(&members, "VOICE_CHANNEL_STATUS_UPDATE", status);
-    }
+    let to = audience(st, status.guild_id, status.channel_id).await;
+    st.hub.send(&to, "VOICE_CHANNEL_STATUS_UPDATE", status);
 }
 
 #[derive(Deserialize)]
@@ -303,6 +511,31 @@ async fn set_status(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id)
     Ok(Json(out))
 }
 
+/// Declines a DM call that's ringing you.
+async fn decline_call(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<()> {
+    channel_for(&st, id, me).await?;
+    stop_ringing(&st, id, me).await;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct RingAgain {
+    /// Who to ring; everyone in the DM who isn't in the call when left out.
+    user_ids: Option<Vec<Id>>,
+}
+
+/// Rings people again (from inside the DM call).
+async fn ring_again(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<RingAgain>) -> ApiResult<()> {
+    let a = channel_for(&st, id, me).await?;
+    if !kind::is_private(a.ch.kind) || st.voice.by_user.get(&me).and_then(|v| v.channel_id) != Some(id) {
+        return Err(bad("join the call first"));
+    }
+    let members = crate::api::dms::recipients(&st.db, id).await?;
+    let users = body.user_ids.unwrap_or_else(|| members.clone()).into_iter().filter(|u| *u != me && members.contains(u)).collect();
+    ring(&st, id, users).await;
+    Ok(())
+}
+
 async fn voice_handler(State(st): State<AppState>, ws: WebSocketUpgrade) -> Response {
     ws.max_message_size(MAX_FRAME).on_upgrade(move |socket| run_voice(st, socket))
 }
@@ -328,6 +561,24 @@ enum ClientOp {
     RequestKeyframe { user_id: Id, source: String },
     /// Round-trip measurement for the ping display; echoed straight back.
     Ping { t: f64 },
+    /// Play a soundboard sound for everyone in the channel.
+    Sound { sound_id: String },
+}
+
+/// Whether `me` may join the call in `channel` (a server voice channel with Connect, or a DM / group DM they're
+/// in), and then its server and whether they may send audio and video: Speak in servers, always in DMs, never in
+/// the server's AFK channel (everyone there is muted, like Discord).
+async fn call_access(st: &AppState, channel: Id, me: Id) -> Option<(Option<Id>, bool)> {
+    let a = channel_for(st, channel, me).await.ok()?;
+    if kind::is_private(a.ch.kind) {
+        return Some((None, true));
+    }
+    if a.ch.kind != kind::VOICE || !a.has(perms::CONNECT) {
+        return None;
+    }
+    let guild = a.ch.guild_id?;
+    let afk: Option<Id> = sqlx::query_scalar("SELECT afk_channel_id FROM guilds WHERE id = $1").bind(guild).fetch_optional(&st.db).await.ok().flatten().flatten();
+    Some((Some(guild), a.has(perms::SPEAK) && afk != Some(channel)))
 }
 
 async fn close(mut socket: WebSocket, code: u16, reason: &'static str) {
@@ -369,42 +620,13 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
     let Some((me, ident)) = identify(&st, &mut socket).await else {
         return close(socket, 4001, "invalid token").await;
     };
-    let (guild_id, can_speak) = match channel_for(&st, ident.channel_id, me).await {
-        Ok(a) if a.ch.kind == kind::VOICE && a.has(perms::CONNECT) => (a.ch.guild_id.unwrap(), a.has(perms::SPEAK)),
-        _ => return close(socket, 4004, "not a voice channel").await,
-    };
     let channel = ident.channel_id;
-
-    // One voice session per user: joining here ends any session in another channel or on another device.
-    leave(&st, me).await;
-    let conn = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
-    let (tx, mut rx) = mpsc::channel(VOICE_QUEUE);
-    st.voice.rooms.entry(channel).or_default().push(Peer {
-        user: me,
-        conn,
-        tx: tx.clone(),
-        media: Mutex::new(None),
-        watching: Mutex::new(HashSet::new()),
-    });
-    let vs = VoiceState {
-        user_id: me,
-        guild_id,
-        channel_id: Some(channel),
-        self_mute: !can_speak,
-        self_deaf: false,
-        self_stream: false,
-        self_video: false,
-        watching: Vec::new(),
-        call_started_at: None,
-        conn,
+    let (guild_id, can_speak) = match call_access(&st, channel, me).await {
+        Some(x) => x,
+        None => return close(socket, 4004, "not a voice channel").await,
     };
-    let (started_at, status_cleared) = st.voice.join_call(channel, guild_id);
-    let vs = VoiceState { call_started_at: Some(started_at), ..vs };
-    st.voice.by_user.insert(me, vs.clone());
-    announce(&st, &vs).await;
-    if status_cleared {
-        announce_status(&st, &ChannelStatus { guild_id, channel_id: channel, status: None }).await;
-    }
+    let (conn, mut rx) = join(&st, me, guild_id, channel, !can_speak, false).await;
+    let Some(tx) = st.voice.with_peer(channel, conn, |p| p.tx.clone()) else { return };
 
     let (mut sink, mut stream) = socket.split();
     let ready = sink.send(WsMsg::Text(json!({ "op": "ready" }).to_string().into())).await.is_ok();
@@ -433,6 +655,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                             continue;
                         }
                         if kind == KIND_VOICE {
+                            st.voice.with_peer(channel, conn, |p| *p.active.lock().unwrap() = Instant::now());
                             let mut out = Vec::with_capacity(data.len() + 8);
                             out.push(kind);
                             out.extend_from_slice(&prefix);
@@ -444,6 +667,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                     }
                     Some(Ok(WsMsg::Text(t))) => match serde_json::from_str::<ClientOp>(&t) {
                         Ok(ClientOp::State { self_mute, self_deaf }) => {
+                            st.voice.with_peer(channel, conn, |p| *p.active.lock().unwrap() = Instant::now());
                             if let Some(vs) = st.voice.update(me, conn, |v| {
                                 v.self_mute = self_mute || !can_speak;
                                 v.self_deaf = self_deaf;
@@ -486,6 +710,17 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                             let msg = json!({ "op": "keyframe", "source": source }).to_string();
                             st.voice.send_to(channel, user_id, WsMsg::Text(msg.into()));
                         }
+                        Ok(ClientOp::Sound { sound_id }) => {
+                            // Spamming is part of the fun: 100 in a row, refilling at 100 a minute.
+                            if !can_speak || st.limits.check(format!("sound:{me}"), 100.0, 100.0 / 60.0).is_err() {
+                                continue;
+                            }
+                            if let Ok(sound) = crate::soundboard::find(&st, &sound_id, me).await {
+                                st.voice.with_peer(channel, conn, |p| *p.active.lock().unwrap() = Instant::now());
+                                let msg = json!({ "op": "sound", "user_id": me, "sound": sound }).to_string();
+                                st.voice.send_all(channel, WsMsg::Text(msg.into()));
+                            }
+                        }
                         Ok(ClientOp::Ping { t }) => {
                             let _ = tx.try_send(WsMsg::Text(json!({ "op": "pong", "t": t }).to_string().into()));
                         }
@@ -503,22 +738,53 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         }
     }
     add_voice_time(&st, me, &mut counted).await;
+    part(&st, me, conn, channel).await;
+}
 
-    if let Some(peer) = st.voice.remove_peer(channel, conn) {
-        if let Some(media) = peer.media.lock().unwrap().take() {
-            let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+/// Moves people who haven't talked for the server's AFK timeout into its AFK channel (when one is set), like
+/// Discord. Their client gets a `move` and rejoins there. People streaming or on camera count as active.
+pub async fn afk_sweeper(st: AppState) {
+    let mut tick = tokio::time::interval(Duration::from_secs(15));
+    loop {
+        tick.tick().await;
+        let Ok(guilds) = sqlx::query_as::<_, (Id, Id, i32)>(
+            "SELECT id, afk_channel_id, afk_timeout FROM guilds WHERE afk_channel_id IS NOT NULL",
+        )
+        .fetch_all(&st.db)
+        .await
+        else {
+            continue;
+        };
+        for (guild, afk, timeout) in guilds {
+            let idle: Vec<(Id, u64)> = st
+                .voice
+                .by_user
+                .iter()
+                .filter(|v| v.guild_id == Some(guild) && v.channel_id.is_some_and(|c| c != afk) && !v.self_stream && !v.self_video)
+                .map(|v| (v.user_id, v.conn))
+                .collect();
+            for (user, conn) in idle {
+                let Some(ch) = st.voice.by_user.get(&user).and_then(|v| v.channel_id) else { continue };
+                let expired = st
+                    .voice
+                    .with_peer(ch, conn, |p| {
+                        let mut at = p.active.lock().unwrap();
+                        let expired = at.elapsed() >= Duration::from_secs(timeout.max(60) as u64);
+                        if expired {
+                            // Give the client time to move before asking again.
+                            *at = Instant::now();
+                        }
+                        expired
+                    })
+                    .unwrap_or(false);
+                let bot = sqlx::query_scalar::<_, bool>("SELECT bot FROM users WHERE id = $1").bind(user).fetch_one(&st.db).await.unwrap_or(true);
+                if expired && !bot {
+                    tracing::info!(user = %user, channel = %ch, "voice: moved to the AFK channel");
+                    let msg = json!({ "op": "move", "channel_id": afk, "reason": "afk" }).to_string();
+                    st.voice.send_to(ch, user, WsMsg::Text(msg.into()));
+                }
+            }
         }
-    }
-    for viewer in st.voice.unwatch(channel, me) {
-        announce(&st, &viewer).await;
-    }
-    if let Some((_, mut vs)) = st.voice.by_user.remove_if(&me, |_, v| v.conn == conn) {
-        vs.channel_id = None;
-        vs.self_stream = false;
-        vs.self_video = false;
-        vs.watching.clear();
-        vs.call_started_at = None;
-        announce(&st, &vs).await;
     }
 }
 
@@ -541,7 +807,7 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
         return close(socket, 4004, "not in this voice channel").await;
     };
     let conn = vs.conn;
-    let can_speak = channel_for(&st, channel, me).await.is_ok_and(|a| a.has(perms::SPEAK));
+    let can_speak = call_access(&st, channel, me).await.is_some_and(|(_, speak)| speak);
     let (tx, mut rx) = mpsc::channel::<(Instant, WsMsg)>(MEDIA_QUEUE);
     if st.voice.with_peer(channel, conn, |p| *p.media.lock().unwrap() = Some(tx)).is_none() {
         return close(socket, 4004, "not in this voice channel").await;

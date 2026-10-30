@@ -11,6 +11,10 @@ pub struct Config {
     pub database_url: String,
     pub data_dir: PathBuf,
     pub web_dir: PathBuf,
+    /// Default nameplates users can pick without uploading anything (LINKORD_NAMEPLATES_DIR).
+    pub nameplates_dir: PathBuf,
+    /// Default soundboard sounds (LINKORD_SOUNDS_DIR): audio files, "🦆 quack.mp3".
+    pub sounds_dir: PathBuf,
     pub discord_client_id: String,
     pub discord_client_secret: String,
     /// Enables passwordless username login for local testing. Never enable on a public server.
@@ -37,6 +41,8 @@ pub struct Config {
     pub cloudflare_token: Option<String>,
     /// Use Let's Encrypt's staging directory (testing certificates, no rate limits).
     pub acme_staging: bool,
+    /// Who may open /logs and change the music bot's picture: Linkord usernames, user ids or Discord ids.
+    pub admins: Vec<String>,
 }
 
 fn opt(key: &str) -> Option<String> {
@@ -53,6 +59,8 @@ impl Config {
                 .to_string(),
             database_url: opt("DATABASE_URL").context("DATABASE_URL is required")?,
             data_dir: opt("LINKORD_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
+            nameplates_dir: opt("LINKORD_NAMEPLATES_DIR").unwrap_or_else(|| "./nameplates".into()).into(),
+            sounds_dir: opt("LINKORD_SOUNDS_DIR").unwrap_or_else(|| "./soundboard".into()).into(),
             web_dir: opt("LINKORD_WEB_DIR").unwrap_or_else(|| "../app/dist".into()).into(),
             discord_client_id: opt("DISCORD_CLIENT_ID").unwrap_or_default(),
             discord_client_secret: opt("DISCORD_CLIENT_SECRET").unwrap_or_default(),
@@ -69,6 +77,9 @@ impl Config {
             direct_tls: opt("LINKORD_DIRECT_TLS").is_none_or(|v| v != "off"),
             cloudflare_token: opt("CLOUDFLARE_API_TOKEN"),
             acme_staging: opt("LINKORD_ACME_STAGING").is_some_and(|v| v == "true"),
+            admins: opt("LINKORD_ADMINS")
+                .map(|v| v.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect())
+                .unwrap_or_default(),
         })
     }
 

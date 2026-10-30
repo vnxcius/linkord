@@ -23,7 +23,7 @@ use crate::error::ApiResult;
 use crate::id::Id;
 use crate::models::{Channel, DmChannel, Guild, SelfUser, User};
 use crate::state::AppState;
-use crate::voice::{ChannelStatus, VoiceState};
+use crate::voice::{CallInfo, ChannelStatus, VoiceState};
 
 type Tx = mpsc::UnboundedSender<Arc<str>>;
 
@@ -90,7 +90,10 @@ impl Hub {
     }
 
     pub fn presence(&self, user: &User) -> String {
-        if self.is_online(user.id) && user.status != "invisible" {
+        // Bots have no session but are always there.
+        if user.bot {
+            "online".into()
+        } else if self.is_online(user.id) && user.status != "invisible" {
             user.status.clone()
         } else {
             "offline".into()
@@ -244,7 +247,14 @@ struct Ready<'a> {
     voice_states: Vec<VoiceState>,
     /// Statuses of the voice calls going on ("what we're up to").
     voice_channel_statuses: Vec<ChannelStatus>,
+    /// Calls in your DMs and group DMs, with who they're ringing.
+    calls: Vec<CallInfo>,
+    /// What calls are watching together (watch.rs), and the server's clock to sync to.
+    watches: Vec<serde_json::Value>,
+    server_now: i64,
     features: Features,
+    /// LINKORD_ADMINS: can open /logs and change the music bot's picture.
+    admin: bool,
 }
 
 async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<String> {
@@ -265,20 +275,27 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         .await?
         .into_iter()
         .collect();
+    let dms = dms::load_dms(&st.db, user_id).await?;
+    let voice_channels: Vec<Id> = guild_list.iter().flat_map(|g| g.channels.iter().filter(|c| c.kind == crate::models::kind::VOICE).map(|c| c.id)).collect();
+    let dm_ids: Vec<Id> = dms.iter().map(|d| d.channel.id).collect();
     let ready = Ready {
         session_id,
         user: user.me(),
         guilds: guild_list,
-        dms: dms::load_dms(&st.db, user_id).await?,
+        dms,
         relationships: relationships::load(&st.db, user_id).await?,
         settings: settings::load(&st.db, user_id).await?,
         presences,
         activities,
         custom_status: crate::activities::own_custom_status(st, user_id),
         read_states,
-        voice_states: st.voice.for_guilds(&guild_ids),
+        voice_states: [st.voice.for_guilds(&guild_ids), st.voice.for_channels(&dm_ids)].concat(),
         voice_channel_statuses: st.voice.statuses_for(&guild_ids),
+        calls: st.voice.calls_for(&dm_ids),
+        watches: crate::watch::for_channels(st, &[voice_channels, dm_ids.clone()].concat()),
+        server_now: chrono::Utc::now().timestamp_millis(),
         features: Features { gifs: false },
+        admin: auth::is_admin(st, user_id).await,
     };
     Ok(serde_json::to_string(&serde_json::json!({ "t": "READY", "d": ready })).map_err(anyhow::Error::from)?)
 }

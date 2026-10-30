@@ -1,4 +1,5 @@
 // User settings: a full-window screen (like Discord's) with a sidebar of pages. Server settings stay
+import { Nameplate } from './Nameplate';
 // a dialog in SettingsModals.tsx.
 import {
   createEffect,
@@ -48,9 +49,12 @@ import { sounds } from '../lib/sounds';
 import { state } from '../lib/store';
 import { attempt, isMobile, setUi, toast } from '../lib/ui';
 import { cameraConstraints, restartMic, setOutputDevice, syncVad, voiceUi } from '../lib/voice';
+import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
 import { GameIcon, SpotifyIcon } from './Activity';
 import { Avatar } from './Avatar';
 import { ColorPicker } from './ColorPicker';
+import { ImageEditor, type ImageKind } from './ImageEditor';
+import { ImageSlot, InfoTip } from './ImageSlot';
 import * as I from './Icons';
 import { formatSize } from './MessageItem';
 import { accentCss } from './Profile';
@@ -682,7 +686,6 @@ function ProfilePage() {
   const [name, setName] = createSignal(saved().name);
   const [bio, setBio] = createSignal(saved().bio);
   const [accent, setAccent] = createSignal(saved().accent);
-  const [uploading, setUploading] = createSignal<'avatar' | 'banner' | null>(null);
   const [saving, setSaving] = createSignal(false);
   const dirty = () => name() !== saved().name || bio() !== saved().bio || accent() !== saved().accent;
   const reset = () => {
@@ -690,17 +693,19 @@ function ProfilePage() {
     setBio(saved().bio);
     setAccent(saved().accent);
   };
-  const upload = async (which: 'avatar' | 'banner', file?: File) => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('file', file);
-    setUploading(which);
-    await attempt(
-      () => api('POST', `/users/@me/${which}`, fd),
-      t(which === 'avatar' ? 'Avatar updated' : 'Banner updated'),
-    );
-    setUploading(null);
+  const [editing, setEditing] = createSignal<{ kind: ImageKind; file: File } | null>(null);
+  const pick = (kind: ImageKind, input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    input.value = ''; // so picking the same file again still fires
+    if (file) setEditing({ kind, file });
   };
+  const [recent] = createResource(
+    () => me().avatar ?? '',
+    () => api<string[]>('GET', '/users/@me/avatars').catch(() => []),
+  );
+  const [plates] = createResource(() => api<string[]>('GET', '/nameplates').catch(() => []));
+  const setPlate = (url: string) => attempt(() => api('PUT', '/users/@me/nameplate', { url }), t('Nameplate updated'));
+  const restore = (url: string) => attempt(() => api('PUT', '/users/@me/avatar', { url }), t('Avatar updated'));
   const removeImage = (which: 'avatar' | 'banner') =>
     attempt(() => api('DELETE', `/users/@me/${which}`), t(which === 'avatar' ? 'Avatar removed' : 'Banner removed'));
   const save = async () => {
@@ -718,14 +723,15 @@ function ProfilePage() {
     <div class="profile-editor">
       <div class="profile-fields">
         <label class="field">
-          <span>{t('Display name')}</span>
+          <span>
+            {t('Display name')} <InfoTip text={t('What people see in chat. Leave empty to show your username.')} />
+          </span>
           <input
             value={name()}
             onInput={(e) => setName(e.currentTarget.value)}
             placeholder={me().username}
             maxLength={32}
           />
-          <small class="muted">{t('What people see in chat. Leave empty to show your username.')}</small>
         </label>
         <label class="field">
           <span>
@@ -740,43 +746,30 @@ function ProfilePage() {
           />
         </label>
         <div class="field">
-          <span>{t('Banner colour')}</span>
+          <span>
+            {t('Banner colour')} <InfoTip text={t('Shown behind your profile when you have no banner image.')} />
+          </span>
           <ColorPicker value={accent()} onChange={setAccent} label={t('Banner colour')} />
-          <small class="muted">{t('Shown behind your profile when you have no banner image.')}</small>
         </div>
       </div>
 
       <div class="profile-side">
         <div class="field-label">{t('Preview')}</div>
         <div class="profile-preview editable">
-          <label
-            class="edit-banner"
-            style={{ 'background-color': accent() }}
-            classList={{ busy: uploading() === 'banner' }}
-          >
+          <label class="edit-banner" style={{ 'background-color': accent() }}>
             <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
             <span class="edit-overlay">
               <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
             </span>
-            <input
-              type="file"
-              accept={IMAGE_TYPES}
-              hidden
-              onChange={(e) => void upload('banner', e.currentTarget.files?.[0])}
-            />
+            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('banner', e.currentTarget)} />
           </label>
-          <label class="edit-avatar profile-avatar" classList={{ busy: uploading() === 'avatar' }}>
+          <label class="edit-avatar profile-avatar">
             <Avatar user={me()} size={84} />
             <span class="edit-overlay round">
               <I.Photo size={20} />
               <small>{t('Change')}</small>
             </span>
-            <input
-              type="file"
-              accept={IMAGE_TYPES}
-              hidden
-              onChange={(e) => void upload('avatar', e.currentTarget.files?.[0])}
-            />
+            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('avatar', e.currentTarget)} />
           </label>
           <div class="profile-body">
             <h3>{preview().display_name || me().username}</h3>
@@ -786,21 +779,79 @@ function ProfilePage() {
             </Show>
           </div>
         </div>
-        <p class="muted small">{t('Click your banner or picture to change it. PNG, JPG, GIF or WebP.')}</p>
-        <div class="row small">
-          <Show when={me().avatar}>
-            <button class="link-btn" onClick={() => void removeImage('avatar')}>
-              {t('Remove picture')}
-            </button>
-          </Show>
-          <Show when={me().banner}>
-            <button class="link-btn" onClick={() => void removeImage('banner')}>
-              {t('Remove banner')}
-            </button>
-          </Show>
+        <div class="image-slots">
+          <ImageSlot
+            label={t('Picture')}
+            info={t('PNG, JPG, GIF or WebP. You can crop and resize it before saving.')}
+            has={!!me().avatar}
+            accept={IMAGE_TYPES}
+            onPick={(i) => pick('avatar', i)}
+            onRemove={() => void removeImage('avatar')}
+          >
+            <Show when={(recent() ?? []).length > 1}>
+              <div class="avatar-history" aria-label={t('Recent pictures')}>
+                <For each={recent()}>
+                  {(url) => (
+                    <button
+                      class="avatar-history-item"
+                      classList={{ current: url === me().avatar }}
+                      title={t('Use this picture')}
+                      aria-label={t('Use this picture')}
+                      disabled={url === me().avatar}
+                      onClick={() => void restore(url)}
+                    >
+                      <img src={media(url)} alt="" loading="lazy" />
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </ImageSlot>
+          <ImageSlot
+            label={t('Banner')}
+            has={!!me().banner}
+            accept={IMAGE_TYPES}
+            onPick={(i) => pick('banner', i)}
+            onRemove={() => void removeImage('banner')}
+          />
+          <ImageSlot
+            label={t('Nameplate')}
+            info={t('Shown behind your name in the member list, faded on the right side.')}
+            has={!!me().nameplate}
+            accept={`${IMAGE_TYPES},video/webm`}
+            onPick={(i) => pick('nameplate', i)}
+            onRemove={() => void attempt(() => api('DELETE', '/users/@me/nameplate'), t('Nameplate removed'))}
+          >
+            <div class="nameplate-picker">
+              <div class="member" style={{ background: 'var(--bg-1)', 'pointer-events': 'none' }}>
+                <Show when={media(me().nameplate)}>{(src) => <Nameplate src={src()} />}</Show>
+                <Avatar user={me()} size={32} />
+                <span class="member-name">{preview().display_name || me().username}</span>
+              </div>
+              <div class="nameplate-options">
+                <For each={plates()}>
+                  {(url) => (
+                    <button
+                      class="nameplate-option"
+                      classList={{ current: url === me().nameplate }}
+                      aria-label={t('Use this nameplate')}
+                      title={t('Use this nameplate')}
+                      disabled={url === me().nameplate}
+                      onClick={() => void setPlate(url)}
+                    >
+                      <Nameplate src={media(url)!} lazy />
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </ImageSlot>
         </div>
       </div>
 
+      <Show when={editing()}>
+        {(e) => <ImageEditor kind={e().kind} file={e().file} user={me()} onClose={() => setEditing(null)} />}
+      </Show>
       <Show when={dirty()}>
         <div class="save-bar">
           <span>{t('You have unsaved changes.')}</span>
@@ -1245,6 +1296,27 @@ function VoicePage(p: { onKeybinds: () => void }) {
         </Show>
       </Section>
 
+      <Section title={t('Soundboard')}>
+        <div class="set-card">
+          <label class="field">
+            <span>{t('Soundboard volume — {n}%', { n: Math.round(prefs.soundboardVolume * 100) })}</span>
+            <input
+              type="range"
+              class="range"
+              min="0"
+              max="100"
+              value={Math.round(prefs.soundboardVolume * 100)}
+              onInput={(e) => setPrefs({ soundboardVolume: +e.currentTarget.value / 100 })}
+            />
+            <small class="muted">
+              {t(
+                "How loud everyone's soundboard sounds play for you. Right-click someone to change or mute just theirs.",
+              )}
+            </small>
+          </label>
+        </div>
+      </Section>
+
       <Section title={t('Voice processing')}>
         <div class="set-card">
           <div class="set-row static">
@@ -1523,8 +1595,14 @@ function KeybindsPage() {
 // ---------- Notifications ----------
 
 const SOUND_KINDS: [SoundKind, string, string, () => void][] = [
-  ['messages', msg('Messages'), msg('New messages in DMs and mentions.'), sounds.message],
+  ['messages', msg('Messages'), msg('DMs, mentions, and messages in servers set to All Messages.'), sounds.message],
   ['voice', msg('Voice channel'), msg('Joining, leaving, and cameras turning on or off.'), sounds.join],
+  [
+    'calls',
+    msg('Calls'),
+    msg('The ringtone when a friend calls you, and the ringing while you wait for them to pick up.'),
+    () => void setTimeout(sounds.ringIncoming(), 5400),
+  ],
   ['mute', msg('Mute and deafen'), msg('When you mute, unmute, deafen or undeafen.'), sounds.mute],
   ['ptt', msg('Push to talk'), msg('A click when push to talk opens and closes.'), sounds.pttOn],
   [
@@ -1540,7 +1618,9 @@ function NotificationsPage() {
     <>
       <Section
         title={t('Desktop notifications')}
-        description={t("Pop-ups for DMs, mentions and replies while Linkord isn't focused.")}
+        description={t(
+          "Pop-ups for DMs, mentions, replies and server messages (servers notify for all messages unless you change it) while Linkord isn't focused.",
+        )}
       >
         <div class="set-card">
           <SwitchRow
@@ -1596,9 +1676,19 @@ function NotificationsPage() {
           </For>
         </div>
       </Section>
+      <Section title={t('Updates')}>
+        <div class="set-card">
+          <SwitchRow
+            label={t('Show a banner after each update')}
+            hint={t('"Linkord was updated", with a link to the patch notes.')}
+            checked={prefs.updateBanner}
+            onChange={(v) => setPrefs({ updateBanner: v })}
+          />
+        </div>
+      </Section>
       <p class="muted small">
         {t(
-          'To silence a server or channel, right-click it and choose Mute. Muted places still notify you when someone @mentions you directly. Do Not Disturb silences everything.',
+          'Right-click a server or channel to choose what notifies you: All Messages, Only @mentions or Nothing, or to mute it. Muted places still notify you when someone @mentions you directly. Do Not Disturb silences everything.',
         )}
       </p>
     </>
@@ -1624,28 +1714,66 @@ function LanguagePage() {
     ...LANGUAGES.map((l): [LangPref, string, string] => [l.id, l.name, t(l.english)]),
   ];
   return (
-    <Section title={t('Choose a language')} description={t('The language Linkord uses on this device.')}>
-      <div class="set-card">
-        <For each={options()}>
-          {([id, name, sub]) => (
-            <label class="set-row lang-row">
-              <input
-                type="radio"
-                name="language"
-                checked={prefs.language === id}
-                onChange={() => setPrefs({ language: id })}
-              />
+    <>
+      <Section title={t('Choose a language')} description={t('The language Linkord uses on this device.')}>
+        <div class="set-card">
+          <For each={options()}>
+            {([id, name, sub]) => (
+              <label class="set-row lang-row">
+                <input
+                  type="radio"
+                  name="language"
+                  checked={prefs.language === id}
+                  onChange={() => setPrefs({ language: id })}
+                />
+                <span class="set-row-text">
+                  <strong>{name}</strong>
+                  <Show when={sub !== name}>
+                    <small>{sub}</small>
+                  </Show>
+                </span>
+              </label>
+            )}
+          </For>
+        </div>
+      </Section>
+      <Section
+        title={t('Spellcheck')}
+        description={t('Underlines misspelled words in the message box; right-click one for suggestions.')}
+      >
+        <div class="set-card">
+          <SwitchRow
+            label={t('Check spelling while I type')}
+            checked={prefs.spellcheck}
+            onChange={(v) => setPrefs({ spellcheck: v })}
+          />
+          <label class="field">
+            <span>{t('Spellcheck language')}</span>
+            <select
+              value={prefs.spellLanguage}
+              disabled={!prefs.spellcheck}
+              onChange={(e) => setPrefs({ spellLanguage: e.currentTarget.value as typeof prefs.spellLanguage })}
+            >
+              <option value="auto">
+                {t('Same as the app ({language})', { language: SPELL_LANGUAGES[spellLanguage()].name })}
+              </option>
+              <For each={Object.entries(SPELL_LANGUAGES)}>{([id, d]) => <option value={id}>{d.name}</option>}</For>
+            </select>
+          </label>
+          <Show when={prefs.spellWords.length}>
+            <div class="set-row static">
               <span class="set-row-text">
-                <strong>{name}</strong>
-                <Show when={sub !== name}>
-                  <small>{sub}</small>
-                </Show>
+                <strong>{t('Your dictionary')}</strong>
+                <small>{prefs.spellWords.slice(-12).join(', ')}</small>
               </span>
-            </label>
-          )}
-        </For>
-      </div>
-    </Section>
+              <button class="btn small-btn" onClick={clearDictionary}>
+                {t('Clear')}
+              </button>
+            </div>
+          </Show>
+        </div>
+      </Section>
+    </>
   );
 }
 

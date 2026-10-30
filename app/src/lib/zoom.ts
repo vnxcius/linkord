@@ -2,7 +2,7 @@
 
 import { t } from './i18n';
 import { prefs, setPrefs } from './prefs';
-import { toast } from './ui';
+import { toast, ui } from './ui';
 
 const STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 // tauri.conf.json's minWidth/minHeight, in CSS pixels: the window's minimum grows with the zoom so the layout
@@ -52,7 +52,8 @@ export async function initZoom() {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      // The image viewer zooms its picture instead.
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || ui.lightbox) return;
       const dir =
         e.key === '=' || e.key === '+'
           ? 1

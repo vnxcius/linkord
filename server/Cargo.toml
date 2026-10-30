@@ -21,6 +21,7 @@ hex = "0.4"
 instant-acme = { version = "0.8", default-features = false, features = ["ring", "hyper-rustls", "rcgen", "x509-parser"] }
 mime_guess = "2"
 rand = "0.8"
+regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
@@ -29,7 +30,7 @@ sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "json", "macros", "migrate"] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.6", features = ["fs", "cors", "trace", "limit"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "trace", "limit", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 urlencoding = "2"

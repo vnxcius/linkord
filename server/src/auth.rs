@@ -40,6 +40,38 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
+/// An admin (LINKORD_ADMINS): may read the logs and change the music bot's picture.
+pub async fn is_admin(st: &AppState, user: Id) -> bool {
+    if st.cfg.admins.is_empty() {
+        return false;
+    }
+    let row: Option<(String, String)> = sqlx::query_as("SELECT username, discord_id FROM users WHERE id = $1 AND deleted_at IS NULL AND NOT bot")
+        .bind(user)
+        .fetch_optional(&st.db)
+        .await
+        .ok()
+        .flatten();
+    let Some((username, discord_id)) = row else { return false };
+    let id = user.to_string();
+    st.cfg.admins.iter().any(|a| *a == username || *a == discord_id || *a == id)
+}
+
+/// Same as [`AuthUser`], for admins only.
+pub struct AdminUser(#[allow(dead_code)] pub Id);
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, st: &AppState) -> Result<Self, Self::Rejection> {
+        let AuthUser(me) = AuthUser::from_request_parts(parts, st).await?;
+        if is_admin(st, me).await {
+            Ok(AdminUser(me))
+        } else {
+            Err(ApiError::Forbidden)
+        }
+    }
+}
+
 pub fn random_token(bytes: usize) -> String {
     let mut buf = vec![0u8; bytes];
     rand::thread_rng().fill_bytes(&mut buf);
@@ -58,6 +90,7 @@ pub async fn user_from_token(st: &AppState, token: &str) -> ApiResult<Option<Id>
 }
 
 async fn create_session(st: &AppState, user: Id) -> ApiResult<String> {
+    tracing::info!(user = %user, "signed in");
     let token = random_token(32);
     sqlx::query("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, now() + make_interval(days => $3))")
         .bind(hash_token(&token))

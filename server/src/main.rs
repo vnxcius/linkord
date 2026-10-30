@@ -7,13 +7,17 @@ mod embeds;
 mod error;
 mod gateway;
 mod id;
+mod logs;
 mod models;
+mod music;
 mod perms;
 mod ratelimit;
+mod soundboard;
 mod spotify;
 mod state;
 mod uploads;
 mod voice;
+mod watch;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +30,9 @@ use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::config::Config;
 use crate::state::{AppState, Inner};
@@ -34,11 +40,19 @@ use crate::state::{AppState, Inner};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "linkord_server=info,tower_http=warn".into()))
-        .init();
-
     let cfg = Config::from_env()?;
+    // The console (journalctl) as before, plus the redacted daily files behind /logs.
+    let console = EnvFilter::try_from_default_env().unwrap_or_else(|_| "linkord_server=info,tower_http=warn".into());
+    let files = tracing_subscriber::filter::Targets::new()
+        .with_default(tracing::Level::WARN)
+        .with_target("linkord_server", tracing::Level::INFO)
+        .with_target("http", tracing::Level::INFO)
+        .with_target("client", tracing::Level::INFO);
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(console))
+        .with(logs::FileLayer::new(&cfg.data_dir).with_filter(files))
+        .init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "server starting");
     if cfg.dev_login {
         tracing::warn!("LINKORD_DEV_LOGIN is enabled: anyone can sign in as any username. Do not use on a public server.");
     }
@@ -54,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         .context("connecting to postgres")?;
     sqlx::migrate!("./migrations").run(&db).await.context("running migrations")?;
     tokio::fs::create_dir_all(cfg.uploads_dir()).await?;
+    tokio::fs::create_dir_all(&cfg.nameplates_dir).await?;
 
     let st = AppState(Arc::new(Inner {
         http: reqwest::Client::builder().user_agent("linkord (https://github.com/linkord, 0.1)").timeout(Duration::from_secs(15)).build()?,
@@ -66,11 +81,17 @@ async fn main() -> anyhow::Result<()> {
         activities: Default::default(),
         spotify_states: Default::default(),
         games: Default::default(),
+        music: Default::default(),
+        watches: Default::default(),
         db,
         cfg: cfg.clone(),
     }));
+    music::init(&st).await.context("creating the music bot")?;
+    tokio::spawn(music::keep_ytdlp_updated(st.clone()));
     tokio::spawn(auth::sweep(st.clone()));
+    tokio::spawn(logs::prune(st.clone()));
     tokio::spawn(gateway::presence_sweeper(st.clone()));
+    tokio::spawn(voice::afk_sweeper(st.clone()));
     tokio::spawn(activities::keep_list(st.clone()));
     tokio::spawn(activities::sweep_games(st.clone()));
     tokio::spawn(activities::keep_custom_statuses(st.clone()));
@@ -85,6 +106,10 @@ async fn main() -> anyhow::Result<()> {
         .merge(spotify::routes())
         .merge(activities::routes())
         .merge(voice::routes())
+        .merge(music::routes())
+        .merge(logs::routes())
+        .merge(soundboard::routes())
+        .merge(watch::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(uploads::MAX_FILE * 4));
@@ -92,9 +117,14 @@ async fn main() -> anyhow::Result<()> {
     let web = ServeDir::new(&cfg.web_dir).fallback(ServeFile::new(cfg.web_dir.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
-        .nest_service("/uploads", ServeDir::new(cfg.uploads_dir()))
+        // Uploads live under random paths and nameplates rarely change: let browsers keep them, so long lists
+        // (member list, nameplate picker) don't fetch every file again.
+        .nest_service("/uploads", cached(ServeDir::new(cfg.uploads_dir()), "public, max-age=604800"))
+        .nest_service("/nameplates", cached(ServeDir::new(&cfg.nameplates_dir), "public, max-age=86400"))
+        .nest_service("/soundboard", cached(ServeDir::new(&cfg.sounds_dir), "public, max-age=86400"))
         .nest_service("/api/updates/download", ServeDir::new(cfg.data_dir.join("updates")))
         .fallback_service(web)
+        .layer(axum::middleware::from_fn(logs::access_log))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(st.clone());
@@ -114,6 +144,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("linkord listening on {} (public url {})", cfg.bind, cfg.public_url);
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
     Ok(())
+}
+
+fn cached<S>(svc: S, value: &'static str) -> tower_http::set_header::SetResponseHeader<S, axum::http::HeaderValue> {
+    tower_http::set_header::SetResponseHeader::if_not_present(svc, axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static(value))
 }
 
 async fn shutdown() {

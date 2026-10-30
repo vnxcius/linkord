@@ -13,17 +13,19 @@ import {
   Show,
   Switch,
 } from 'solid-js';
-import { api, emojiUrl } from '../lib/api';
-import { dateLocale, plural, t } from '../lib/i18n';
+import { api, emojiUrl, media } from '../lib/api';
+import { dateLocale, msg, plural, t } from '../lib/i18n';
 import { can, hasBit, P, PERM_INFO, topPosition } from '../lib/perms';
 import { isMobile } from '../lib/ui';
 import { nameColor, nameOf, state } from '../lib/store';
 import type { Role, User } from '../lib/types';
+import { Kind } from '../lib/types';
 import { attempt, setUi, toast } from '../lib/ui';
 import { Avatar, GuildIcon } from './Avatar';
 import { ColorPicker } from './ColorPicker';
 import * as I from './Icons';
 import { useSubmit } from './Modals';
+import { SoundboardSettings } from './Soundboard';
 import { accentCss, canAssign, MemberRoles } from './Profile';
 
 function Toggle(p: {
@@ -69,7 +71,7 @@ function SaveBar(p: { show: boolean; busy?: boolean; onReset: () => void; onSave
   );
 }
 
-type Page = 'overview' | 'roles' | 'emoji' | 'members' | 'invites';
+type Page = 'overview' | 'roles' | 'emoji' | 'soundboard' | 'members' | 'invites';
 
 export function ServerSettings(p: { guildId: string; tab?: string }) {
   const g = () => state.guilds[p.guildId];
@@ -79,6 +81,7 @@ export function ServerSettings(p: { guildId: string; tab?: string }) {
         ['overview', t('Overview'), P.MANAGE_GUILD, I.Gear],
         ['roles', t('Roles'), P.MANAGE_ROLES, I.Users],
         ['emoji', t('Emoji'), P.MANAGE_EMOJIS, I.Smile],
+        ['soundboard', t('Soundboard'), P.MANAGE_EMOJIS, I.Music],
         ['members', t('Members'), P.KICK_MEMBERS, I.Account],
         ['invites', t('Invites'), P.MANAGE_GUILD, I.Link],
       ] as [Page, string, number, (p: { size?: number }) => JSX.Element][]
@@ -159,6 +162,9 @@ export function ServerSettings(p: { guildId: string; tab?: string }) {
               <Match when={page() === 'emoji'}>
                 <EmojiPage guildId={p.guildId} />
               </Match>
+              <Match when={page() === 'soundboard'}>
+                <SoundboardSettings guildId={p.guildId} />
+              </Match>
               <Match when={page() === 'members'}>
                 <MembersPage guildId={p.guildId} />
               </Match>
@@ -216,6 +222,8 @@ function OverviewPage(p: { guildId: string }) {
       <Show when={error()}>
         <p class="error">{error()}</p>
       </Show>
+      <ServerBanner guildId={p.guildId} />
+      <SystemAndAfk guildId={p.guildId} />
       <SaveBar
         show={dirty()}
         busy={busy()}
@@ -225,6 +233,123 @@ function OverviewPage(p: { guildId: string }) {
         }
       />
     </div>
+  );
+}
+
+/** The picture at the top of the channel list, with the same fade the sidebar draws over it. */
+function ServerBanner(p: { guildId: string }) {
+  const g = () => state.guilds[p.guildId];
+  const { busy, error, run } = useSubmit();
+  const upload = (file?: File) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    void run(() => api('POST', `/guilds/${p.guildId}/banner`, fd));
+  };
+  return (
+    <section class="set-section">
+      <h2>{t('Server banner')}</h2>
+      <p class="muted small">
+        {t('Shown at the top of the channel list, behind the server name. Wide pictures work best (at least 960×540).')}
+      </p>
+      <div class="banner-setting">
+        <div
+          class="banner-preview"
+          style={{ 'background-image': g()?.banner ? `url(${media(g()!.banner)})` : undefined }}
+        >
+          <span>{g()?.name}</span>
+        </div>
+        <div class="banner-actions">
+          <label class="btn primary small-btn" classList={{ disabled: busy() }}>
+            {g()?.banner ? t('Change banner') : t('Upload banner')}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              hidden
+              onChange={(e) => upload(e.currentTarget.files?.[0])}
+            />
+          </label>
+          <Show when={g()?.banner}>
+            <button class="link-btn" onClick={() => void run(() => api('DELETE', `/guilds/${p.guildId}/banner`))}>
+              {t('Remove')}
+            </button>
+          </Show>
+        </div>
+      </div>
+      <Show when={error()}>
+        <p class="error">{error()}</p>
+      </Show>
+    </section>
+  );
+}
+
+const AFK_TIMEOUTS: [number, string][] = [
+  [60, msg('1 minute')],
+  [300, msg('5 minutes')],
+  [900, msg('15 minutes')],
+  [1800, msg('30 minutes')],
+  [3600, msg('1 hour')],
+];
+
+/** Join messages (where they go) and the AFK channel, saved as soon as they change. */
+function SystemAndAfk(p: { guildId: string }) {
+  const g = () => state.guilds[p.guildId];
+  const channels = (kind: Kind) =>
+    Object.values(state.channels)
+      .filter((c) => c.guild_id === p.guildId && c.kind === kind)
+      .sort((a, b) => a.position - b.position);
+  const save = (patch: Record<string, unknown>) =>
+    attempt(() => api('PATCH', `/guilds/${p.guildId}`, patch), t('Saved'));
+  return (
+    <>
+      <section class="set-section">
+        <h2>{t('System messages')}</h2>
+        <Toggle
+          label={t('Send a message when someone joins this server')}
+          checked={g()?.join_messages ?? true}
+          onChange={(v) => void save({ join_messages: v })}
+        />
+        <label class="field">
+          <span>{t('Channel for system messages')}</span>
+          <select
+            value={g()?.system_channel_id ?? ''}
+            disabled={g()?.join_messages === false}
+            onChange={(e) => void save({ system_channel_id: e.currentTarget.value || null })}
+          >
+            <option value="">{t('First text channel (default)')}</option>
+            <For each={channels(Kind.Text)}>{(c) => <option value={c.id}>#{c.name}</option>}</For>
+          </select>
+        </label>
+      </section>
+      <section class="set-section">
+        <h2>{t('AFK channel')}</h2>
+        <p class="muted small">
+          {t("People who haven't talked for a while are moved to this voice channel. Off by default.")}
+        </p>
+        <div class="row-fields">
+          <label class="field grow">
+            <span>{t('AFK channel')}</span>
+            <select
+              value={g()?.afk_channel_id ?? ''}
+              onChange={(e) => void save({ afk_channel_id: e.currentTarget.value || null })}
+            >
+              <option value="">{t('No AFK channel')}</option>
+              <For each={channels(Kind.Voice)}>{(c) => <option value={c.id}>{c.name}</option>}</For>
+            </select>
+          </label>
+          <label class="field">
+            <span>{t('AFK timeout')}</span>
+            <select
+              value={String(g()?.afk_timeout ?? 300)}
+              disabled={!g()?.afk_channel_id}
+              onChange={(e) => void save({ afk_timeout: Number(e.currentTarget.value) })}
+            >
+              <For each={AFK_TIMEOUTS}>{([secs, label]) => <option value={secs}>{t(label)}</option>}</For>
+            </select>
+          </label>
+        </div>
+      </section>
+    </>
   );
 }
 

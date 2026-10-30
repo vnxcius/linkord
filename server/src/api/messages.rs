@@ -14,7 +14,7 @@ use crate::auth::AuthUser;
 use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::channel_audience;
 use crate::id::Id;
-use crate::models::{kind, Attachment, Forwarded, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
+use crate::models::{kind, message_type, Attachment, Forwarded, Interaction, InteractionRow, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
 use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::{embeds, uploads};
@@ -37,6 +37,7 @@ pub fn routes() -> Router<AppState> {
         .route("/channels/{id}/typing", post(typing))
         .route("/channels/{id}/ack", post(ack))
         .route("/guilds/{id}/messages/search", get(search_guild))
+        .route("/users/@me/messages/search", get(search_all))
 }
 
 /// Attaches authors, replied-to messages and reactions to raw message rows.
@@ -52,7 +53,12 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
         .bind(&ref_ids)
         .fetch_all(&st.db)
         .await?;
-    let mut user_ids: Vec<Id> = rows.iter().map(|r| r.author_id).chain(refs.iter().map(|r| r.1)).collect();
+    let mut user_ids: Vec<Id> = rows
+        .iter()
+        .map(|r| r.author_id)
+        .chain(refs.iter().map(|r| r.1))
+        .chain(rows.iter().filter_map(|r| r.interaction.as_ref().map(|i| i.user_id)))
+        .collect();
     user_ids.sort();
     user_ids.dedup();
     let users: HashMap<Id, User> = User::get_many(&st.db, &user_ids).await?.into_iter().map(|u| (u.id, u)).collect();
@@ -78,6 +84,7 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
         .filter_map(|r| {
             Some(Message {
                 id: r.id,
+                kind: r.kind,
                 channel_id: r.channel_id,
                 author: users.get(&r.author_id)?.clone(),
                 content: r.content,
@@ -92,6 +99,9 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
                 edited_at: r.edited_at,
                 created_at: r.created_at,
                 forwarded: r.forwarded.map(|f| f.0),
+                interaction: r
+                    .interaction
+                    .and_then(|i| Some(Interaction { user: users.get(&i.user_id)?.clone(), name: i.0.name })),
                 nonce: None,
             })
         })
@@ -243,7 +253,7 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
         None => None,
     };
     let mention_everyone = mentions_everyone(&a, &content);
-    let draft = Draft { content, reply_to, attachments, mention_everyone, forwarded: None, nonce: body.nonce };
+    let draft = Draft { content, reply_to, attachments, mention_everyone, nonce: body.nonce, ..Default::default() };
     Ok(Json(post_message(&st, &a, me, draft).await?))
 }
 
@@ -278,14 +288,32 @@ struct Draft {
     mention_everyone: bool,
     forwarded: Option<Forwarded>,
     nonce: Option<String>,
+    /// Bots set their own embeds (no link previews) and the command they answer.
+    embeds: Option<serde_json::Value>,
+    interaction: Option<InteractionRow>,
+    /// System messages (joins, pins): see models::message_type.
+    kind: i16,
+}
+
+/// A bot's answer to a slash command `name` used by `user`, with its own embeds.
+pub async fn post_bot_message(st: &AppState, a: &Access, bot: Id, user: Id, name: &str, content: String, embeds: serde_json::Value) -> ApiResult<Message> {
+    let interaction = Some(InteractionRow { name: name.to_string(), user_id: user });
+    post_message(st, a, bot, Draft { content, embeds: Some(embeds), interaction, ..Default::default() }).await
+}
+
+/// A system message (see models::message_type) by `author` in a channel: no permission checks, no link previews.
+pub async fn post_system_message(st: &AppState, channel: Id, author: Id, kind: i16, reply_to: Option<Id>) -> ApiResult<Message> {
+    let ch = crate::models::Channel::get(&st.db, channel).await?;
+    let a = Access { ch, perms: perms::Perms { bits: -1, top: i32::MAX, owner: true } };
+    post_message(st, &a, author, Draft { kind, reply_to, embeds: Some(json!([])), ..Default::default() }).await
 }
 
 /// Stores a message, moves the channel (and the author's read state) to it and sends MESSAGE_CREATE.
 async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<Message> {
     let mid = Id::new();
     let row = sqlx::query_as::<_, MessageRow>(&format!(
-        "INSERT INTO messages (id, channel_id, author_id, content, reply_to, attachments, mention_everyone, forwarded)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {MESSAGE_COLS}"
+        "INSERT INTO messages (id, channel_id, author_id, content, reply_to, attachments, mention_everyone, forwarded, embeds, interaction, type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, '[]'), $10, $11) RETURNING {MESSAGE_COLS}"
     ))
     .bind(mid)
     .bind(a.ch.id)
@@ -295,6 +323,9 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     .bind(sqlx::types::Json(&d.attachments))
     .bind(d.mention_everyone)
     .bind(d.forwarded.as_ref().map(sqlx::types::Json))
+    .bind(d.embeds.as_ref().map(sqlx::types::Json))
+    .bind(d.interaction.as_ref().map(sqlx::types::Json))
+    .bind(d.kind)
     .fetch_one(&st.db)
     .await?;
     // Posting in an archived thread brings it back, like Discord.
@@ -315,7 +346,7 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     let mut msg = hydrate(st, vec![row]).await?.pop().ok_or(ApiError::NotFound)?;
     msg.nonce = d.nonce;
     st.hub.send(&audience, "MESSAGE_CREATE", &msg);
-    if !d.content.is_empty() {
+    if !d.content.is_empty() && d.embeds.is_none() {
         embeds::spawn(st.clone(), ch, mid, d.content);
     }
     Ok(msg)
@@ -420,6 +451,9 @@ async fn edit_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path((
     }
     if row.forwarded.is_some() {
         return Err(bad("forwarded messages can't be edited"));
+    }
+    if row.kind != message_type::DEFAULT {
+        return Err(bad("system messages can't be edited"));
     }
     let content = body.content.trim().to_string();
     if content.is_empty() && row.attachments.0.is_empty() {
@@ -565,6 +599,12 @@ async fn pin(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, mid))
     if count >= MAX_PINS {
         return Err(bad(format!("channels can have up to {MAX_PINS} pins")));
     }
+    let was_pinned: bool = sqlx::query_scalar("SELECT pinned_at IS NOT NULL FROM messages WHERE id = $1 AND channel_id = $2")
+        .bind(mid)
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await?
+        .ok_or(ApiError::NotFound)?;
     let row = sqlx::query_as::<_, MessageRow>(&format!(
         "UPDATE messages SET pinned_at = COALESCE(pinned_at, now()) WHERE id = $1 AND channel_id = $2 RETURNING {MESSAGE_COLS}"
     ))
@@ -574,6 +614,10 @@ async fn pin(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, mid))
     .await?
     .ok_or(ApiError::NotFound)?;
     broadcast_message(&st, &a, row).await?;
+    // "<you> pinned a message to this channel", like Discord; clicking it jumps to the pin.
+    if !was_pinned {
+        post_system_message(&st, id, me, message_type::PINNED, Some(mid)).await?;
+    }
     Ok(())
 }
 
@@ -631,8 +675,16 @@ struct SearchQuery {
     q: Option<String>,
     author_id: Option<Id>,
     channel_id: Option<Id>,
-    /// image | file | link
+    /// image | file | link | video | sound | embed
     has: Option<String>,
+    /// Messages that @mention this user.
+    mentions: Option<Id>,
+    /// Sent before / after / on this day (YYYY-MM-DD, UTC).
+    before: Option<chrono::NaiveDate>,
+    after: Option<chrono::NaiveDate>,
+    during: Option<chrono::NaiveDate>,
+    /// Only pinned (true) or only unpinned (false) messages.
+    pinned: Option<bool>,
     #[serde(default)]
     offset: i64,
 }
@@ -657,30 +709,59 @@ fn tsquery(q: &str) -> Option<String> {
 
 async fn run_search(st: &AppState, channels: Vec<Id>, q: SearchQuery) -> ApiResult<Json<SearchResults>> {
     let ts = q.q.as_deref().and_then(tsquery);
-    if ts.is_none() && q.author_id.is_none() && q.has.is_none() {
+    let any_filter = q.author_id.is_some()
+        || q.has.is_some()
+        || q.mentions.is_some()
+        || q.before.is_some()
+        || q.after.is_some()
+        || q.during.is_some()
+        || q.pinned.is_some();
+    if ts.is_none() && !any_filter {
         return Err(bad("enter something to search for"));
     }
+    let attachment = |pattern: &str| format!("EXISTS (SELECT 1 FROM jsonb_array_elements(attachments) a WHERE a->>'content_type' LIKE '{pattern}')");
     let has = match q.has.as_deref() {
-        Some("image") => "EXISTS (SELECT 1 FROM jsonb_array_elements(attachments) a WHERE a->>'content_type' LIKE 'image/%')",
-        Some("file") => "jsonb_array_length(attachments) > 0",
-        Some("link") => "content ~ 'https?://'",
+        Some("image") => attachment("image/%"),
+        Some("video") => attachment("video/%"),
+        Some("sound") => attachment("audio/%"),
+        Some("file") => "jsonb_array_length(attachments) > 0".into(),
+        Some("link") => "content ~ 'https?://'".into(),
+        Some("embed") => "jsonb_array_length(embeds) > 0".into(),
         Some(_) => return Err(bad("unknown filter")),
+        None => "true".into(),
+    };
+    let pinned = match q.pinned {
+        Some(true) => "pinned_at IS NOT NULL",
+        Some(false) => "pinned_at IS NULL",
         None => "true",
     };
     let filter = format!(
         "channel_id = ANY($1) AND ($2::TEXT IS NULL OR to_tsvector('simple', content) @@ to_tsquery('simple', $2))
-         AND ($3::BIGINT IS NULL OR author_id = $3) AND {has}"
+         AND ($3::BIGINT IS NULL OR author_id = $3) AND {has} AND {pinned}
+         AND ($4::TEXT IS NULL OR content LIKE $4)
+         AND ($5::DATE IS NULL OR created_at < $5::DATE)
+         AND ($6::DATE IS NULL OR created_at >= $6::DATE + 1)
+         AND ($7::DATE IS NULL OR (created_at >= $7::DATE AND created_at < $7::DATE + 1))"
     );
+    let mention = q.mentions.map(|u| format!("%<@{u}>%"));
     let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM messages WHERE {filter}"))
         .bind(&channels)
         .bind(&ts)
         .bind(q.author_id)
+        .bind(&mention)
+        .bind(q.before)
+        .bind(q.after)
+        .bind(q.during)
         .fetch_one(&st.db)
         .await?;
-    let rows = sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE {filter} ORDER BY id DESC LIMIT 25 OFFSET $4"))
+    let rows = sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE {filter} ORDER BY id DESC LIMIT 25 OFFSET $8"))
         .bind(&channels)
         .bind(&ts)
         .bind(q.author_id)
+        .bind(&mention)
+        .bind(q.before)
+        .bind(q.after)
+        .bind(q.during)
         .bind(q.offset.clamp(0, 5000))
         .fetch_all(&st.db)
         .await?;
@@ -694,6 +775,19 @@ async fn search_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(g
     if let Some(c) = q.channel_id {
         channels.retain(|x| *x == c);
     }
+    run_search(&st, channels, q).await
+}
+
+/// Search everywhere you are: every server's channels and your DMs (the Ctrl+K switcher).
+async fn search_all(State(st): State<AppState>, AuthUser(me): AuthUser, Query(q): Query<SearchQuery>) -> ApiResult<Json<SearchResults>> {
+    st.limits.check(format!("search:{me}"), 5.0, 1.0)?;
+    let channels: Vec<Id> = sqlx::query_scalar(
+        "SELECT c.id FROM channels c JOIN members m ON m.guild_id = c.guild_id WHERE m.user_id = $1
+         UNION SELECT channel_id FROM dm_recipients WHERE user_id = $1",
+    )
+    .bind(me)
+    .fetch_all(&st.db)
+    .await?;
     run_search(&st, channels, q).await
 }
 

@@ -11,10 +11,14 @@ import {
   toggleStreamMute,
   voiceUi,
   watchStream,
+  canPopOut,
+  closePopOut,
+  popOut,
 } from '../lib/voice';
 import * as I from './Icons';
-import { canPopOut, popOut, Viewers } from './VoiceView';
-import { VolumeControl } from './VolumeControl';
+import { setUi, type MenuEntry } from '../lib/ui';
+import { PoppedOut, Viewers, viewerItems } from './VoiceView';
+import { UserVolumeSlider, VolumeControl } from './VolumeControl';
 
 const MIN_WIDTH = 240;
 /** Pointer movement (px) that turns a click into a drag. */
@@ -37,7 +41,6 @@ export function MiniPlayer() {
   const [dragging, setDragging] = createSignal(false);
   const maxWidth = () => Math.max(MIN_WIDTH, Math.min(innerWidth - 16, 960));
   const width = () => Math.max(MIN_WIDTH, Math.min(maxWidth(), prefs.miniPlayerWidth));
-  let canvas: HTMLCanvasElement | undefined;
 
   const openStream = (id: string) => {
     selectChannel(voiceUi.channelId!);
@@ -95,6 +98,39 @@ export function MiniPlayer() {
     );
   };
 
+  const menu = (e: MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const [v, setV] = createSignal(streamVolume(id));
+    const items: MenuEntry[] = [
+      {
+        label: t('Stream volume'),
+        render: () => (
+          <UserVolumeSlider
+            label={t('Stream volume')}
+            value={v()}
+            onChange={(x) => {
+              setV(x);
+              setStreamVolume(id, x);
+            }}
+          />
+        ),
+      },
+      'separator',
+      { label: t('Open the stream in the call'), run: () => openStream(id) },
+    ];
+    if (canPopOut)
+      items.push({ label: t('Pop out'), icon: () => <I.PopOut size={16} />, run: () => popOut(`${id}-screen`) });
+    if (viewerItems(id).length > 1) items.push('separator', ...viewerItems(id, state.voice[id]?.guild_id));
+    items.push('separator', {
+      label: t('Stop watching'),
+      danger: true,
+      icon: () => <I.Close size={16} />,
+      run: () => watchStream(id, false),
+    });
+    setUi('menu', { x: e.clientX, y: e.clientY, items });
+  };
+
   return (
     <Show when={visible() && streamer()} keyed>
       {(id) => (
@@ -104,15 +140,18 @@ export function MiniPlayer() {
           style={{ right: `${pos().right}px`, bottom: `${pos().bottom}px`, width: `${width()}px` }}
           title={t('Open the stream in the call')}
           onPointerDown={(e) => drag(e, id)}
+          onContextMenu={(e) => menu(e, id)}
         >
           <div class="mini-resize" onPointerDown={resize} title={t('Resize')} />
           <canvas
             ref={(c) => {
-              canvas = c;
               registerCanvas(`${id}-screen`, c, true);
               onCleanup(() => registerCanvas(`${id}-screen`, c, false));
             }}
           />
+          <Show when={voiceUi.poppedOut === `${id}-screen`}>
+            <PoppedOut />
+          </Show>
           <div class="mini-bar">
             <span class="video-label">
               <span class="name">{nameOf(id, state.voice[id]?.guild_id)}</span>{' '}
@@ -128,7 +167,11 @@ export function MiniPlayer() {
               onToggleMute={() => toggleStreamMute(id)}
             />
             <Show when={canPopOut}>
-              <button class="vp-btn" data-tip={t('Pop out')} onClick={() => void popOut(canvas)}>
+              <button
+                class="vp-btn"
+                data-tip={voiceUi.poppedOut === `${id}-screen` ? t('Bring it back') : t('Pop out')}
+                onClick={() => (voiceUi.poppedOut === `${id}-screen` ? closePopOut() : void popOut(`${id}-screen`))}
+              >
                 <I.PopOut size={16} />
               </button>
             </Show>

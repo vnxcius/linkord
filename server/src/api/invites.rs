@@ -12,7 +12,7 @@ use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::gateway::guild_members;
 use crate::id::Id;
-use crate::models::{Guild, GuildRow, User};
+use crate::models::{Guild, GuildRow, User, GUILD_COLS};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -103,7 +103,7 @@ async fn valid_invite(st: &AppState, code: &str) -> ApiResult<Invite> {
 
 async fn preview(State(st): State<AppState>, AuthUser(_): AuthUser, Path(code): Path<String>) -> ApiResult<Json<serde_json::Value>> {
     let inv = valid_invite(&st, &code).await?;
-    let guild = sqlx::query_as::<_, GuildRow>("SELECT id, name, icon, owner_id FROM guilds WHERE id = $1").bind(inv.guild_id).fetch_one(&st.db).await?;
+    let guild = sqlx::query_as::<_, GuildRow>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = $1")).bind(inv.guild_id).fetch_one(&st.db).await?;
     let members = guild_members(&st.db, inv.guild_id).await?;
     let online_count = members.iter().filter(|u| st.hub.is_online(**u)).count();
     let inviter = User::get(&st.db, inv.creator_id).await?;
@@ -127,6 +127,7 @@ async fn accept(State(st): State<AppState>, AuthUser(me): AuthUser, Path(code): 
         let others: Vec<Id> = guild.members.iter().map(|m| m.user.id).filter(|u| *u != me).collect();
         st.hub.send(&others, "GUILD_MEMBER_ADD", &json!({ "guild_id": inv.guild_id, "member": member, "status": st.hub.presence(&member.user) }));
         st.hub.send(&[me], "GUILD_CREATE", &guild);
+        crate::api::guilds::welcome(&st, &guild.guild, me).await;
     }
     Ok(Json(guild))
 }

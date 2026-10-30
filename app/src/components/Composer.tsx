@@ -1,7 +1,11 @@
-import { createEffect, createMemo, createSignal, For, Index, on, Show } from 'solid-js';
-import { resetTyping, sendMessage, sendTyping } from '../lib/actions';
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show } from 'solid-js';
+import { prefs } from '../lib/prefs';
+import { loadedVersion, misspelled, spellLanguage } from '../lib/spellcheck';
+import { resetTyping, runCommand, sendMessage, sendTyping } from '../lib/actions';
 import { emojiUrl } from '../lib/api';
+import { COMMANDS, parseCommand } from '../lib/commands';
 import { searchEmoji } from '../lib/emoji-data';
+import { toRaw, type Tokens } from '../lib/mentions';
 import { t } from '../lib/i18n';
 import { can, P } from '../lib/perms';
 import { dmName, nameColor, nameOf, state } from '../lib/store';
@@ -13,10 +17,12 @@ import { customPick, EmojiPicker } from './EmojiPicker';
 import * as I from './Icons';
 import { createVoiceRecording, RecordingBar } from './VoiceNote';
 
-/** One autocomplete row: a member, role, @everyone, or emoji. */
+/** One autocomplete row: a member, role, @everyone, emoji, or slash command. */
 interface Suggestion {
   key: string;
   insert: string;
+  /** What the box shows instead of `insert` (mentions and custom emoji); turned back when sending. */
+  shown?: string;
   label: string;
   hint?: string;
   icon: () => any;
@@ -29,6 +35,8 @@ export function Composer(p: { channel: Channel }) {
   const [files, setFiles] = createSignal<File[]>([]);
   const [picker, setPicker] = createSignal<'emoji' | null>(null);
   const [mentionIdx, setMentionIdx] = createSignal(0);
+  /** A slash command waiting for the bot (yt-dlp can take a few seconds to find a video). */
+  const [thinking, setThinking] = createSignal(false);
   let input!: HTMLTextAreaElement;
   let fileInput!: HTMLInputElement;
 
@@ -52,10 +60,13 @@ export function Composer(p: { channel: Channel }) {
     return Object.keys(state.members[gid()!] ?? {});
   };
 
-  // Active autocomplete: "@name" for mentions or ":name" (2+ chars) for emoji, right before the caret.
+  // Active autocomplete: "@name" for mentions, ":name" (2+ chars) for emoji, right before the caret, or "/name"
+  // at the start of a message in a server channel for slash commands.
   const [caret, setCaret] = createSignal(0);
   const trigger = createMemo(() => {
     const before = text().slice(0, caret());
+    const cmd = gid() && before.match(/^\/(\w{0,32})$/);
+    if (cmd) return { kind: '/', q: cmd[1].toLowerCase() };
     const m = before.match(/(?:^|\s)([@:])([\w.]{0,32})$/);
     if (!m || (m[1] === ':' && m[2].length < 2)) return null;
     return { kind: m[1], q: m[2].toLowerCase() };
@@ -63,6 +74,15 @@ export function Composer(p: { channel: Channel }) {
   const matches = createMemo((): Suggestion[] => {
     const tr = trigger();
     if (!tr) return [];
+    if (tr.kind === '/') {
+      return COMMANDS.filter((c) => c.name.startsWith(tr.q)).map((c) => ({
+        key: c.name,
+        insert: `/${c.name}`,
+        label: !c.option ? `/${c.name}` : c.optional ? `/${c.name} [${t(c.option)}]` : `/${c.name} <${t(c.option)}>`,
+        hint: t(c.description),
+        icon: () => <span class="ac-command">/</span>,
+      }));
+    }
     if (tr.kind === ':') {
       const custom = Object.values(state.emojis)
         .flat()
@@ -71,6 +91,7 @@ export function Composer(p: { channel: Channel }) {
         .map((e) => ({
           key: e.id,
           insert: customPick(e).text,
+          shown: `:${e.name}:`,
           label: `:${e.name}:`,
           icon: () => <img class="emoji custom" src={emojiUrl(e.id, e.animated)} alt="" />,
         }));
@@ -92,6 +113,7 @@ export function Composer(p: { channel: Channel }) {
       .map((id) => ({
         key: id,
         insert: `<@${id}>`,
+        shown: `@${nameOf(id, gid())}`,
         label: nameOf(id, gid()),
         hint: state.users[id].username,
         icon: () => <Avatar user={state.users[id]} size={24} />,
@@ -104,6 +126,7 @@ export function Composer(p: { channel: Channel }) {
       .map((r) => ({
         key: r.id,
         insert: `<@&${r.id}>`,
+        shown: `@${r.name}`,
         label: `@${r.name}`,
         hint: t('Role'),
         icon: () => (
@@ -127,10 +150,13 @@ export function Composer(p: { channel: Channel }) {
     return [...users, ...roles, ...special];
   });
 
+  /** Mentions and custom emoji in the box, readable form -> markup (see lib/mentions.ts). */
+  const tokens: Tokens = new Map();
   const insertSuggestion = (sug: Suggestion) => {
+    if (sug.shown) tokens.set(sug.shown, sug.insert);
     const before = text()
       .slice(0, caret())
-      .replace(/[@:][\w.]*$/, `${sug.insert} `);
+      .replace(/^\/\w*$|[@:][\w.]*$/, `${sug.shown ?? sug.insert} `);
     const after = text().slice(caret());
     setText(before + after);
     input.value = before + after;
@@ -139,6 +165,39 @@ export function Composer(p: { channel: Channel }) {
     input.focus();
     autosize();
   };
+
+  // Spellcheck: the text split into runs, misspelled ones marked (checked a moment after typing stops).
+  let layer!: HTMLDivElement;
+  const [bad, setBad] = createSignal<{ start: number; end: number }[]>([]);
+  let spellTimer: number | undefined;
+  let spellGen = 0;
+  createEffect(() => {
+    const value = text();
+    loadedVersion();
+    void prefs.spellcheck;
+    void spellLanguage();
+    void prefs.spellWords.length;
+    clearTimeout(spellTimer);
+    const gen = ++spellGen;
+    spellTimer = window.setTimeout(async () => {
+      const wrong = await misspelled(value);
+      if (gen === spellGen) setBad(wrong);
+    }, 350);
+  });
+  onCleanup(() => clearTimeout(spellTimer));
+  const spellRuns = createMemo(() => {
+    const v = text();
+    const runs: { text: string; bad: boolean }[] = [];
+    let at = 0;
+    for (const w of bad()) {
+      if (w.end > v.length || w.start < at) continue;
+      if (w.start > at) runs.push({ text: v.slice(at, w.start), bad: false });
+      runs.push({ text: v.slice(w.start, w.end), bad: true });
+      at = w.end;
+    }
+    if (at < v.length) runs.push({ text: v.slice(at), bad: false });
+    return runs;
+  });
 
   const autosize = () => {
     input.style.height = 'auto';
@@ -163,10 +222,26 @@ export function Composer(p: { channel: Channel }) {
     ),
   );
 
+  // Entering a channel or DM puts the cursor in the message box (not on phones, where it would pop the keyboard up).
+  createEffect(
+    on(
+      () => p.channel.id,
+      () => {
+        if (window.matchMedia('(max-width: 760px)').matches) return;
+        queueMicrotask(() => input && !input.disabled && input.focus());
+      },
+    ),
+  );
+
   const submit = () => {
-    const content = text().trim();
+    const content = toRaw(text(), gid(), tokens).trim();
     if (!content && !files().length) return;
-    void sendMessage(p.channel.id, content, ui.replyTo[p.channel.id], files());
+    const cmd = gid() && !files().length ? parseCommand(content) : null;
+    if (cmd) {
+      if (thinking()) return;
+      setThinking(true);
+      void runCommand(p.channel.id, cmd.command.name, cmd.query).finally(() => setThinking(false));
+    } else void sendMessage(p.channel.id, content, ui.replyTo[p.channel.id], files());
     setText('');
     setFiles([]);
     setUi('replyTo', p.channel.id, undefined);
@@ -204,7 +279,10 @@ export function Composer(p: { channel: Channel }) {
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        insertSuggestion(matches()[Math.min(mentionIdx(), matches().length - 1)]);
+        // A complete command that needs nothing more ("/stop", "/repeat") runs right away.
+        const typed = parseCommand(text().trim());
+        if (e.key === 'Enter' && typed && (!typed.command.option || typed.command.optional)) submit();
+        else insertSuggestion(matches()[Math.min(mentionIdx(), matches().length - 1)]);
         return;
       }
     }
@@ -230,7 +308,9 @@ export function Composer(p: { channel: Channel }) {
     >
       <Show when={matches().length}>
         <div class="autocomplete">
-          <div class="autocomplete-title">{trigger()?.kind === ':' ? t('Emoji') : t('Members')}</div>
+          <div class="autocomplete-title">
+            {trigger()?.kind === ':' ? t('Emoji') : trigger()?.kind === '/' ? t('Commands') : t('Members')}
+          </div>
           <For each={matches()}>
             {(sug, i) => (
               <button
@@ -257,6 +337,11 @@ export function Composer(p: { channel: Channel }) {
               </button>
             )}
           </For>
+        </div>
+      </Show>
+      <Show when={thinking()}>
+        <div class="reply-bar thinking">
+          <span>{t('Kass is thinking…')}</span>
         </div>
       </Show>
       <Show when={replyTo()}>
@@ -298,7 +383,11 @@ export function Composer(p: { channel: Channel }) {
       </Show>
       <div
         class="composer"
-        classList={{ attached: !!replyTo() || files().length > 0, disabled: !canSend(), recording: !!voice.rec() }}
+        classList={{
+          attached: !!replyTo() || thinking() || files().length > 0,
+          disabled: !canSend(),
+          recording: !!voice.rec(),
+        }}
       >
         <Show when={voice.rec()}>
           <RecordingBar v={voice} />
@@ -322,30 +411,42 @@ export function Composer(p: { channel: Channel }) {
             e.currentTarget.value = '';
           }}
         />
-        <textarea
-          ref={input}
-          rows={1}
-          disabled={!canSend()}
-          placeholder={placeholder()}
-          value={text()}
-          onInput={(e) => {
-            setText(e.currentTarget.value);
-            setCaret(e.currentTarget.selectionStart);
-            setMentionIdx(0);
-            autosize();
-            if (e.currentTarget.value.trim()) sendTyping(p.channel.id);
-          }}
-          onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
-          onClick={(e) => setCaret(e.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-          onPaste={(e) => {
-            const pasted = e.clipboardData?.files;
-            if (pasted?.length) {
-              e.preventDefault();
-              addFiles(pasted);
-            }
-          }}
-        />
+        <div class="composer-input">
+          {/* Misspelled words, underlined behind the (transparent) text box, kept in step with its scrolling. */}
+          <div class="spell-layer" ref={layer} aria-hidden="true">
+            <For each={spellRuns()}>{(r) => (r.bad ? <mark>{r.text}</mark> : r.text)}</For>
+            {'\u200b'}
+          </div>
+          <textarea
+            ref={input}
+            rows={1}
+            spellcheck={false}
+            data-spell="composer"
+            disabled={!canSend()}
+            placeholder={placeholder()}
+            value={text()}
+            onScroll={(e) => (layer.scrollTop = e.currentTarget.scrollTop)}
+            onInput={(e) => {
+              setText(e.currentTarget.value);
+              setCaret(e.currentTarget.selectionStart);
+              setMentionIdx(0);
+              autosize();
+              // Slash commands aren't messages, so nobody sees "typing" for them.
+              const v = e.currentTarget.value;
+              if (v.trim() && !(gid() && v.startsWith('/'))) sendTyping(p.channel.id);
+            }}
+            onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
+            onClick={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              const pasted = e.clipboardData?.files;
+              if (pasted?.length) {
+                e.preventDefault();
+                addFiles(pasted);
+              }
+            }}
+          />
+        </div>
         <div class="composer-emoji">
           <button
             class="icon-btn"
@@ -362,7 +463,9 @@ export function Composer(p: { channel: Channel }) {
               guildId={gid()}
               onClose={() => setPicker(null)}
               onPick={(picked) => {
-                const emoji = picked.text;
+                const custom = picked.text.match(/^<a?:(\w+):\d+>$/);
+                if (custom) tokens.set(`:${custom[1]}:`, picked.text);
+                const emoji = custom ? `:${custom[1]}:` : picked.text;
                 const pos = input.selectionStart ?? text().length;
                 const next = text().slice(0, pos) + emoji + text().slice(pos);
                 setText(next);

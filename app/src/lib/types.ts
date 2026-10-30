@@ -8,9 +8,12 @@ export interface User {
   display_name?: string | null;
   avatar?: string | null;
   banner?: string | null;
+  nameplate?: string | null;
   accent_color?: number | null;
   bio: string;
   status?: Status;
+  /** Bot account (Kass, the music bot): BOT tag, answers slash commands. */
+  bot?: boolean;
 }
 
 export const enum Kind {
@@ -45,6 +48,14 @@ export interface GuildInfo {
   name: string;
   icon?: string | null;
   owner_id: string;
+  /** Where "joined the server" messages go (none = the first text channel), and whether they're posted. */
+  system_channel_id?: string | null;
+  join_messages?: boolean;
+  /** Picture at the top of the channel list, behind the server name. */
+  banner?: string | null;
+  /** Voice channel people are moved to after `afk_timeout` seconds without talking. */
+  afk_channel_id?: string | null;
+  afk_timeout?: number;
 }
 
 export interface Role {
@@ -91,7 +102,8 @@ export interface Attachment {
 }
 
 export interface Embed {
-  type: 'link' | 'image' | 'video';
+  /** rich = a card a bot made (no link preview player). */
+  type: 'link' | 'image' | 'video' | 'rich';
   url: string;
   title?: string | null;
   description?: string | null;
@@ -122,6 +134,8 @@ export interface Forwarded {
 
 export interface Message {
   id: string;
+  /** 0 (or missing) = a normal message; 6 = "pinned a message" (reply_to = the pin); 7 = "joined the server". */
+  type?: number;
   channel_id: string;
   author: User;
   content: string;
@@ -137,6 +151,8 @@ export interface Message {
   created_at: string;
   /** A forward: the original as it was when it was forwarded, and where it came from. */
   forwarded?: Forwarded | null;
+  /** A bot's answer to a slash command: who used which one. */
+  interaction?: { name: string; user: User } | null;
   nonce?: string;
   /** Client-only: optimistic message not yet confirmed by the server. */
   pending?: boolean;
@@ -145,7 +161,8 @@ export interface Message {
 
 export interface VoiceState {
   user_id: string;
-  guild_id: string;
+  /** Null for calls in DMs and group DMs. */
+  guild_id: string | null;
   channel_id: string | null;
   self_mute: boolean;
   self_deaf: boolean;
@@ -203,9 +220,16 @@ export interface GuildFolder {
   guild_ids: string[];
 }
 
+/** How much a server or channel notifies you, like Discord's notification settings. */
+export type NotifyLevel = 'all' | 'mentions' | 'none';
+
 export interface Settings {
   muted_guilds?: string[];
   muted_channels?: string[];
+  /** Per server; servers without an entry notify for all messages. */
+  guild_notifications?: Record<string, NotifyLevel>;
+  /** Per channel or category, overriding the server's level. */
+  channel_notifications?: Record<string, NotifyLevel>;
   guild_folders?: GuildFolder[];
   collapsed_categories?: string[];
 }

@@ -10,6 +10,7 @@ import type {
   GuildInfo,
   Member,
   Message,
+  NotifyLevel,
   Rel,
   Role,
   Settings,
@@ -67,6 +68,10 @@ export interface State {
   selected: Record<string, string | undefined>;
   /** Message to highlight after a jump (search result, reply, pin). */
   highlight: string | null;
+  /** LINKORD_ADMINS on the server: can open /logs and change the music bot's picture. */
+  admin: boolean;
+  /** DM calls going on: channel id -> who is being rung. */
+  calls: Record<string, string[]>;
 }
 
 export const [state, setState] = createStore<State>({
@@ -97,6 +102,8 @@ export const [state, setState] = createStore<State>({
   view: '@me',
   selected: {},
   highlight: null,
+  admin: false,
+  calls: {},
 });
 
 export function putUser(u: User) {
@@ -188,6 +195,17 @@ export function channelLayout(guildId: string): {
   };
 }
 
+/** A text channel's place in its server's list, like a table of contents: "01", "02"… (threads use their parent's). */
+export function channelNumber(c: Channel): string | null {
+  const ch = c.kind === Kind.Thread && c.parent_id ? state.channels[c.parent_id] : c;
+  if (!ch?.guild_id || ch.kind !== Kind.Text) return null;
+  const l = channelLayout(ch.guild_id);
+  const i = [...l.top, ...l.categories.flatMap((x) => x.channels)]
+    .filter((x) => x.kind === Kind.Text)
+    .findIndex((x) => x.id === ch.id);
+  return i < 0 ? null : String(i + 1).padStart(2, '0');
+}
+
 /** Top-level channels of a guild (threads are listed under their parent). */
 export function guildChannels(guildId: string): Channel[] {
   return Object.values(state.channels)
@@ -232,7 +250,7 @@ export function isMuted(c: Channel): boolean {
 }
 
 export function isUnread(c: Channel): boolean {
-  if (c.kind === Kind.Voice || !c.last_message_id) return false;
+  if (c.kind === Kind.Category || !c.last_message_id) return false;
   const read = state.readStates[c.id];
   return !read || cmpId(c.last_message_id, read) > 0;
 }
@@ -240,6 +258,34 @@ export function isUnread(c: Channel): boolean {
 export function guildUnread(guildId: string): boolean {
   if (state.settings.muted_guilds?.includes(guildId)) return false;
   return Object.values(state.channels).some((c) => c.guild_id === guildId && !isMuted(c) && isUnread(c));
+}
+
+/** A channel's notification level: its own, its category's (or a thread's channel's), else the server's. */
+export function notifyLevel(c: Channel): NotifyLevel {
+  const own = state.settings.channel_notifications ?? {};
+  const parent = c.parent_id ? state.channels[c.parent_id] : undefined;
+  return (
+    own[c.id] ??
+    (parent ? own[parent.id] : undefined) ??
+    (parent?.parent_id ? own[parent.parent_id] : undefined) ??
+    (c.guild_id ? state.settings.guild_notifications?.[c.guild_id] : undefined) ??
+    'all'
+  );
+}
+
+/** Unread messages in a channel that notifies for every message: the server gets a red badge with a dot. */
+export function channelAlert(c: Channel): boolean {
+  return !!c.guild_id && isUnread(c) && !isMuted(c) && notifyLevel(c) === 'all' && c.kind !== Kind.Category;
+}
+
+export function guildAlert(guildId: string): boolean {
+  if (state.settings.muted_guilds?.includes(guildId)) return false;
+  return Object.values(state.channels).some((c) => c.guild_id === guildId && channelAlert(c));
+}
+
+/** Any server with unread messages that notify (the taskbar shows a dot when there's no count). */
+export function anyAlert(): boolean {
+  return Object.keys(state.guilds).some(guildAlert);
 }
 
 export function guildMentions(guildId: string): number {

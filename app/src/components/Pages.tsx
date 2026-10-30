@@ -23,6 +23,8 @@ import { isMobile } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
 import { AppPreview } from './Login';
+import { LogsPage } from './Logs';
+import { state } from '../lib/store';
 
 interface Download {
   version: string;
@@ -94,6 +96,9 @@ export function PageHost() {
           <Match when={page() === 'changelog'}>
             <PatchNotesPage />
           </Match>
+          <Match when={page() === 'logs'}>
+            <LogsPage />
+          </Match>
         </Switch>
       </PageShell>
     </Show>
@@ -122,6 +127,11 @@ function PageShell(p: { children: JSX.Element }) {
           <button classList={{ active: page() === 'changelog' }} onClick={() => openPage('changelog')}>
             {t('Patch notes')}
           </button>
+          <Show when={state.admin || page() === 'logs'}>
+            <button classList={{ active: page() === 'logs' }} onClick={() => openPage('logs')}>
+              {t('Logs')}
+            </button>
+          </Show>
         </nav>
         <button class="btn site-back" onClick={closePage}>
           <I.Back size={16} />
@@ -487,9 +497,9 @@ export function DownloadBanner() {
 /** After an update (desktop) or a new release (web): once, with a link to the patch notes. */
 export function UpdatedBanner() {
   // First run on this device: nothing to announce.
-  if (!prefs.lastSeenVersion) markSeen();
+  if (!prefs.lastSeenVersion || !prefs.updateBanner) markSeen();
   return (
-    <Show when={prefs.lastSeenVersion && cmpVersion(__APP_VERSION__, prefs.lastSeenVersion) > 0}>
+    <Show when={prefs.updateBanner && prefs.lastSeenVersion && cmpVersion(__APP_VERSION__, prefs.lastSeenVersion) > 0}>
       <div class="update-banner">
         <span>{t('Linkord was updated to {version}.', { version: __APP_VERSION__ })}</span>
         <button class="btn primary small-btn" onClick={() => openPage('changelog')}>

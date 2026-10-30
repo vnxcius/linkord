@@ -46,7 +46,7 @@ export function Friends() {
     <div class="friends">
       <header class="chat-header friends-header">
         <MobileBack />
-        <I.Users size={22} class="muted" />
+        <I.Users size={22} class="muted friends-head-icon" />
         <h2>{t('Friends')}</h2>
         <span class="header-sep" />
         <nav class="tabs">

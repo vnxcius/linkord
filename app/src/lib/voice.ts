@@ -2,7 +2,7 @@
 // wherever the app itself loads: no ports, TURN or media server to configure.
 
 import { t } from './i18n';
-import { createSignal } from 'solid-js';
+import { createEffect, createRoot, createSignal, untrack } from 'solid-js';
 import { createStore, produce, reconcile } from 'solid-js/store';
 import workletUrl from './voice-worklets.ts?worker&url';
 import type { StreamAudioStats, WorkerIn, WorkerOut } from './voice-worker';
@@ -12,6 +12,8 @@ import { sounds } from './sounds';
 import { state } from './store';
 import type { VoiceState } from './types';
 import { toast } from './ui';
+import { report } from './report';
+import type { Sound } from './soundboard';
 import {
   captureAudioStats,
   captureVideoStats,
@@ -70,6 +72,12 @@ export const [voiceUi, setVoiceUi] = createStore({
   unsupported: {} as Record<string, string>,
   /** Noise suppression model actually running in the voice pipeline. */
   denoiser: null as string | null,
+  /** Video key (`<user>-screen`) playing in the OS picture-in-picture window; players in the app show a placeholder. */
+  poppedOut: null as string | null,
+  /** Who is playing a soundboard sound right now (user id -> its emoji). */
+  soundPlaying: {} as Record<string, string | undefined>,
+  /** Our own stream's preview is hidden (saves decoding it). */
+  hidePreview: false,
   /** Round-trip time to the voice server (ms) and recent history for the graph. */
   ping: null as number | null,
   pingHistory: [] as number[],
@@ -92,8 +100,34 @@ let retries = 0;
 
 const send = (m: WorkerIn, transfer: Transferable[] = []) => worker?.postMessage(m, transfer);
 
+/** A server's AFK channel: everyone in it is muted. */
+export const isAfkChannel = (channelId: string | null) => {
+  const g = channelId ? state.channels[channelId]?.guild_id : null;
+  return !!g && state.guilds[g]?.afk_channel_id === channelId;
+};
+/** Our mute before entering an AFK channel, put back when we leave it for another channel. */
+let mutedBeforeAfk: boolean | null = null;
+
+// The channel we're in becoming the AFK channel mutes us too.
+createRoot(() =>
+  createEffect(() => {
+    if (!isAfkChannel(voiceUi.channelId) || untrack(() => voiceUi.muted)) return;
+    mutedBeforeAfk ??= false;
+    setVoiceUi('muted', true);
+    send({ type: 'mute', muted: true });
+    syncState();
+  }),
+);
+
 export async function joinVoice(channelId: string) {
   if (voiceUi.channelId === channelId && worker) return;
+  if (isAfkChannel(channelId)) {
+    mutedBeforeAfk ??= voiceUi.muted;
+    setVoiceUi('muted', true);
+  } else if (mutedBeforeAfk !== null) {
+    setVoiceUi('muted', mutedBeforeAfk);
+    mutedBeforeAfk = null;
+  }
   const gen = ++generation;
   teardown();
   if (voiceUi.channelId !== channelId) setVoiceUi('joinedAt', null);
@@ -147,6 +181,7 @@ export async function joinVoice(channelId: string) {
   } catch (e) {
     if (gen !== generation) return;
     console.error('voice join failed', e);
+    report('error', 'Voice: joining failed', e);
     teardown();
     setVoiceUi({
       channelId: null,
@@ -181,6 +216,9 @@ function onWorker(m: WorkerOut, channelId: string) {
       setVoiceUi('pingHistory', (h) => [...h.slice(-29), m.ms]);
       return;
     case 'muted_talking':
+      // Once per MUTED_HINT_GAP at most: talking while muted on purpose shouldn't nag.
+      if (voiceUi.mutedTalking || Date.now() - lastMutedHint < MUTED_HINT_GAP) return;
+      lastMutedHint = Date.now();
       setVoiceUi('mutedTalking', true);
       clearTimeout(mutedHintTimer);
       mutedHintTimer = window.setTimeout(() => setVoiceUi('mutedTalking', false), 3000);
@@ -191,6 +229,11 @@ function onWorker(m: WorkerOut, channelId: string) {
       return removeRemoteVideo(`${m.id}-${m.source}`);
     case 'keyframe':
       return onKeyframeRequest(m.source);
+    case 'sound':
+      return void playSoundboard(m.userId, m.sound);
+    case 'move':
+      if (m.reason === 'afk') toast(t('You were moved to the AFK channel after a while without talking'), 6000);
+      return void joinVoice(m.channelId);
     case 'video_dropped':
       return onVideoDropped(m.kind);
     case 'closed': {
@@ -205,6 +248,7 @@ function onWorker(m: WorkerOut, channelId: string) {
         setTimeout(() => gen === generation && void joinVoice(channelId), 1000 * retries);
         return;
       }
+      if (!intentional) report('warn', 'Voice: connection lost after retries', { code: m.code });
       setVoiceUi({
         channelId: null,
         connecting: false,
@@ -216,8 +260,11 @@ function onWorker(m: WorkerOut, channelId: string) {
 }
 
 let mutedHintTimer: number | undefined;
+let lastMutedHint = 0;
+const MUTED_HINT_GAP = 60_000;
 
 function teardown() {
+  closePopOut();
   stopPublish('camera');
   stopPublish('screen');
   worker?.terminate();
@@ -248,6 +295,11 @@ export async function leaveVoice() {
   retries = 0;
   teardown();
   setVoiceUi({ channelId: null, connecting: false, joinedAt: null });
+  // Leaving from the AFK channel: back to how you were.
+  if (mutedBeforeAfk !== null) {
+    setVoiceUi('muted', mutedBeforeAfk);
+    mutedBeforeAfk = null;
+  }
 }
 
 function syncState() {
@@ -256,6 +308,7 @@ function syncState() {
 
 export async function toggleMute() {
   if (!mic && voiceUi.channelId) return toast(t('No microphone available'));
+  if (isAfkChannel(voiceUi.channelId)) return toast(t('Everyone is muted in the AFK channel'));
   const muted = !voiceUi.muted;
   (muted ? sounds.mute : sounds.unmute)();
   // Unmuting while deafened also undeafens, like Discord.
@@ -268,7 +321,7 @@ export async function toggleMute() {
 export async function toggleDeafen() {
   const deafened = !voiceUi.deafened;
   (deafened ? sounds.deafen : sounds.undeafen)();
-  setVoiceUi({ deafened, muted: deafened ? true : !mic && !!voiceUi.channelId });
+  setVoiceUi({ deafened, muted: deafened || (!mic && !!voiceUi.channelId) || isAfkChannel(voiceUi.channelId) });
   send({ type: 'deafen', deafened });
   send({ type: 'mute', muted: voiceUi.muted });
   syncState();
@@ -849,6 +902,76 @@ export async function toggleCamera() {
 
 export const stopScreenShare = () => stopPublish('screen');
 
+// ---------- soundboard ----------
+
+const soundBuffers = new Map<string, Promise<AudioBuffer>>();
+
+function soundBuffer(ctx: BaseAudioContext, url: string) {
+  let p = soundBuffers.get(url);
+  if (!p) {
+    p = fetch(serverUrl() + url)
+      .then((r) => r.arrayBuffer())
+      .then((b) => ctx.decodeAudioData(b));
+    p.catch(() => soundBuffers.delete(url));
+    soundBuffers.set(url, p);
+  }
+  return p;
+}
+
+/** Plays a soundboard sound for everyone in the call (they hear it from us). */
+export function sendSound(sound: Sound) {
+  if (!worker || voiceUi.connecting) return toast(t('Join a voice channel to play sounds'));
+  send({ type: 'sound', sound_id: sound.id });
+}
+
+/** A sound someone played: at its volume, times our soundboard volume and our volume for them. */
+async function playSoundboard(userId: string, sound: Sound) {
+  if (!audio || voiceUi.deafened) return;
+  const volume = sound.volume * prefs.soundboardVolume * (prefs.soundboardUserVolumes[userId] ?? 1);
+  setVoiceUi('soundPlaying', userId, sound.emoji || '🔊');
+  try {
+    if (volume <= 0) return;
+    const buf = await soundBuffer(audio, sound.url);
+    if (!audio) return;
+    const src = audio.createBufferSource();
+    const gain = audio.createGain();
+    gain.gain.value = Math.min(2, volume);
+    src.buffer = buf;
+    src.connect(gain).connect(audio.destination);
+    src.start();
+    src.onended = () => setVoiceUi('soundPlaying', userId, undefined!);
+  } catch (e) {
+    console.warn('soundboard', e);
+  } finally {
+    if (volume <= 0) setTimeout(() => setVoiceUi('soundPlaying', userId, undefined!), 1500);
+  }
+}
+
+let previewCtx: AudioContext | null = null;
+
+/** Plays a sound only for us (the speaker button in the picker), on our output device. */
+export async function previewSound(sound: Sound) {
+  const ctx = audio ?? (previewCtx ??= new AudioContext());
+  const sinked = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+  if (ctx === previewCtx && sinked.setSinkId)
+    await sinked.setSinkId(prefs.outputDevice === 'default' ? '' : prefs.outputDevice).catch(() => {});
+  await ctx.resume().catch(() => {});
+  const src = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  gain.gain.value = sound.volume * prefs.soundboardVolume;
+  src.buffer = await soundBuffer(ctx, sound.url);
+  src.connect(gain).connect(ctx.destination);
+  src.start();
+}
+
+/** Picks another camera; a running camera switches over to it. */
+export async function switchCamera(deviceId: string) {
+  setPrefs({ videoDevice: deviceId });
+  if (!publishers.camera) return;
+  stopPublish('camera');
+  await toggleCamera();
+}
+
 /** The camera chosen in settings, at 720p30. */
 export function cameraConstraints(): MediaTrackConstraints {
   return {
@@ -1004,6 +1127,7 @@ function onRemoteVideo(id: string, source: VideoSource, data: ArrayBuffer) {
 }
 
 function removeRemoteVideo(key: string) {
+  if (voiceUi.poppedOut === key) closePopOut();
   const r = remotes.get(key);
   if (r && r.decoder.state !== 'closed') r.decoder.close();
   remotes.delete(key);
@@ -1025,6 +1149,52 @@ export function watchStream(userId: string, on = true, focus = true) {
     removeRemoteVideo(key);
     if (voiceUi.focus === key) setVoiceUi('focus', null);
   }
+}
+
+/** Floats a stream over other apps (OS picture-in-picture), where the webview supports it. */
+export const canPopOut =
+  typeof document !== 'undefined' &&
+  !!document.pictureInPictureEnabled &&
+  'captureStream' in HTMLCanvasElement.prototype;
+
+let popVideo: HTMLVideoElement | null = null;
+
+/**
+ * Plays a stream in a picture-in-picture window. It draws into its own off-screen canvas, so it keeps going
+ * whichever player in the app is mounted; those show a placeholder meanwhile instead of the same picture twice.
+ */
+export async function popOut(key: string) {
+  closePopOut();
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 720;
+  registerCanvas(key, canvas, true);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.srcObject = canvas.captureStream(60);
+  popVideo = video;
+  const done = () => {
+    registerCanvas(key, canvas, false);
+    video.srcObject = null;
+    if (popVideo === video) popVideo = null;
+    if (voiceUi.poppedOut === key) setVoiceUi('poppedOut', null);
+  };
+  video.addEventListener('leavepictureinpicture', done, { once: true });
+  // A fresh keyframe so the window shows a picture right away instead of waiting for the next one.
+  const i = key.lastIndexOf('-');
+  requestKeyframe(key.slice(0, i), key.slice(i + 1) as VideoSource);
+  try {
+    await video.play();
+    await video.requestPictureInPicture();
+    setVoiceUi('poppedOut', key);
+  } catch {
+    done();
+  }
+}
+
+/** Ends the picture-in-picture window, if one is open. */
+export function closePopOut() {
+  if (popVideo && document.pictureInPictureElement === popVideo) void document.exitPictureInPicture().catch(() => {});
 }
 
 export function setStreamVolume(userId: string, volume: number) {

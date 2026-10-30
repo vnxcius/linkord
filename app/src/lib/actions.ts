@@ -3,8 +3,8 @@ import { produce } from 'solid-js/store';
 import { api, setToken } from './api';
 import { cmpId } from './ids';
 import { addDm, addGuild, channelLayout, setState, state } from './store';
-import { setUi, ui } from './ui';
-import type { Channel, Guild, Message, Settings } from './types';
+import { setUi, toast, ui } from './ui';
+import type { Channel, Guild, Message, NotifyLevel, Settings } from './types';
 import { Kind } from './types';
 
 export function selectView(view: string) {
@@ -30,6 +30,22 @@ export function selectChannel(channelId: string) {
   onChannelViewed(channelId);
 }
 
+/** Calls everyone in a DM or group DM (joining its call; others get rung), optionally with the camera on. */
+export async function startCall(channelId: string, video = false) {
+  const { joinVoice, toggleCamera, voiceUi } = await import('./voice');
+  selectChannel(channelId);
+  await joinVoice(channelId);
+  if (!video) return;
+  for (let i = 0; i < 50 && voiceUi.connecting; i++) await new Promise((r) => setTimeout(r, 100));
+  if (voiceUi.channelId === channelId && !voiceUi.camera) await toggleCamera();
+}
+
+/** Opens a voice channel's chat beside the call (without joining the call). */
+export function openVoiceChat(channelId: string) {
+  setUi('voiceChat', channelId);
+  selectChannel(channelId);
+}
+
 /** Shows the friends page. */
 export function openFriends() {
   batch(() => {
@@ -41,7 +57,8 @@ export function openFriends() {
 
 function onChannelViewed(channelId: string) {
   const ch = state.channels[channelId];
-  if (!ch || ch.kind === Kind.Voice) return;
+  // A voice channel's chat loads when it's opened (openVoiceChat).
+  if (!ch || (ch.kind === Kind.Voice && ui.voiceChat !== channelId)) return;
   if (!state.messages[channelId]?.loaded) void loadMessages(channelId);
   maybeAck(channelId);
 }
@@ -142,6 +159,8 @@ export function maybeAck(channelId: string) {
     const ch = state.channels[channelId];
     if (!ch?.last_message_id || !document.hasFocus()) return;
     if (state.selected[state.view] !== channelId || state.messages[channelId]?.hasNewer) return;
+    // A voice channel's chat counts as read only while it's open.
+    if (ch.kind === Kind.Voice && ui.voiceChat !== channelId) return;
     setState('mentions', channelId, 0);
     const read = state.readStates[channelId];
     if (read && cmpId(read, ch.last_message_id) >= 0) return;
@@ -227,6 +246,15 @@ export async function sendMessage(
         m.failed = true;
       }),
     );
+  }
+}
+
+/** Runs a slash command (/play...). The bot answers in the channel; mistakes come back as a toast only you see. */
+export async function runCommand(channelId: string, name: string, query: string) {
+  try {
+    receiveMessage(await api<Message>('POST', `/channels/${channelId}/commands`, { name, query }));
+  } catch (e) {
+    toast((e as Error).message);
   }
 }
 
@@ -346,6 +374,20 @@ export function toggleAllCategories(guildId: string) {
     collapsed_categories: all ? collapsed.filter((id) => !ids.includes(id)) : [...new Set([...collapsed, ...ids])],
   });
 }
+/** A server's notification level (servers without one notify for every message). */
+export const setGuildNotify = (id: string, level: NotifyLevel | undefined) =>
+  patchSettings({ guild_notifications: withEntry(state.settings.guild_notifications, id, level) });
+/** A channel's (or category's) own level; undefined follows the server. */
+export const setChannelNotify = (id: string, level: NotifyLevel | undefined) =>
+  patchSettings({ channel_notifications: withEntry(state.settings.channel_notifications, id, level) });
+
+function withEntry<T>(map: Record<string, T> | undefined, id: string, value: T | undefined): Record<string, T> {
+  const out = { ...map };
+  if (value === undefined) delete out[id];
+  else out[id] = value;
+  return out;
+}
+
 export const toggleMuteChannel = (id: string) =>
   patchSettings({ muted_channels: toggleIn(state.settings.muted_channels, id) });
 

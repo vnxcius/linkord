@@ -39,6 +39,10 @@ pub struct Inner {
     pub games: crate::activities::Games,
     /// Spotify connect: OAuth state -> (user, created).
     pub spotify_states: DashMap<String, (Id, Instant)>,
+    /// Kass, the music bot.
+    pub music: crate::music::Music,
+    /// Watch together: what each call is watching (watch.rs).
+    pub watches: DashMap<Id, crate::watch::Watch>,
 }
 
 #[derive(Clone)]

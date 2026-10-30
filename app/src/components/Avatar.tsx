@@ -34,9 +34,19 @@ export function GuildIcon(p: { name: string; icon?: string | null; size?: number
       .map((w) => w[0])
       .join('')
       .slice(0, 3);
-  return (
+  const icon = (
     <Show when={media(p.icon)} fallback={<span class="guild-abbrev">{abbrev()}</span>}>
       {(src) => <img src={src()} alt="" draggable={false} />}
     </Show>
+  );
+  // Without a size it fills its tile (the server list); with one it's a small square of its own.
+  if (!p.size) return icon;
+  return (
+    <span
+      class="guild-icon-sized"
+      style={{ width: `${p.size}px`, height: `${p.size}px`, 'font-size': `${Math.max(8, p.size * 0.38)}px` }}
+    >
+      {icon}
+    </span>
   );
 }

@@ -12,7 +12,17 @@ use crate::id::Id;
 use crate::state::AppState;
 
 const MAX_BYTES: usize = 32 * 1024;
-const KEYS: &[&str] = &["muted_guilds", "muted_channels", "favorite_gifs", "guild_order", "guild_folders", "collapsed_categories"];
+const KEYS: &[&str] = &[
+    "muted_guilds",
+    "muted_channels",
+    "favorite_gifs",
+    "guild_order",
+    "guild_folders",
+    "collapsed_categories",
+    // Notification level per server and per channel or category: "all" | "mentions" | "none".
+    "guild_notifications",
+    "channel_notifications",
+];
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/users/@me/settings", patch(update))

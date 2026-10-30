@@ -169,6 +169,8 @@ struct ChannelUpdate {
     name: Option<String>,
     topic: Option<String>,
     archived: Option<bool>,
+    /// Group DMs: hand the group to another member (owner only).
+    owner_id: Option<Id>,
 }
 
 /// Who may edit: channel managers for guild channels, the creator or thread managers for threads, anyone in a group DM.
@@ -196,13 +198,27 @@ async fn update_channel(State(st): State<AppState>, AuthUser(me): AuthUser, Path
         None => ch.name.clone(),
     };
     let archived = body.archived.filter(|_| ch.kind == kind::THREAD).unwrap_or(ch.archived);
+    let owner = match body.owner_id {
+        Some(o) if ch.kind == kind::GROUP_DM => {
+            if ch.owner_id != Some(me) {
+                return Err(bad("only the group owner can do that"));
+            }
+            if !crate::api::dms::recipients(&st.db, id).await?.contains(&o) {
+                return Err(bad("they aren't in this group"));
+            }
+            Some(o)
+        }
+        Some(_) => return Err(bad("only group DMs have an owner to change")),
+        None => ch.owner_id,
+    };
     let ch = sqlx::query_as::<_, Channel>(&format!(
-        "UPDATE channels SET name = $2, topic = $3, archived = $4 WHERE id = $1 RETURNING {CHANNEL_COLS}"
+        "UPDATE channels SET name = $2, topic = $3, archived = $4, owner_id = $5 WHERE id = $1 RETURNING {CHANNEL_COLS}"
     ))
     .bind(id)
     .bind(name)
     .bind(body.topic.map(|t| t.trim().to_string()).unwrap_or(ch.topic))
     .bind(archived)
+    .bind(owner)
     .fetch_one(&st.db)
     .await?;
     st.hub.send(&channel_audience(&st.db, &ch).await?, "CHANNEL_UPDATE", &ch);

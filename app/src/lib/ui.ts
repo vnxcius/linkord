@@ -11,7 +11,7 @@ export type Modal =
   | { type: 'server-settings'; guildId: string; tab?: string }
   | { type: 'settings'; tab?: string }
   | { type: 'join-invite'; code: string }
-  | { type: 'create-group' }
+  | { type: 'create-group'; channelId?: string }
   | { type: 'user-profile'; userId: string; guildId?: string }
   | { type: 'folder-settings'; folderId: string }
   | { type: 'go-live'; update?: boolean; switchSource?: boolean }
@@ -22,6 +22,8 @@ export type Modal =
 
 export interface MenuItem {
   label: string;
+  /** Keyboard shortcut shown on the right (e.g. "Ctrl +"). */
+  hint?: string;
   icon?: () => JSX.Element;
   danger?: boolean;
   checked?: boolean;
@@ -62,6 +64,10 @@ export const [ui, setUi] = createStore({
   mobilePane: 'nav' as 'nav' | 'main',
   /** Below 1100px the member list has no room beside the chat and slides in over it instead. */
   membersDrawer: false,
+  /** Ctrl+K: jump to a person, channel, server or message. */
+  quickSwitcher: false,
+  /** Voice channel whose chat is open beside the call. */
+  voiceChat: null as string | null,
 });
 
 const phone = matchMedia('(max-width: 760px)');

@@ -1,4 +1,6 @@
 import { createMemo, For, Show } from 'solid-js';
+import { Nameplate } from './Nameplate';
+import { media } from '../lib/api';
 import { t } from '../lib/i18n';
 import { memberRoles, nameColor, nameOf, presenceOf, state } from '../lib/store';
 import { openMenu, openProfile } from '../lib/ui';
@@ -6,7 +8,8 @@ import { ActivityBadge, ActivityLine } from './Activity';
 import { Avatar } from './Avatar';
 import { memberMenu } from './Profile';
 
-/** Member list grouped like Discord: hoisted roles first (online only), then Online, then Offline. */
+/** Member list: hoisted roles first (online only), then Online, then Offline. Shown in the margin, or as a
+ *  drawer on narrow windows. */
 export function Members(p: { guildId: string; drawer?: boolean }) {
   const groups = createMemo(() => {
     const ids = Object.keys(state.members[p.guildId] ?? {}).filter((id) => state.users[id]);
@@ -39,22 +42,27 @@ export function Members(p: { guildId: string; drawer?: boolean }) {
         {(g) => (
           <>
             <div class="group-title">
-              {g.title} — {g.ids.length}
+              <span>{g.title}</span>
+              <span>{String(g.ids.length).padStart(2, '0')}</span>
             </div>
             <For each={g.ids}>
               {(id) => (
                 <button
                   class="member"
-                  classList={{ offline: presenceOf(id) === 'offline' }}
+                  classList={{ offline: presenceOf(id) === 'offline', 'has-nameplate': !!state.users[id]?.nameplate }}
                   onClick={(e) => openProfile(id, e, p.guildId)}
                   onContextMenu={(e) => openMenu(e, memberMenu(id, p.guildId))}
                 >
+                  <Show when={media(state.users[id]?.nameplate)}>{(src) => <Nameplate src={src()} lazy />}</Show>
                   <Avatar user={state.users[id]} size={32} presence />
                   <span class="member-text">
                     <span class="member-name-row">
                       <span class="member-name" style={{ color: nameColor(p.guildId, id) }}>
                         {nameOf(id, p.guildId)}
                       </span>
+                      <Show when={state.users[id]?.bot}>
+                        <span class="bot-tag">{t('BOT')}</span>
+                      </Show>
                       <Show when={id === owner()}>
                         <span class="owner-crown" title={t('Server owner')}>
                           ♛

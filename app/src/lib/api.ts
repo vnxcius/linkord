@@ -173,3 +173,38 @@ export async function api<T = any>(method: string, path: string, body?: unknown,
   }
   return text ? JSON.parse(text) : (undefined as T);
 }
+
+/** Uploads a form with progress (fetch can't report it). `onProgress` gets 0..1 of the bytes sent; abort with `signal`. */
+export function uploadForm<T = any>(
+  method: string,
+  path: string,
+  body: FormData,
+  onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, `${serverUrl()}/api${path}`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          return resolve(xhr.responseText ? JSON.parse(xhr.responseText) : (undefined as T));
+        } catch (e) {
+          return reject(e);
+        }
+      }
+      let msg = xhr.statusText || `HTTP ${xhr.status}`;
+      try {
+        msg = JSON.parse(xhr.responseText).error ?? msg;
+      } catch {}
+      reject(new ApiError(xhr.status, serverError(msg)));
+    };
+    xhr.onerror = () => reject(new ApiError(0, t("Couldn't reach the server. Check your connection and try again.")));
+    xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+    signal?.addEventListener('abort', () => xhr.abort());
+    xhr.send(body);
+  });
+}

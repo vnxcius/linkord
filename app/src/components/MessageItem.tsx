@@ -3,10 +3,12 @@ import { Portal } from 'solid-js/web';
 import { api, emojiUrl, media } from '../lib/api';
 import { filenameFromUrl } from '../lib/download';
 import { jumpToMessage, retryMessage, selectChannel, startThread, togglePin, toggleReaction } from '../lib/actions';
-import { dateLocale, plural, t } from '../lib/i18n';
+import { dateLocale, msg, plural, t } from '../lib/i18n';
 import { isJumbo, renderMarkdown } from '../lib/markdown';
 import { can, P } from '../lib/perms';
 import { openExternal } from '../lib/platform';
+import { messageLink, openAppLink } from '../lib/route';
+import { toDisplay, toRaw, type Tokens } from '../lib/mentions';
 import { dmName, findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/store';
 import type { Attachment, Channel, Embed, Forwarded, Message } from '../lib/types';
 import { videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
@@ -63,7 +65,7 @@ export function onContentClick(e: MouseEvent, guildId?: string | null) {
   const a = t.closest('a');
   if (a?.href) {
     e.preventDefault();
-    void openExternal(a.href);
+    if (!openAppLink(a.href)) void openExternal(a.href);
   }
 }
 
@@ -90,7 +92,99 @@ function linkOnlyImage(m: Pick<Message, 'content' | 'embeds'>): boolean {
   return /^https?:\/\/\S+$/.test(c) && m.embeds.length === 1 && m.embeds[0].type !== 'link' && m.embeds[0].url === c;
 }
 
+/** Discord-style welcome lines for "joined the server", one picked per message. */
+const JOIN_LINES = [
+  msg('{name} joined the party.'),
+  msg('{name} just showed up!'),
+  msg('Welcome, {name}. We hope you brought pizza.'),
+  msg('A wild {name} appeared.'),
+  msg('{name} just landed.'),
+  msg('Good to see you, {name}.'),
+  msg('{name} hopped into the server.'),
+  msg('Everyone welcome {name}!'),
+];
+
+/** System messages: someone joined the server, or pinned a message (click to see it highlighted). */
+function SystemMessage(p: { message: Message; guildId?: string | null }) {
+  const m = () => p.message;
+  const name = () => nameOf(m().author.id, p.guildId);
+  const line = () => {
+    const tpl = t(JOIN_LINES[Number(BigInt(m().id) % BigInt(JOIN_LINES.length))]);
+    const [before, after] = tpl.split('{name}');
+    return { before, after: after ?? '' };
+  };
+  const menu = (e: MouseEvent) => {
+    const items: MenuEntry[] = [
+      {
+        label: t('Copy Message ID'),
+        icon: () => <I.Copy size={16} />,
+        run: () => navigator.clipboard.writeText(m().id),
+      },
+    ];
+    if (p.guildId && can(p.guildId, P.MANAGE_MESSAGES))
+      items.push({
+        label: t('Delete Message'),
+        danger: true,
+        icon: () => <I.Trash size={16} />,
+        run: () => attempt(() => api('DELETE', `/channels/${m().channel_id}/messages/${m().id}`)),
+      });
+    openMenu(e, items);
+  };
+  const who = () => (
+    <button
+      class="system-name"
+      style={{ color: nameColor(p.guildId, m().author.id) }}
+      onClick={(e) => openProfile(m().author.id, e, p.guildId ?? undefined)}
+    >
+      {name()}
+    </button>
+  );
+  return (
+    <div
+      class="message system-message"
+      classList={{ highlight: state.highlight === m().id }}
+      id={`msg-${m().id}`}
+      onContextMenu={menu}
+    >
+      <Switch>
+        <Match when={m().type === 7}>
+          <span class="system-icon join">
+            <I.ArrowRight size={16} />
+          </span>
+          <span class="system-text">
+            {line().before}
+            {who()}
+            {line().after}
+          </span>
+        </Match>
+        <Match when={m().type === 6}>
+          <span class="system-icon">
+            <I.Pin size={16} />
+          </span>
+          <span class="system-text">
+            {who()} {t('pinned')}{' '}
+            <button
+              class="system-link"
+              onClick={() => m().reply_to && void jumpToMessage(m().channel_id, m().reply_to!)}
+            >
+              {t('a message')}
+            </button>{' '}
+            {t('to this channel.')}{' '}
+            <button class="system-link" onClick={() => setUi('panel', 'pins')}>
+              {t('See all pinned messages.')}
+            </button>
+          </span>
+        </Match>
+      </Switch>
+      <time class="system-time" title={new Date(m().created_at).toLocaleString(dateLocale())}>
+        {formatTime(m().created_at)}
+      </time>
+    </div>
+  );
+}
+
 export function MessageItem(p: { message: Message; grouped: boolean; guildId?: string | null }) {
+  if (p.message.type === 6 || p.message.type === 7) return <SystemMessage message={p.message} guildId={p.guildId} />;
   const m = () => p.message;
   const me = () => state.me!.id;
   const author = () => state.users[m().author.id] ?? m().author;
@@ -144,13 +238,14 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
 
   const startEdit = () => setUi('editing', m().id);
   // However editing starts (menu, toolbar, ↑ in an empty composer), the box opens with the message text.
-  createEffect(on(editing, (on) => on && setEditText(m().content)));
+  const editTokens: Tokens = new Map();
+  createEffect(on(editing, (on) => on && setEditText(toDisplay(m().content, p.guildId, editTokens))));
   const cancelEdit = () => {
     setUi('editing', null);
     focusComposer();
   };
   const saveEdit = async () => {
-    const content = editText().trim();
+    const content = toRaw(editText(), p.guildId, editTokens).trim();
     cancelEdit();
     if (content && content !== m().content)
       await attempt(() => api('PATCH', `/channels/${m().channel_id}/messages/${m().id}`, { content }));
@@ -170,6 +265,18 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
 
   const menu = (e: MouseEvent): MenuEntry[] => {
     const items: MenuEntry[] = [];
+    // Right-clicked a link: its own actions first, like a browser.
+    const link = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (link && /^https?:/.test(link.href))
+      items.push(
+        { label: t('Copy Link'), icon: () => <I.Link size={16} />, run: () => copy(link.href, t('Link copied')) },
+        {
+          label: t('Open Link'),
+          icon: () => <I.External size={16} />,
+          run: () => !openAppLink(link.href) && void openExternal(link.href),
+        },
+        'separator',
+      );
     if (canReact()) {
       items.push({
         label: t('Add Reaction'),
@@ -204,6 +311,11 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
         icon: () => <I.Copy size={16} />,
         run: () => copy(text(), t('Text copied')),
       });
+    items.push({
+      label: t('Copy Message Link'),
+      icon: () => <I.Link size={16} />,
+      run: () => copy(messageLink(m().channel_id, m().id), t('Link copied')),
+    });
     items.push({
       label: t('Copy Message ID'),
       icon: () => <I.Copy size={16} />,
@@ -297,6 +409,19 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
             </div>
           )}
         </Show>
+        <Show when={m().interaction}>
+          {(it) => (
+            <div class="reply-ref interaction">
+              <Avatar user={state.users[it().user.id] ?? it().user} size={16} />
+              <span class="reply-author" style={{ color: nameColor(p.guildId, it().user.id) }}>
+                {nameOf(it().user.id, p.guildId)}
+              </span>
+              <span class="reply-text">
+                {t('used')} <span class="interaction-name">/{it().name}</span>
+              </span>
+            </div>
+          )}
+        </Show>
         <div class="message-row">
           <Show when={selecting()}>
             <span class="select-check" aria-hidden="true">
@@ -322,6 +447,9 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                 >
                   {nameOf(author().id, p.guildId)}
                 </button>
+                <Show when={author().bot}>
+                  <span class="bot-tag">{t('BOT')}</span>
+                </Show>
                 <time title={new Date(m().created_at).toLocaleString(dateLocale())}>{formatTime(m().created_at)}</time>
                 <Show when={m().pinned}>
                   <span class="pinned-tag" title={t('Pinned')}>
@@ -624,9 +752,10 @@ function EmbedView(p: { e: Embed }) {
       <Match when={p.e.type === 'link' && videoPlayer(p.e.resolved_url ?? p.e.url)}>
         {(player) => <VideoLinkEmbed e={p.e} player={player()} />}
       </Match>
-      <Match when={p.e.type === 'link'}>
+      <Match when={p.e.type === 'link' || p.e.type === 'rich'}>
         <div
           class="embed"
+          classList={{ rich: p.e.type === 'rich' }}
           style={{ 'border-left-color': p.e.color != null ? `#${p.e.color.toString(16).padStart(6, '0')}` : undefined }}
         >
           <div class="embed-text">

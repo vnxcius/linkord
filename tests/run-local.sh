@@ -16,6 +16,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.cargo/bin:$PATH"
 pg_pass=$(grep POSTGRES_PASSWORD "$root/deploy/.env" | cut -d= -f2)
 data=$(mktemp -d)
+# A copy of the default nameplates, so tests can add files without touching server/nameplates.
+cp -r "$root/server/nameplates" "$data/nameplates"
 
 docker exec linkord-postgres-1 createdb -U linkord linkord_test 2>/dev/null || true
 [[ $mode == api ]] || (cd "$root/app" && bun run build >/dev/null)
@@ -30,7 +32,7 @@ SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=
   LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 \
   LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off \
   DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" \
-  LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID= DISCORD_CLIENT_SECRET= \
+  LINKORD_YTDLP="$root/tests/ytdlp-mock.sh" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID= DISCORD_CLIENT_SECRET= \
   ./target/debug/linkord-server >"$data/server.log" 2>&1 &
 server=$!
 trap 'kill $server $spotify_mock 2>/dev/null; rm -rf "$data"' EXIT

@@ -1,10 +1,11 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 mod capture;
 mod games;
@@ -172,6 +173,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
     builder.build(app)
 }
 
+/// Everything about the window except whether it's visible (see run()).
+fn window_state_flags() -> StateFlags {
+    StateFlags::all() - StateFlags::VISIBLE
+}
+
+static WINDOW_MOVES: AtomicU64 = AtomicU64::new(0);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -182,6 +190,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        // The window opens where it was last (position, size, maximized), also after updates and restarts.
+        // Showing it stays ours: started with Windows it waits in the tray.
+        .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(window_state_flags()).build())
         .manage(Tray(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             set_tray_state,
@@ -216,15 +227,28 @@ pub fn run() {
             keybinds::start(handle);
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
+                let _ = window.app_handle().save_window_state(window_state_flags());
                 if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
                     let _ = window.hide();
                 } else {
                     quit_app(window.app_handle());
                 }
             }
+            // Saved as soon as the window settles: an update's installer ends the app without an exit event.
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                let n = WINDOW_MOVES.fetch_add(1, Ordering::Relaxed) + 1;
+                let app = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                    if WINDOW_MOVES.load(Ordering::Relaxed) == n {
+                        let _ = app.save_window_state(window_state_flags());
+                    }
+                });
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running linkord");

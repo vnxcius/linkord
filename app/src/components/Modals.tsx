@@ -14,7 +14,7 @@ import { api, serverUrl } from '../lib/api';
 import { createGroupDm, dmChannel, selectChannel, selectView, sendMessage } from '../lib/actions';
 import { plural, t } from '../lib/i18n';
 import { can, P, topPosition } from '../lib/perms';
-import { addGuild, nameOf, state } from '../lib/store';
+import { addGuild, dmName, nameOf, state } from '../lib/store';
 import type { Channel, Guild, GuildInfo, User } from '../lib/types';
 import { displayName, Kind, Rel } from '../lib/types';
 import { attempt, setUi, toast, ui, type Modal } from '../lib/ui';
@@ -93,8 +93,8 @@ export function ModalHost() {
               <Match when={m().type === 'custom-status'}>
                 <CustomStatusModal />
               </Match>
-              <Match when={m().type === 'create-group'}>
-                <CreateGroup />
+              <Match when={m().type === 'create-group' && (m() as Extract<Modal, { type: 'create-group' }>)}>
+                {(x) => <CreateGroup channelId={x().channelId} />}
               </Match>
               <Match when={m().type === 'forward' && (m() as Extract<Modal, { type: 'forward' }>)}>
                 {(x) => <ForwardModal message={x().message} />}
@@ -642,13 +642,21 @@ function ChannelSettings(p: { channelId: string }) {
           ? t('Edit thread')
           : ch()?.kind === Kind.Category
             ? t('Edit category')
-            : t('Edit channel')
+            : ch()?.kind === Kind.GroupDm
+              ? t('Edit group')
+              : t('Edit channel')
       }
     >
       <form class="stack" onSubmit={save}>
         <label class="field">
           <span>{t('Name')}</span>
-          <input value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={100} autofocus />
+          <input
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+            maxLength={100}
+            placeholder={ch()?.kind === Kind.GroupDm ? dmName({ ...ch()!, name: '' }) : undefined}
+            autofocus
+          />
         </label>
         <Show when={ch()?.kind === Kind.Text}>
           <label class="field">
@@ -665,7 +673,7 @@ function ChannelSettings(p: { channelId: string }) {
         <Show when={error()}>
           <p class="error">{error()}</p>
         </Show>
-        <button class="btn primary" disabled={busy() || !name().trim()}>
+        <button class="btn primary" disabled={busy() || (!name().trim() && ch()?.kind !== Kind.GroupDm)}>
           {t('Save changes')}
         </button>
       </form>
@@ -673,21 +681,26 @@ function ChannelSettings(p: { channelId: string }) {
   );
 }
 
-function CreateGroup() {
+/** Pick friends for a new DM or group DM, or (with `channelId`) to add to an existing group. */
+function CreateGroup(p: { channelId?: string }) {
+  const group = () => (p.channelId ? state.channels[p.channelId] : undefined);
+  const inGroup = () => new Set((group()?.recipients ?? []).map((u) => u.id));
   const friends = () =>
     Object.entries(state.relationships)
-      .filter(([, r]) => r === Rel.Friend)
+      .filter(([id, r]) => r === Rel.Friend && !inGroup().has(id))
       .map(([id]) => id)
       .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+  // Group DMs hold 10 people, you included.
+  const room = () => (group() ? 10 - (group()!.recipients?.length ?? 0) : 9);
   const [picked, setPicked] = createSignal<string[]>([]);
   const [filter, setFilter] = createSignal('');
   const { busy, error, run } = useSubmit();
   const toggle = (id: string) =>
-    setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : l.length < 9 ? [...l, id] : l));
+    setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : l.length < room() ? [...l, id] : l));
   return (
     <Dialog
-      title={t('Select friends')}
-      subtitle={plural(9 - picked().length, 'You can add {n} more friend.', 'You can add {n} more friends.')}
+      title={group() ? t('Add friends to {name}', { name: dmName(group()!) }) : t('Select friends')}
+      subtitle={plural(room() - picked().length, 'You can add {n} more friend.', 'You can add {n} more friends.')}
       footer={
         <button
           class="btn primary"
@@ -695,7 +708,9 @@ function CreateGroup() {
           onClick={() =>
             run(async () => {
               const ids = picked();
-              if (ids.length === 1) {
+              if (p.channelId) {
+                for (const id of ids) await api('PUT', `/channels/${p.channelId}/recipients/${id}`);
+              } else if (ids.length === 1) {
                 const { openDm } = await import('../lib/actions');
                 await openDm(ids[0]);
               } else await createGroupDm(ids);
@@ -703,7 +718,7 @@ function CreateGroup() {
             })
           }
         >
-          {picked().length > 1 ? t('Create Group DM') : t('Open DM')}
+          {p.channelId ? t('Add to Group') : picked().length > 1 ? t('Create Group DM') : t('Open DM')}
         </button>
       }
     >
