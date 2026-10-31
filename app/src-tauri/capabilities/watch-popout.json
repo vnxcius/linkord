@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "watch-popout",
+  "description": "The watch-together pop-out window: talks to the main window through events and is moved by its bar",
+  "windows": [
+    "watch-popout"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

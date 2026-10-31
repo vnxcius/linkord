@@ -180,6 +180,58 @@ fn window_state_flags() -> StateFlags {
 
 static WINDOW_MOVES: AtomicU64 = AtomicU64::new(0);
 
+/// The watch-together pop-out (WatchPopout.tsx): the same page as the app, which shows only the player when it
+/// finds itself in a window with this label.
+const WATCH_POPOUT: &str = "watch-popout";
+
+/// Opens the pop-out (or brings it forward): small, frameless, always on top, at the bottom right of the screen
+/// the app is on the first time (the window-state plugin remembers where it was moved after that). Async: making
+/// a window from a synchronous command deadlocks on Windows.
+#[tauri::command]
+async fn watch_popout_open(app: AppHandle, title: String) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(WATCH_POPOUT) {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    // A 16:9 video under the pop-out's 30 px bar (+1 px border).
+    let (width, height) = (480.0, 270.0 + 31.0);
+    let mut builder = tauri::WebviewWindowBuilder::new(&app, WATCH_POPOUT, tauri::WebviewUrl::App("index.html".into()))
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(256.0, 144.0 + 31.0)
+        .decorations(false)
+        .always_on_top(true)
+        .resizable(true)
+        .background_color(tauri::window::Color(0, 0, 0, 255))
+        .focused(true);
+    if let Some(screen) = app.get_webview_window("main").and_then(|m| m.current_monitor().ok().flatten()) {
+        let scale = screen.scale_factor();
+        let area = screen.work_area();
+        let x = (area.position.x as f64 + area.size.width as f64) / scale - width - 24.0;
+        let y = (area.position.y as f64 + area.size.height as f64) / scale - height - 24.0;
+        builder = builder.position(x, y);
+    }
+    let window = builder.build().map_err(|e| e.to_string())?;
+    quiet_frame_menus(&window);
+    let handle = app.clone();
+    window.on_window_event(move |e| {
+        if let WindowEvent::Destroyed = e {
+            let _ = handle.emit_to("main", "watch-popout-closed", ());
+        }
+    });
+    Ok(())
+}
+
+/// Closes the pop-out; the main window shows the player again.
+#[tauri::command]
+fn watch_popout_close(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(WATCH_POPOUT) {
+        let _ = w.destroy();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -201,6 +253,8 @@ pub fn run() {
             set_start_minimized,
             set_keybinds,
             save_download,
+            watch_popout_open,
+            watch_popout_close,
             capture::list_capture_sources,
             capture::start_capture,
             capture::stop_capture,
@@ -229,7 +283,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::CloseRequested { api, .. } => {
+            // Only the app's own window goes to the tray or quits; the watch pop-out just closes.
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 api.prevent_close();
                 let _ = window.app_handle().save_window_state(window_state_flags());
                 if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
@@ -357,3 +412,16 @@ fn forward_frame_menus(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 fn forward_frame_menus(_window: &tauri::WebviewWindow) {}
+
+/// The pop-out has no menus of its own: WebView2's (Back, Reload, Inspect...) don't show in it either.
+#[cfg(windows)]
+fn quiet_frame_menus(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        if let Ok(settings) = webview.controller().CoreWebView2().and_then(|c| c.Settings()) {
+            let _ = settings.SetAreDefaultContextMenusEnabled(false);
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn quiet_frame_menus(_window: &tauri::WebviewWindow) {}

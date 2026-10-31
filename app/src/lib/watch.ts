@@ -26,6 +26,10 @@ export function setServerNow(serverNow: number | undefined) {
   if (serverNow) offset = serverNow - Date.now();
 }
 
+/** The desktop pop-out window has no connection of its own: the main window hands it the clock offset. */
+export const serverOffset = () => offset;
+export const setServerOffset = (ms: number) => void (offset = ms);
+
 export function putWatch(channelId: string, w: Watch | null) {
   if (w) setWatches(channelId, w);
   else setWatches(produce((m) => delete m[channelId]));
@@ -38,10 +42,15 @@ export function expectedPosition(w: Watch): number {
 }
 
 export const startWatch = (channelId: string, url: string) => api('PUT', `/channels/${channelId}/watch`, { url });
-export const controlWatch = (
-  channelId: string,
-  patch: { playing?: boolean; position?: number; ended?: boolean; live?: boolean },
-) => api('PATCH', `/channels/${channelId}/watch`, patch).catch(() => {});
+export type WatchPatch = { playing?: boolean; position?: number; ended?: boolean; live?: boolean };
+let sendControl = (channelId: string, patch: WatchPatch): Promise<unknown> =>
+  api('PATCH', `/channels/${channelId}/watch`, patch).catch(() => {});
+/** Play, pause, seek or end for everyone. */
+export const controlWatch = (channelId: string, patch: WatchPatch) => sendControl(channelId, patch);
+/** The desktop pop-out sends these through the main window instead of the API. */
+export function routeWatchControl(fn: (channelId: string, patch: WatchPatch) => Promise<unknown>) {
+  sendControl = fn;
+}
 export const stopWatch = (channelId: string) => api('DELETE', `/channels/${channelId}/watch`);
 
 const hms = (s: number) => {

@@ -6,22 +6,14 @@ import { Portal } from 'solid-js/web';
 import { api } from '../lib/api';
 import { selectChannel } from '../lib/actions';
 import { t } from '../lib/i18n';
-import { openExternal } from '../lib/platform';
+import { isTauri, openExternal } from '../lib/platform';
 import { nameOf, state } from '../lib/store';
 import { attempt, isMobile, setUi, toast, type MenuEntry } from '../lib/ui';
 import { setMediaPlaying, setVoiceUi, voiceUi } from '../lib/voice';
-import {
-  controlWatch,
-  embedSrc,
-  expectedPosition,
-  startWatch,
-  stopWatch,
-  watches,
-  YouTubeSync,
-  type Watch,
-} from '../lib/watch';
+import { controlWatch, expectedPosition, serverOffset, startWatch, stopWatch, watches, type Watch } from '../lib/watch';
 import * as I from './Icons';
 import { Viewers } from './VoiceView';
+import { Player, WatchEnded } from './WatchPlayer';
 
 const PROVIDERS = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' } as const;
 /** The shared video's key among the call's tiles (voiceUi.focus), next to `<user>-screen` / `<user>-camera`. */
@@ -37,12 +29,15 @@ export const watchExpanded = (channelId: string) => voiceUi.focus === WATCH_KEY 
 export const watchTheater = (channelId: string) => !!theater()[channelId] && watchExpanded(channelId);
 /** Where the player sits in the call view, when the call view is on screen. */
 const [slot, setSlot] = createSignal<HTMLElement | null>(null);
-/** The Document Picture-in-Picture window the player was popped out to. */
+/** The Document Picture-in-Picture window the player was popped out to (web). */
 const [popped, setPopped] = createSignal<Window | null>(null);
+/** The desktop app's own pop-out window is open (WebView2 has no Document Picture-in-Picture). */
+const [nativePopped, setNativePopped] = createSignal(false);
+const poppedOut = () => !!popped() || nativePopped();
 const pipApi = () =>
   (window as unknown as { documentPictureInPicture?: { requestWindow: (o: object) => Promise<Window> } })
     .documentPictureInPicture;
-export const canPopOutWatch = () => !!pipApi();
+export const canPopOutWatch = () => isTauri || !!pipApi();
 
 /**
  * Windows 10 streams the sound of the whole PC (it can't leave Linkord out), so the shared video would reach our
@@ -84,6 +79,7 @@ function toggleWatchFullscreen() {
  * window starts as a blank page: it gets the app's styles and theme so the player and its "ended" screen fit it.
  */
 async function popOutWatch() {
+  if (isTauri) return popOutNative();
   const pip = pipApi();
   if (!pip || popped()) return;
   try {
@@ -105,7 +101,106 @@ async function popOutWatch() {
   }
 }
 
-const closePopOutWatch = () => popped()?.close();
+function closePopOutWatch() {
+  popped()?.close();
+  if (nativePopped()) {
+    setNativePopped(false);
+    void import('@tauri-apps/api/core').then(({ invoke }) => invoke('watch_popout_close')).catch(() => {});
+  }
+}
+
+/**
+ * Desktop: the player moves to a small always-on-top window of its own (WatchPopout.tsx). That window has no
+ * server connection: this one sends it the watch as it changes, and does what it asks (play, pause, seek, stop).
+ */
+async function popOutNative() {
+  if (nativePopped()) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('watch_popout_open', { title: `${t('Watch together')} · Linkord` });
+    setNativePopped(true);
+  } catch (e) {
+    console.warn('watch pop-out', e);
+    toast(t("Couldn't open the pop-out window"));
+  }
+}
+
+interface PopOutControl {
+  channelId: string;
+  patch: Parameters<typeof controlWatch>[1];
+}
+
+/** Keeps the pop-out window showing this call's watch while it's open, and carries out what it asks. */
+function NativePopOutLink(p: { channelId: string }) {
+  let emitTo: typeof import('@tauri-apps/api/event').emitTo | undefined;
+  const send = () => {
+    const w = watches[p.channelId];
+    // Read every field here so a change to any of them sends it again.
+    const watch = w ? (JSON.parse(JSON.stringify(w)) as Watch) : null;
+    const muted = !!mutedForStream();
+    void emitTo?.('watch-popout', 'watch-popout-state', {
+      channelId: p.channelId,
+      watch,
+      offset: serverOffset(),
+      muted,
+    });
+  };
+  const unlisten: (() => void)[] = [];
+  let disposed = false;
+  onMount(async () => {
+    const ev = await import('@tauri-apps/api/event');
+    if (disposed) return;
+    emitTo = ev.emitTo;
+    const keep = (off: () => void) => (disposed ? off() : unlisten.push(off));
+    keep(await ev.listen('watch-popout-ready', send));
+    keep(
+      await ev.listen<PopOutControl>('watch-popout-control', ({ payload: m }) => {
+        if (m.channelId === p.channelId) void controlWatch(m.channelId, m.patch);
+      }),
+    );
+    keep(
+      await ev.listen<{ channelId: string }>('watch-popout-stop', ({ payload: m }) => {
+        if (m.channelId === p.channelId) void attempt(() => stopWatch(m.channelId));
+      }),
+    );
+    // Hidden from the pop-out: the same as "Hide for me" here (which closes the window too).
+    keep(
+      await ev.listen<{ channelId: string }>('watch-popout-hide', ({ payload: m }) => {
+        if (m.channelId === p.channelId) setWatchOpen(m.channelId, false);
+      }),
+    );
+    send();
+  });
+  createEffect(send);
+  onCleanup(() => {
+    disposed = true;
+    unlisten.forEach((off) => off());
+  });
+  return null;
+}
+
+/**
+ * The main window's side of the desktop pop-out, from WatchHost (never at import: the pop-out window loads this
+ * code too, and would close itself). A pop-out left over from before this window reloaded is closed, or it would
+ * play next to the player here; when the pop-out closes itself, the player comes back to the app.
+ */
+let strayChecked = false;
+function watchPopOutClosed(): () => void {
+  if (!isTauri) return () => {};
+  let off: (() => void) | undefined;
+  let gone = false;
+  if (!strayChecked) {
+    strayChecked = true;
+    void import('@tauri-apps/api/core').then(({ invoke }) => invoke('watch_popout_close')).catch(() => {});
+  }
+  void import('@tauri-apps/api/event')
+    .then(({ listen }) => listen('watch-popout-closed', () => setNativePopped(false)))
+    .then((f) => (gone ? f() : (off = f)));
+  return () => {
+    gone = true;
+    off?.();
+  };
+}
 
 async function copyLink(url: string) {
   try {
@@ -114,29 +209,6 @@ async function copyLink(url: string) {
   } catch {
     toast(t("Couldn't copy the link"));
   }
-}
-
-function Player(p: { channelId: string; muted: boolean }) {
-  const w = () => watches[p.channelId];
-  // The embed loads once at the shared position; the YouTube one is kept in step from then on.
-  const src = embedSrc(w()!, expectedPosition(w()!), location.hostname, p.muted);
-  let frame!: HTMLIFrameElement;
-  let sync: YouTubeSync | undefined;
-  onMount(() => {
-    if (w()?.provider === 'youtube') sync = new YouTubeSync(frame, w, p.channelId);
-  });
-  onCleanup(() => sync?.dispose());
-  return (
-    <iframe
-      ref={frame}
-      class="watch-frame"
-      // Inline too: the pop-out window may not have the stylesheet yet when the player moves there.
-      style={{ display: 'block', width: '100%', height: '100%', border: '0', background: '#000' }}
-      src={src}
-      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-      allowfullscreen
-    />
-  );
 }
 
 /** The player, reloaded when the link changes or when it has to be muted for our stream. */
@@ -192,6 +264,7 @@ export function WatchHost() {
     raf = requestAnimationFrame(follow);
   };
   onMount(() => (raf = requestAnimationFrame(follow)));
+  onCleanup(watchPopOutClosed());
   onCleanup(() => cancelAnimationFrame(raf));
   // Leaving the call or hiding the video closes the pop-out too.
   createEffect(() => !visible() && closePopOutWatch());
@@ -212,79 +285,68 @@ export function WatchHost() {
   return (
     <Show when={visible() && w()} keyed>
       {(watch) => (
-        <Show
-          when={!popped()}
-          fallback={
-            <Portal mount={popped()!.document.body}>
-              <div style={{ position: 'fixed', inset: '0' }}>
-                <PlayerFor channelId={channel()!} watch={watch} />
-              </div>
-            </Portal>
-          }
-        >
-          <div
-            ref={hostEl}
-            class="watch-host"
-            classList={{ floating: !box() }}
-            style={
-              box()
-                ? {
-                    left: `${box()!.x}px`,
-                    top: `${box()!.y}px`,
-                    width: `${box()!.w}px`,
-                    height: `${box()!.h}px`,
-                    'clip-path': box()!.clip,
-                  }
-                : {}
+        <Show when={!nativePopped()} fallback={<NativePopOutLink channelId={channel()!} />}>
+          <Show
+            when={!popped()}
+            fallback={
+              <Portal mount={popped()!.document.body}>
+                <div style={{ position: 'fixed', inset: '0' }}>
+                  <PlayerFor channelId={channel()!} watch={watch} />
+                </div>
+              </Portal>
             }
           >
-            <div class="watch-host-video">
-              <PlayerFor channelId={channel()!} watch={watch} />
-              <Show when={watches[channel()!]?.ended}>
-                <div class="watch-ended">
-                  <strong>{t('Video ended')}</strong>
-                  <div class="watch-ended-actions">
-                    <button
-                      class="btn primary small-btn"
-                      onClick={() => void controlWatch(channel()!, { position: 0, playing: true })}
-                    >
-                      <I.Rejoin size={15} /> {t('Watch again')}
+            <div
+              ref={hostEl}
+              class="watch-host"
+              classList={{ floating: !box() }}
+              style={
+                box()
+                  ? {
+                      left: `${box()!.x}px`,
+                      top: `${box()!.y}px`,
+                      width: `${box()!.w}px`,
+                      height: `${box()!.h}px`,
+                      'clip-path': box()!.clip,
+                    }
+                  : {}
+              }
+            >
+              <div class="watch-host-video">
+                <PlayerFor channelId={channel()!} watch={watch} />
+                <Show when={watches[channel()!]?.ended}>
+                  <WatchEnded channelId={channel()!} onStop={() => void attempt(() => stopWatch(channel()!))} />
+                </Show>
+              </div>
+              <Show when={!box()}>
+                <div
+                  class="watch-mini-bar"
+                  onContextMenu={(e) => watchMenu(e, channel()!, state.channels[channel()!]?.guild_id)}
+                >
+                  <span class={`watch-provider ${watch.provider}`}>{PROVIDERS[watch.provider]}</span>
+                  <span class="grow" />
+                  <button class="vp-btn" data-tip={t('Fullscreen')} onClick={toggleWatchFullscreen}>
+                    <I.Fullscreen size={16} />
+                  </button>
+                  <button class="vp-btn" data-tip={t('Back to the call')} onClick={() => selectChannel(channel()!)}>
+                    <I.Maximize size={16} />
+                  </button>
+                  <Show when={canPopOutWatch()}>
+                    <button class="vp-btn" data-tip={t('Pop out')} onClick={() => void popOutWatch()}>
+                      <I.PopOut size={16} />
                     </button>
-                    <button class="btn small-btn" onClick={() => void attempt(() => stopWatch(channel()!))}>
-                      {t('Stop for everyone')}
-                    </button>
-                  </div>
+                  </Show>
+                  <button
+                    class="vp-btn danger"
+                    data-tip={t('Hide for me')}
+                    onClick={() => setWatchOpen(channel()!, false)}
+                  >
+                    <I.Close size={16} />
+                  </button>
                 </div>
               </Show>
             </div>
-            <Show when={!box()}>
-              <div
-                class="watch-mini-bar"
-                onContextMenu={(e) => watchMenu(e, channel()!, state.channels[channel()!]?.guild_id)}
-              >
-                <span class={`watch-provider ${watch.provider}`}>{PROVIDERS[watch.provider]}</span>
-                <span class="grow" />
-                <button class="vp-btn" data-tip={t('Fullscreen')} onClick={toggleWatchFullscreen}>
-                  <I.Fullscreen size={16} />
-                </button>
-                <button class="vp-btn" data-tip={t('Back to the call')} onClick={() => selectChannel(channel()!)}>
-                  <I.Maximize size={16} />
-                </button>
-                <Show when={canPopOutWatch()}>
-                  <button class="vp-btn" data-tip={t('Pop out')} onClick={() => void popOutWatch()}>
-                    <I.PopOut size={16} />
-                  </button>
-                </Show>
-                <button
-                  class="vp-btn danger"
-                  data-tip={t('Hide for me')}
-                  onClick={() => setWatchOpen(channel()!, false)}
-                >
-                  <I.Close size={16} />
-                </button>
-              </div>
-            </Show>
-          </div>
+          </Show>
         </Show>
       )}
     </Show>
@@ -329,9 +391,9 @@ export function watchMenuItems(channelId: string): MenuEntry[] {
       });
     if (canPopOutWatch())
       items.push({
-        label: popped() ? t('Bring it back') : t('Pop out'),
+        label: poppedOut() ? t('Bring it back') : t('Pop out'),
         icon: () => <I.PopOut size={16} />,
-        run: () => (popped() ? closePopOutWatch() : void popOutWatch()),
+        run: () => (poppedOut() ? closePopOutWatch() : void popOutWatch()),
       });
   }
   items.push(
@@ -431,7 +493,7 @@ export function WatchTile(p: {
                 onCleanup(() => slot() === el && setSlot(null));
               }}
             >
-              <Show when={popped()}>
+              <Show when={poppedOut()}>
                 <div class="popped-out">
                   <I.PopOut size={26} />
                   <span>{t('Playing in the pop-out window')}</span>
@@ -497,9 +559,9 @@ export function WatchTile(p: {
                 <Show when={canPopOutWatch()}>
                   <button
                     class="vp-btn"
-                    data-tip={popped() ? t('Bring it back') : t('Pop out')}
+                    data-tip={poppedOut() ? t('Bring it back') : t('Pop out')}
                     aria-label={t('Pop out')}
-                    onClick={() => (popped() ? closePopOutWatch() : void popOutWatch())}
+                    onClick={() => (poppedOut() ? closePopOutWatch() : void popOutWatch())}
                   >
                     <I.PopOut size={16} />
                   </button>
