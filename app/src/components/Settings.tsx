@@ -197,20 +197,14 @@ export function Settings(p: { tab?: string }) {
           <button class="settings-logout" onClick={() => void logout()}>
             <I.Logout size={17} /> {t('Log Out')}
           </button>
+          {/* One link per line: side by side they wrapped mid-row in this narrow column. */}
+          <nav class="settings-links">
+            <button onClick={() => (close(), openPage('changelog'))}>{t('Patch notes')}</button>
+            <button onClick={() => (close(), showRelease())}>{t("What's new in 1.0")}</button>
+            <button onClick={() => (close(), startTour())}>{t('Take the tour')}</button>
+          </nav>
           <div class="settings-version">
-            Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'} ·{' '}
-            <button class="settings-link" onClick={() => (close(), openPage('changelog'))}>
-              {t('Patch notes')}
-            </button>
-          </div>
-          <div class="settings-version">
-            <button class="settings-link" onClick={() => (close(), startTour())}>
-              {t('Take the tour')}
-            </button>{' '}
-            ·{' '}
-            <button class="settings-link" onClick={() => (close(), showRelease())}>
-              {t("What's new in 1.0")}
-            </button>
+            Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'}
           </div>
           <div class="settings-version">
             {t('Emoji by')}{' '}
