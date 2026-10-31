@@ -189,6 +189,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .rail-item:hover .rail-btn { background: var(--bg-4); color: var(--text); }
 .rail-item.active .rail-btn { background: var(--gold-soft); color: var(--gold); }
 .rail-item.active .rail-btn img { opacity: 0.92; }
+/* Direct Messages: the emblem's gray tile vanished into the gold tint, so the active one sits on solid gold. */
+.rail-btn.home-btn img { transition: width 0.15s ease; }
+.rail-item.active .rail-btn.home-btn { background: var(--gold); }
+.rail-item.active .rail-btn.home-btn img { opacity: 1; width: 30px; }
 .rail-btn.add { color: var(--text-3); background: transparent; border: 1px dashed var(--line-strong); }
 .rail-item:hover .rail-btn.add { color: var(--text); border-color: var(--text-3); background: transparent; }
 .guild-abbrev { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: 0.02em; }
