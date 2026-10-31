@@ -22,6 +22,9 @@ const KEYS: &[&str] = &[
     // Notification level per server and per channel or category: "all" | "mentions" | "none".
     "guild_notifications",
     "channel_notifications",
+    // Onboarding (1.0): the guided tour was finished or skipped; the last release whose "what's new" dialog was seen.
+    "tour_done",
+    "release_seen",
 ];
 
 pub fn routes() -> Router<AppState> {

@@ -1,4 +1,5 @@
 // User settings: a full-window screen (like Discord's) with a sidebar of pages. Server settings stay
+import { Slider } from './ui/slider';
 import { Nameplate } from './Nameplate';
 // a dialog in SettingsModals.tsx.
 import {
@@ -11,7 +12,7 @@ import {
   onMount,
   Show,
   Switch,
-  untrack,
+  on,
   type JSX,
 } from 'solid-js';
 import { api, media } from '../lib/api';
@@ -48,7 +49,15 @@ import { prefs, setPrefs, type SoundKind } from '../lib/prefs';
 import { sounds } from '../lib/sounds';
 import { state } from '../lib/store';
 import { attempt, isMobile, setUi, toast } from '../lib/ui';
-import { cameraConstraints, restartMic, setOutputDevice, syncVad, voiceUi } from '../lib/voice';
+import {
+  cameraConstraints,
+  restartMic,
+  setOutputDevice,
+  syncVad,
+  toggleDeafen,
+  toggleMute,
+  voiceUi,
+} from '../lib/voice';
 import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
 import { GameIcon, SpotifyIcon } from './Activity';
 import { Avatar } from './Avatar';
@@ -57,12 +66,16 @@ import { ImageEditor, type ImageKind } from './ImageEditor';
 import { ImageSlot, InfoTip } from './ImageSlot';
 import { UsernameEditor } from './Username';
 import * as I from './Icons';
-import { formatSize } from './MessageItem';
 import { accentCss } from './Profile';
+import { StatsPage } from './StatsPage';
+import { KassPage } from './KassPage';
+import { showRelease, startTour } from './Onboarding';
 
 type Page =
   | 'account'
   | 'profile'
+  | 'stats'
+  | 'kass'
   | 'connections'
   | 'voice'
   | 'keybinds'
@@ -70,18 +83,6 @@ type Page =
   | 'notifications'
   | 'language'
   | 'app';
-
-interface AccountStats {
-  created_at: string;
-  voice_seconds: number;
-  messages: number;
-  attachments: number;
-  reactions: number;
-  servers: number;
-  friends: number;
-  upload_bytes: number;
-  upload_quota: number;
-}
 
 interface Connection {
   type: 'discord' | 'spotify';
@@ -93,13 +94,23 @@ interface Connection {
   revoked?: boolean;
 }
 
+/**
+ * Connections (Spotify) is on hold (owner, 2026-10-31): its page and the server side stay, the tab is hidden.
+ * Flip this to bring it back.
+ */
+const SHOW_CONNECTIONS = false;
+
 const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.Element][] }[] = [
   {
     group: msg('User settings'),
     pages: [
       ['account', msg('My Account'), I.Account],
       ['profile', msg('Profile'), I.EditProfile],
-      ['connections', msg('Connections'), I.Link],
+      ['stats', msg('Stats'), I.Chart],
+      ['kass', msg('Kass'), I.Music],
+      ...(SHOW_CONNECTIONS
+        ? [['connections', msg('Connections'), I.Link] as [Page, string, (p: { size?: number }) => JSX.Element]]
+        : []),
     ],
   },
   {
@@ -122,6 +133,8 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
 const TITLES: Record<Page, string> = {
   account: msg('My Account'),
   profile: msg('Profile'),
+  stats: msg('Stats'),
+  kass: msg('Kass'),
   connections: msg('Connections'),
   voice: msg('Voice & Video'),
   keybinds: msg('Keybinds'),
@@ -133,8 +146,10 @@ const TITLES: Record<Page, string> = {
 
 export function Settings(p: { tab?: string }) {
   const legacy: Record<string, Page> = {
-    connections: 'connections',
+    connections: SHOW_CONNECTIONS ? 'connections' : 'account',
     profile: 'profile',
+    stats: 'stats',
+    kass: 'kass',
     voice: 'voice',
     keybinds: 'keybinds',
     notifications: 'notifications',
@@ -189,6 +204,15 @@ export function Settings(p: { tab?: string }) {
             </button>
           </div>
           <div class="settings-version">
+            <button class="settings-link" onClick={() => (close(), startTour())}>
+              {t('Take the tour')}
+            </button>{' '}
+            ·{' '}
+            <button class="settings-link" onClick={() => (close(), showRelease())}>
+              {t("What's new in 1.0")}
+            </button>
+          </div>
+          <div class="settings-version">
             {t('Emoji by')}{' '}
             <a href="https://github.com/jdecked/twemoji" target="_blank" rel="noreferrer">
               Twemoji
@@ -211,6 +235,12 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'profile'}>
               <ProfilePage />
+            </Match>
+            <Match when={page() === 'stats'}>
+              <StatsPage />
+            </Match>
+            <Match when={page() === 'kass'}>
+              <KassPage />
             </Match>
             <Match when={page() === 'connections'}>
               <ConnectionsPage
@@ -469,8 +499,6 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
         </dl>
       </div>
 
-      <StatsSection />
-
       <Section
         title={t('Connections')}
         description={t('Discord is how you sign in. Your Linkord profile started as a copy of your Discord profile.')}
@@ -587,94 +615,6 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
   );
 }
 
-/** "3 h 12 min", "45 min". */
-function formatVoiceTime(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return h ? t('{h} h {m} min', { h: h.toLocaleString(dateLocale()), m }) : t('{m} min', { m });
-}
-
-function StatsSection() {
-  const [stats] = createResource(() => api<AccountStats>('GET', '/users/@me/stats').catch(() => null));
-  const num = (n: number) => n.toLocaleString(dateLocale());
-  const id = () => state.me!.id;
-  return (
-    <Section title={t('Stats')}>
-      <div class="stat-grid">
-        <div class="stat">
-          <span class="stat-label">{t('Member since')}</span>
-          <strong>
-            {stats()
-              ? new Date(stats()!.created_at).toLocaleDateString(dateLocale(), {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })
-              : '…'}
-          </strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('User ID')}</span>
-          <span class="stat-id">
-            <code>{id()}</code>
-            <button
-              class="icon-btn tiny"
-              aria-label={t('Copy User ID')}
-              data-tip={t('Copy')}
-              onClick={() => navigator.clipboard.writeText(id()).then(() => toast(t('ID copied')))}
-            >
-              <I.Copy size={14} />
-            </button>
-          </span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Time in voice')}</span>
-          <strong>{stats() ? formatVoiceTime(stats()!.voice_seconds) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Messages sent')}</span>
-          <strong>{stats() ? num(stats()!.messages) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Reactions added')}</span>
-          <strong>{stats() ? num(stats()!.reactions) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Files shared')}</span>
-          <strong>{stats() ? num(stats()!.attachments) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Servers')}</span>
-          <strong>{stats() ? num(stats()!.servers) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Friends')}</span>
-          <strong>{stats() ? num(stats()!.friends) : '…'}</strong>
-        </div>
-        <div class="stat">
-          <span class="stat-label">{t('Upload space')}</span>
-          <strong>
-            {stats()
-              ? t('{used} of {total}', {
-                  used: formatSize(stats()!.upload_bytes),
-                  total: formatSize(stats()!.upload_quota),
-                })
-              : '…'}
-          </strong>
-          <Show when={stats()}>
-            {(s) => (
-              <div class="stat-bar">
-                <i style={{ width: `${Math.min(100, (s().upload_bytes / s().upload_quota) * 100)}%` }} />
-              </div>
-            )}
-          </Show>
-        </div>
-      </div>
-      <p class="muted small">{t("Time in voice is counted from Linkord 0.1.14 on. Deleted messages don't count.")}</p>
-    </Section>
-  );
-}
-
 // ---------- Profile ----------
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
@@ -722,114 +662,127 @@ function ProfilePage() {
   };
   const preview = () => ({ ...me(), display_name: name() || null, bio: bio() });
 
+  /** The bio box grows with its text instead of scrolling. */
+  const fit = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   return (
-    <div class="profile-editor">
-      <div class="profile-fields">
-        <label class="field">
-          <span>
-            {t('Display name')} <InfoTip text={t('What people see in chat. Leave empty to show your username.')} />
-          </span>
-          <input
-            value={name()}
-            onInput={(e) => setName(e.currentTarget.value)}
-            placeholder={me().username}
-            maxLength={32}
-          />
-        </label>
-        <label class="field">
-          <span>
-            {t('About me')} <em class="counter">{bio().length}/190</em>
-          </span>
-          <textarea
-            value={bio()}
-            onInput={(e) => setBio(e.currentTarget.value)}
-            maxLength={190}
-            rows={4}
-            placeholder={t('Say a little about yourself')}
-          />
-        </label>
-        <div class="field">
-          <span>
-            {t('Banner colour')} <InfoTip text={t('Shown behind your profile when you have no banner image.')} />
-          </span>
-          <ColorPicker value={accent()} onChange={setAccent} label={t('Banner colour')} />
+    <div class="profile-studio">
+      {/* The profile as others see it, edited in place: banner, picture, name and about me are all clickable. */}
+      <div class="studio-card">
+        <div class="edit-banner-wrap">
+          <label class="edit-banner" style={{ 'background-color': accent() }}>
+            <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
+            <span class="edit-overlay">
+              <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
+            </span>
+            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('banner', e.currentTarget)} />
+          </label>
+          <Show when={me().banner}>
+            <button
+              class="edit-remove"
+              aria-label={t('Remove banner')}
+              data-tip={t('Remove banner')}
+              onClick={() => void removeImage('banner')}
+            >
+              <I.Close size={14} />
+            </button>
+          </Show>
+        </div>
+        <div class="profile-avatar edit-avatar-wrap studio-avatar">
+          <label class="edit-avatar">
+            <Avatar user={me()} size={104} />
+            <span class="edit-overlay round">
+              <I.Photo size={20} />
+              <small>{t('Change')}</small>
+            </span>
+            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('avatar', e.currentTarget)} />
+          </label>
+          <Show when={me().avatar}>
+            <button
+              class="edit-remove"
+              aria-label={t('Remove picture')}
+              data-tip={t('Remove picture')}
+              onClick={() => void removeImage('avatar')}
+            >
+              <I.Close size={14} />
+            </button>
+          </Show>
+        </div>
+        <div class="studio-body">
+          <label class="inline-field">
+            <span class="sr-only">{t('Display name')}</span>
+            <input
+              class="inline-edit inline-name"
+              value={name()}
+              onInput={(e) => setName(e.currentTarget.value)}
+              placeholder={me().username}
+              maxLength={32}
+              spellcheck={false}
+            />
+            <I.Edit size={15} class="inline-pen" />
+          </label>
+          <div class="profile-username">{me().username}</div>
+          <div class="studio-section">
+            <div class="label">
+              {t('About me')} <em class="counter">{bio().length}/190</em>
+            </div>
+            <label class="inline-field">
+              <span class="sr-only">{t('About me')}</span>
+              <textarea
+                class="inline-edit inline-bio"
+                ref={(el) => queueMicrotask(() => fit(el))}
+                value={bio()}
+                onInput={(e) => {
+                  setBio(e.currentTarget.value);
+                  fit(e.currentTarget);
+                }}
+                maxLength={190}
+                rows={1}
+                placeholder={t('Click to say a little about yourself')}
+              />
+              <I.Edit size={15} class="inline-pen" />
+            </label>
+          </div>
         </div>
       </div>
+      <small class="muted edit-hint">
+        {t(
+          'Click your banner, picture, name or about me to change them. Leave the name empty to show your username. Pictures: PNG, JPG, GIF or WebP; GIFs stay animated.',
+        )}
+      </small>
 
-      <div class="profile-side">
-        <div class="field-label">{t('Preview')}</div>
-        <div class="profile-preview editable">
-          {/* Click the banner or the picture to change it; the small × removes it. */}
-          <div class="edit-banner-wrap">
-            <label class="edit-banner" style={{ 'background-color': accent() }}>
-              <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
-              <span class="edit-overlay">
-                <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
-              </span>
-              <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('banner', e.currentTarget)} />
-            </label>
-            <Show when={me().banner}>
-              <button
-                class="edit-remove"
-                aria-label={t('Remove banner')}
-                data-tip={t('Remove banner')}
-                onClick={() => void removeImage('banner')}
-              >
-                <I.Close size={14} />
-              </button>
-            </Show>
+      <div class="studio-options">
+        <div class="set-card studio-option" classList={{ wide: (recent() ?? []).length <= 1 }}>
+          <div class="field-label">
+            {t('Banner colour')} <InfoTip text={t('Shown behind your profile when you have no banner image.')} />
           </div>
-          <div class="profile-avatar edit-avatar-wrap">
-            <label class="edit-avatar">
-              <Avatar user={me()} size={84} />
-              <span class="edit-overlay round">
-                <I.Photo size={20} />
-                <small>{t('Change')}</small>
-              </span>
-              <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('avatar', e.currentTarget)} />
-            </label>
-            <Show when={me().avatar}>
-              <button
-                class="edit-remove"
-                aria-label={t('Remove picture')}
-                data-tip={t('Remove picture')}
-                onClick={() => void removeImage('avatar')}
-              >
-                <I.Close size={14} />
-              </button>
-            </Show>
-          </div>
-          <div class="profile-body">
-            <h3>{preview().display_name || me().username}</h3>
-            <div class="profile-username">{me().username}</div>
-            <Show when={preview().bio}>
-              <p class="bio">{preview().bio}</p>
-            </Show>
-          </div>
+          <ColorPicker value={accent()} onChange={setAccent} label={t('Banner colour')} />
         </div>
-        <small class="muted edit-hint">
-          {t('Click your picture or banner to change it. PNG, JPG, GIF or WebP; GIFs stay animated.')}
-        </small>
         <Show when={(recent() ?? []).length > 1}>
-          <div class="field-label">{t('Recent pictures')}</div>
-          <div class="avatar-history" aria-label={t('Recent pictures')}>
-            <For each={recent()}>
-              {(url) => (
-                <button
-                  class="avatar-history-item"
-                  classList={{ current: url === me().avatar }}
-                  title={t('Use this picture')}
-                  aria-label={t('Use this picture')}
-                  disabled={url === me().avatar}
-                  onClick={() => void restore(url)}
-                >
-                  <img src={media(url)} alt="" loading="lazy" />
-                </button>
-              )}
-            </For>
+          <div class="set-card studio-option">
+            <div class="field-label">{t('Recent pictures')}</div>
+            <div class="avatar-history" aria-label={t('Recent pictures')}>
+              <For each={recent()}>
+                {(url) => (
+                  <button
+                    class="avatar-history-item"
+                    classList={{ current: url === me().avatar }}
+                    title={t('Use this picture')}
+                    aria-label={t('Use this picture')}
+                    disabled={url === me().avatar}
+                    onClick={() => void restore(url)}
+                  >
+                    <img src={media(url)} alt="" loading="lazy" />
+                  </button>
+                )}
+              </For>
+            </div>
           </div>
         </Show>
-        <div class="image-slots">
+        <div class="set-card studio-option wide">
           <ImageSlot
             label={t('Nameplate')}
             info={t('Shown behind your name in the member list, faded on the right side.')}
@@ -885,7 +838,11 @@ function ProfilePage() {
 
 // ---------- Voice & Video ----------
 
-/** Live input level: from the voice pipeline when connected, otherwise a local mic test. */
+/**
+ * Live input level: from the voice pipeline when connected, otherwise from a local capture. The mic test plays your
+ * mic back on your speakers; in a call it deafens you while it runs (so the call doesn't hear the test and you
+ * don't hear the call over it) and undeafens you after.
+ */
 function useMicLevel() {
   const [level, setLevel] = createSignal(0);
   const [monitoring, setMonitoring] = createSignal(false);
@@ -893,6 +850,9 @@ function useMicLevel() {
   let stream: MediaStream | null = null;
   let ctx: AudioContext | null = null;
   let raf = 0;
+  /** We deafened you for the test: undeafen when it ends (and mute again if you were muted before). */
+  let deafenedForTest = false;
+  let mutedBefore = false;
   const stop = () => {
     cancelAnimationFrame(raf);
     stream?.getTracks().forEach((t) => t.stop());
@@ -901,20 +861,41 @@ function useMicLevel() {
     ctx = null;
     monitorGain = null;
   };
+  const endTest = () => {
+    if (deafenedForTest && voiceUi.deafened && voiceUi.channelId) {
+      void toggleDeafen();
+      if (mutedBefore && !voiceUi.muted) void toggleMute();
+    }
+    deafenedForTest = false;
+  };
+  // Starting the test in a call (or joining one during it) deafens you; stopping it gives your state back.
+  createEffect(
+    on([monitoring, () => voiceUi.channelId], ([testing, channel]) => {
+      if (testing && channel && !voiceUi.deafened && !deafenedForTest) {
+        deafenedForTest = true;
+        mutedBefore = voiceUi.muted;
+        void toggleDeafen();
+      } else if (!testing) endTest();
+    }),
+  );
+  // Undeafening yourself (or leaving the call) mid-test ends the test.
   createEffect(() => {
-    if (voiceUi.channelId) setMonitoring(false);
-  });
-  createEffect(() => {
-    const on = monitoring();
-    if (monitorGain) monitorGain.gain.value = on ? 1 : 0;
+    const deaf = voiceUi.deafened;
+    const channel = voiceUi.channelId;
+    if (deafenedForTest && (!deaf || !channel)) {
+      deafenedForTest = false;
+      setMonitoring(false);
+    }
   });
   createEffect(() => {
     const device = prefs.inputDevice;
     const out = prefs.outputDevice;
     const ns = prefs.noiseMode === 'standard';
-    const ec = prefs.echoCancellation;
+    const testing = monitoring();
+    // Hearing yourself, the echo canceller would treat your own voice coming out of the speakers as echo and eat it.
+    const ec = prefs.echoCancellation && !testing;
     stop();
-    if (voiceUi.channelId) return;
+    if (voiceUi.channelId && !testing) return;
     navigator.mediaDevices
       .getUserMedia({
         audio: {
@@ -933,9 +914,9 @@ function useMicLevel() {
         an.fftSize = 1024;
         const src = c.createMediaStreamSource(s);
         src.connect(an);
-        // Mic test: play the mic back on the chosen speakers (muted until the test is switched on).
+        // Mic test: play the mic back on the chosen speakers.
         monitorGain = c.createGain();
-        monitorGain.gain.value = untrack(monitoring) ? 1 : 0;
+        monitorGain.gain.value = testing ? 1 : 0;
         src.connect(monitorGain).connect(c.destination);
         const buf = new Float32Array(an.fftSize);
         const tick = () => {
@@ -949,8 +930,15 @@ function useMicLevel() {
       })
       .catch(() => {});
   });
-  onCleanup(stop);
-  return { level: () => (voiceUi.channelId ? voiceUi.level : level()), monitoring, setMonitoring };
+  onCleanup(() => {
+    stop();
+    endTest();
+  });
+  return {
+    level: () => (voiceUi.channelId && !monitoring() ? voiceUi.level : level()),
+    monitoring,
+    setMonitoring,
+  };
 }
 
 // Meter is logarithmic so quiet speech is visible: -60 dB .. 0 dB.
@@ -1208,8 +1196,7 @@ function VoicePage(p: { onKeybinds: () => void }) {
             <button
               class="btn"
               classList={{ primary: monitoring() }}
-              disabled={!!voiceUi.channelId}
-              title={voiceUi.channelId ? t('Leave voice to test your microphone') : undefined}
+              title={voiceUi.channelId && !monitoring() ? t('You will be deafened during the test') : undefined}
               onClick={() => setMonitoring(!monitoring())}
             >
               <I.Mic size={16} /> {monitoring() ? t('Stop test') : t('Test microphone')}
@@ -1219,10 +1206,13 @@ function VoicePage(p: { onKeybinds: () => void }) {
             </button>
           </div>
           <small class="muted">
-            {voiceUi.channelId ? t('Your live mic level in voice.') : t('Talk to see your mic level.')}
+            {voiceUi.channelId && !monitoring() ? t('Your live mic level in voice.') : t('Talk to see your mic level.')}
           </small>
           <Show when={monitoring()}>
-            <small class="muted">{t('You are hearing your own mic. Use headphones to avoid feedback.')}</small>
+            <small class="muted">
+              {t('You are hearing your own mic. Use headphones to avoid feedback.')}
+              <Show when={voiceUi.channelId}> {t("You're deafened in the call until the test ends.")}</Show>
+            </small>
           </Show>
         </div>
       </Section>
@@ -1295,14 +1285,12 @@ function VoicePage(p: { onKeybinds: () => void }) {
             </div>
             <label class="field">
               <span>{t('Release delay — {ms} ms', { ms: prefs.pttReleaseDelay })}</span>
-              <input
-                type="range"
-                class="range"
-                min="0"
-                max="1000"
-                step="20"
+              <Slider
+                min={0}
+                max={1000}
+                step={20}
                 value={prefs.pttReleaseDelay}
-                onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })}
+                onInput={(v) => setPrefs({ pttReleaseDelay: v })}
               />
               <small class="muted">
                 {t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}
@@ -1316,13 +1304,11 @@ function VoicePage(p: { onKeybinds: () => void }) {
         <div class="set-card">
           <label class="field">
             <span>{t('Soundboard volume — {n}%', { n: Math.round(prefs.soundboardVolume * 100) })}</span>
-            <input
-              type="range"
-              class="range"
-              min="0"
-              max="100"
+            <Slider
+              min={0}
+              max={100}
               value={Math.round(prefs.soundboardVolume * 100)}
-              onInput={(e) => setPrefs({ soundboardVolume: +e.currentTarget.value / 100 })}
+              onInput={(v) => setPrefs({ soundboardVolume: v / 100 })}
             />
             <small class="muted">
               {t(
@@ -1588,14 +1574,12 @@ function KeybindsPage() {
           <div class="set-card">
             <label class="field">
               <span>{t('Release delay — {ms} ms', { ms: prefs.pttReleaseDelay })}</span>
-              <input
-                type="range"
-                class="range"
-                min="0"
-                max="1000"
-                step="20"
+              <Slider
+                min={0}
+                max={1000}
+                step={20}
                 value={prefs.pttReleaseDelay}
-                onInput={(e) => setPrefs({ pttReleaseDelay: +e.currentTarget.value })}
+                onInput={(v) => setPrefs({ pttReleaseDelay: v })}
               />
               <small class="muted">
                 {t("Keeps your mic open briefly after you let go, so your last word isn't cut off.")}

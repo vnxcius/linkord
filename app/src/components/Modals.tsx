@@ -10,7 +10,7 @@ import {
   Switch,
   type JSX,
 } from 'solid-js';
-import { api, serverUrl } from '../lib/api';
+import { api, media, serverUrl } from '../lib/api';
 import { createGroupDm, dmChannel, selectChannel, selectView, sendMessage } from '../lib/actions';
 import { plural, t } from '../lib/i18n';
 import { can, P, topPosition } from '../lib/perms';
@@ -754,27 +754,42 @@ function CreateGroup(p: { channelId?: string }) {
   );
 }
 
-/** Nickname for anyone you can manage, plus role assignment if you can manage roles. */
+/**
+ * Someone's server profile: how they look in this server, edited in place. The nickname is typed right on the card
+ * (yours with Change Nickname, others' with Manage Nicknames); roles are chips to switch on and off (Manage Roles,
+ * below your own highest role).
+ */
 function MemberEditor(p: { guildId: string; userId: string }) {
   const member = () => state.members[p.guildId]?.[p.userId];
+  const user = () => state.users[p.userId];
   const [nick, setNick] = createSignal(member()?.nickname ?? '');
   const [roles, setRoles] = createSignal<string[]>([...(member()?.roles ?? [])]);
+  const [filter, setFilter] = createSignal('');
   const { busy, error, run } = useSubmit();
   const self = () => p.userId === state.me?.id;
   const canNick = () => (self() ? can(p.guildId, P.CHANGE_NICKNAME) : can(p.guildId, P.MANAGE_NICKNAMES));
   const canRoles = () => can(p.guildId, P.MANAGE_ROLES);
-  const assignable = () =>
+  const guild = () => state.guilds[p.guildId];
+  const allRoles = () =>
     Object.values(state.roles[p.guildId] ?? {})
       .filter((r) => r.id !== p.guildId)
       .sort((a, b) => b.position - a.position);
+  const shownRoles = () => allRoles().filter((r) => r.name.toLowerCase().includes(filter().trim().toLowerCase()));
+  const chosen = () => allRoles().filter((r) => roles().includes(r.id));
   const editable = (pos: number) => pos < topPosition(p.guildId);
+  const base = () => user()?.display_name || user()?.username || '';
+  const sorted = (l: string[]) => [...l].sort().join();
+  const nickChanged = () => nick().trim() !== (member()?.nickname ?? '');
+  const rolesChanged = () => canRoles() && sorted(roles()) !== sorted(member()?.roles ?? []);
+  const changed = () => nickChanged() || rolesChanged();
+  const toggle = (id: string) => setRoles((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   const save = () =>
     run(async () => {
-      if (self() && !canRoles()) await api('PATCH', `/guilds/${p.guildId}/members/@me`, { nickname: nick() });
+      if (self() && !canRoles()) await api('PATCH', `/guilds/${p.guildId}/members/@me`, { nickname: nick().trim() });
       else {
         const body: Record<string, unknown> = {};
-        if (canNick() && nick() !== (member()?.nickname ?? '')) body.nickname = nick();
-        if (canRoles()) body.roles = roles();
+        if (canNick() && nickChanged()) body.nickname = nick().trim();
+        if (rolesChanged()) body.roles = roles();
         await api('PATCH', `/guilds/${p.guildId}/members/${p.userId}`, body);
       }
       setUi('modal', null);
@@ -783,40 +798,107 @@ function MemberEditor(p: { guildId: string; userId: string }) {
   return (
     <Dialog
       title={self() ? t('Server profile') : t('Edit {name}', { name: nameOf(p.userId, p.guildId) })}
+      subtitle={
+        self()
+          ? t('How you show up in {server}.', { server: guild()?.name ?? '' })
+          : t('How {name} shows up in {server}.', { name: base(), server: guild()?.name ?? '' })
+      }
       footer={
-        <button class="btn primary" disabled={busy()} onClick={save}>
-          {t('Save')}
-        </button>
+        <>
+          <button class="link-btn" onClick={() => setUi('modal', null)}>
+            {t('Cancel')}
+          </button>
+          <button class="btn primary" disabled={busy() || !changed()} onClick={save}>
+            {t('Save')}
+          </button>
+        </>
       }
     >
-      <div class="stack">
-        <Show when={canNick()}>
-          <label class="field">
-            <span>{t('Nickname')}</span>
-            <input
-              value={nick()}
-              onInput={(e) => setNick(e.currentTarget.value)}
-              maxLength={32}
-              placeholder={state.users[p.userId]?.display_name ?? state.users[p.userId]?.username}
-            />
-          </label>
-        </Show>
-        <Show when={canRoles() && assignable().length}>
-          <div class="field">
-            <span>{t('Roles')}</span>
-            <div class="pick-list short">
-              <For each={assignable()}>
+      <div class="member-studio">
+        <div class="ms-card">
+          <div class="ms-banner" style={{ 'background-color': accentCss(user()?.accent_color) ?? '#2b2d31' }}>
+            <Show when={media(user()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
+            <span class="ms-server">
+              <GuildIcon name={guild()?.name ?? ''} icon={guild()?.icon} size={18} />
+              {guild()?.name}
+            </span>
+          </div>
+          <div class="profile-avatar ms-avatar">
+            <Avatar user={user()} size={76} presence />
+          </div>
+          <div class="ms-body">
+            <Show when={canNick()} fallback={<h3 class="ms-name">{nick().trim() || base()}</h3>}>
+              <label class="inline-field">
+                <span class="sr-only">{t('Nickname')}</span>
+                <input
+                  class="inline-edit inline-name ms-nick"
+                  value={nick()}
+                  maxLength={32}
+                  placeholder={base()}
+                  spellcheck={false}
+                  onInput={(e) => setNick(e.currentTarget.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && changed() && save()}
+                />
+                <I.Edit size={15} class="inline-pen" />
+              </label>
+            </Show>
+            <div class="ms-under">
+              <span>{user()?.username}</span>
+              <Show when={canNick() && nick()}>
+                <button class="link-btn" onClick={() => setNick('')}>
+                  {t('Reset nickname')}
+                </button>
+              </Show>
+              <Show when={canNick()}>
+                <em class="counter">{nick().length}/32</em>
+              </Show>
+            </div>
+            <div class="role-pills ms-pills">
+              <For each={chosen()} fallback={<span class="muted small">{t('No roles')}</span>}>
                 {(r) => (
-                  <label class="pick-row" classList={{ disabled: !editable(r.position) }}>
-                    <i class="role-dot" style={{ background: accentCss(r.color) ?? 'var(--text-3)' }} />
-                    <span class="grow">{r.name}</span>
-                    <input
-                      type="checkbox"
-                      disabled={!editable(r.position)}
-                      checked={roles().includes(r.id)}
-                      onChange={() => setRoles((l) => (l.includes(r.id) ? l.filter((x) => x !== r.id) : [...l, r.id]))}
-                    />
-                  </label>
+                  <span class="role-pill">
+                    <i style={{ background: accentCss(r.color) ?? 'var(--text-3)' }} />
+                    {r.name}
+                  </span>
+                )}
+              </For>
+            </div>
+          </div>
+        </div>
+
+        <Show when={canRoles() && allRoles().length}>
+          <div class="ms-roles">
+            <div class="ms-roles-head">
+              <span class="field-label">{t('Roles')}</span>
+              <span class="muted small">{t('{n} selected', { n: chosen().length })}</span>
+              <Show when={allRoles().length > 8}>
+                <input
+                  class="ms-filter"
+                  placeholder={t('Find a role')}
+                  value={filter()}
+                  onInput={(e) => setFilter(e.currentTarget.value)}
+                />
+              </Show>
+            </div>
+            <div class="role-toggles">
+              <For each={shownRoles()} fallback={<span class="muted small">{t('No roles match.')}</span>}>
+                {(r) => (
+                  <button
+                    type="button"
+                    class="role-toggle"
+                    classList={{ on: roles().includes(r.id) }}
+                    style={{ '--role': accentCss(r.color) ?? 'var(--text-3)' }}
+                    disabled={!editable(r.position)}
+                    aria-pressed={roles().includes(r.id)}
+                    data-tip={editable(r.position) ? undefined : t('Above your highest role')}
+                    onClick={() => toggle(r.id)}
+                  >
+                    <i class="role-dot" />
+                    {r.name}
+                    <Show when={roles().includes(r.id)}>
+                      <I.Check size={13} />
+                    </Show>
+                  </button>
                 )}
               </For>
             </div>

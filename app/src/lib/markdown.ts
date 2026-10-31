@@ -29,6 +29,8 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
     slot(`<pre class="md-code"><code>${esc(code.replace(/^\n+|\n+$/g, ''))}</code></pre>`),
   );
   s = s.replace(/`([^`\n]+)`/g, (_, c: string) => slot(`<code class="md-inline">${esc(c)}</code>`));
+  // A backslash keeps the next character from being markup (Kass escapes song titles this way).
+  s = s.replace(/\\([\\`*_~|[\]()<>#@:!.-])/g, (_, c: string) => slot(esc(c)));
   s = esc(s);
   s = s.replace(/&lt;@(\d+)&gt;/g, (_, id: string) =>
     slot(`<span class="mention${id === opts.meId ? ' me' : ''}" data-user="${id}">@${esc(opts.userName(id))}</span>`),
@@ -49,9 +51,16 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
         )
       : `:${name}:`,
   );
-  s = s.replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g, (url) =>
-    slot(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
+  const link = (url: string, text: string) =>
+    slot(`<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`);
+  // Masked links: [text](url), or [text](<url>) as Discord writes them when the URL shouldn't get a preview.
+  s = s.replace(
+    /\[([^\]\n]+)\]\((?:&lt;(https?:\/\/[^\s]+?)&gt;|(https?:\/\/[^\s()]+))\)/g,
+    (_, text: string, a?: string, b?: string) => link((a ?? b)!, inline(text)),
   );
+  // <url>: a plain link, shown without the angle brackets.
+  s = s.replace(/&lt;(https?:\/\/[^\s]+?)&gt;/g, (_, url: string) => link(url, url));
+  s = s.replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g, (url) => link(url, url));
 
   const out: string[] = [];
   let quote: string[] = [];

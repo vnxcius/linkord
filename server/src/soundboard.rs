@@ -23,7 +23,7 @@ const AUDIO_EXT: &[&str] = &["mp3", "ogg", "opus", "wav", "webm", "m4a"];
 const MAX_SOURCE: usize = 8 * 1024 * 1024;
 /// Discord allows 5.2 seconds.
 const MAX_SECONDS: f64 = 5.2;
-const MAX_PER_GUILD: i64 = 48;
+const MAX_PER_GUILD: i64 = 50;
 
 #[derive(Clone, Serialize, FromRow)]
 pub struct Sound {

@@ -14,7 +14,7 @@ use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::uploads;
 
-const MAX_EMOJIS: usize = 50;
+const MAX_EMOJIS: usize = 100;
 const MAX_EMOJI_BYTES: usize = 256 * 1024;
 
 pub fn routes() -> Router<AppState> {

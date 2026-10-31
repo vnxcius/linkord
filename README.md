@@ -52,7 +52,20 @@ Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no T
    ```
    New UI strings need a pt-BR entry in `app/src/lib/locales/pt-BR.ts` or `i18n.test.mjs` fails.
    GitLab CI (`.gitlab-ci.yml`) runs the same suite on every push and merge request.
-6. **Try the desktop app:** `app/build-windows.sh` cross-compiles a Windows installer into `app/out/`.
+6. **Try the desktop app:** `app/build-windows.sh` builds a Windows installer into `app/out/` (cross-compiled in
+   Docker on Linux, native on Windows; unsigned when the updater key is missing).
+
+### On Windows
+
+Also needs Visual Studio 2022 Build Tools (C++), WebView2, ffmpeg (`winget install Gyan.FFmpeg`) and, for the UI
+tests, `cd tests && npx playwright-core install chromium`. Run the `.sh` scripts in Git Bash. Then, with Postgres and
+the server running as above:
+
+```powershell
+cd app; bun run desktop      # "Linkord Dev": tauri dev against the local server, next to an installed Linkord
+$env:VITE_DEFAULT_SERVER='https://old.example.com'; bun run desktop   # the dev build against production
+cd app/src-tauri; cargo test # desktop shell unit tests (keybinds, colour conversion)
+```
 
 ## Deploy
 

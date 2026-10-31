@@ -1,20 +1,17 @@
-// Regenerates the tray icons (64x64 PNG) from SVG with the test suite's headless Chromium:
+// Builds the desktop icons from assets/icon.png (the app icon, a gold tile with the Triforce) with the test suite's
+// headless Chromium:
 //   CHROMIUM=/path/to/chrome node app/src-tauri/icons/tray/generate.mjs
-// They must read at 16px in the Windows tray: muted and deafened turn the whole icon red with a large
-// white glyph instead of a small corner badge. Glyphs are Lucide's mic-off and headphone-off (ISC).
-import { writeFileSync } from 'node:fs';
+//   cd app && bun tauri icon ../assets/icon-square.png      (then every app icon size)
+// Writes the tray icons (64x64, next to this file) and assets/icon-square.png (the icon centred on a transparent
+// 1024 square, which `tauri icon` needs). Tray icons must read at 16px: in voice adds a green dot, speaking a green
+// outline around the icon's shape, and muted/deafened turn the whole shape red with a large white glyph instead of
+// a small badge. Glyphs are Lucide's mic-off and headphone-off (ISC).
+import { readFileSync, writeFileSync } from 'node:fs';
 import { chromium } from '../../../../tests/node_modules/playwright-core/index.mjs';
 
-const tile = (fill) => `<rect x="1" y="1" width="62" height="62" rx="15" fill="${fill}"/>`;
-const defs = '';
-// The Triforce from assets/icon.svg, flat gold on the dark tile, large enough to read at 16px.
-const emblem = `<g transform="translate(9 12.1) scale(0.23)" fill="#e3b341">
-  <path d="M100 0 150 86.6H50Z"/><path d="M50 86.6 100 173.2H0Z"/><path d="M150 86.6 200 173.2H100Z"/>
-</g>`;
-const glyph = (paths) =>
-  `<g transform="translate(9 9) scale(1.9166)" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">${paths
-    .map((d) => `<path d="${d}"/>`)
-    .join('')}</g>`;
+const root = new URL('../../../../', import.meta.url);
+const source = `data:image/png;base64,${readFileSync(new URL('assets/icon.png', root)).toString('base64')}`;
+
 const MIC_OFF = ['M12 19v3', 'M15 9.34V5a3 3 0 0 0-5.68-1.33', 'M16.95 16.95A7 7 0 0 1 5 12v-2', 'M18.89 13.23A7 7 0 0 0 19 12v-2', 'm2 2 20 20', 'M9 9v3a3 3 0 0 0 5.12 2.12'];
 const HEADPHONE_OFF = [
   'M21 14h-1.343',
@@ -24,20 +21,104 @@ const HEADPHONE_OFF = [
   'M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 2.636-6.364',
 ];
 
-const icons = {
-  idle: tile('#111214') + emblem,
-  // In voice: a green dot with a dark rim so it separates from the tile on any taskbar.
-  connected: tile('#111214') + emblem + '<circle cx="50" cy="50" r="12" fill="#111214"/><circle cx="50" cy="50" r="8.5" fill="#3ba55d"/>',
-  speaking: tile('#111214') + emblem + '<rect x="3.5" y="3.5" width="57" height="57" rx="13" fill="none" stroke="#3ba55d" stroke-width="7"/>',
-  muted: tile('#d83c3e') + glyph(MIC_OFF),
-  deafened: tile('#d83c3e') + glyph(HEADPHONE_OFF),
-};
+// Runs in the page: each icon is drawn on a canvas and returned as a PNG data URL.
+async function render({ source, glyphs }) {
+  const img = new Image();
+  img.src = source;
+  await img.decode();
+  const canvas = (size) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    return [c, c.getContext('2d')];
+  };
+  /** The icon fitted into `box` px, centred on a `size` square. */
+  const place = (size, box) => {
+    const s = Math.min(box / img.width, box / img.height);
+    const w = img.width * s;
+    const h = img.height * s;
+    return { x: (size - w) / 2, y: (size - h) / 2, w, h };
+  };
+  /** The icon's shape in one colour. */
+  const silhouette = (size, at, color) => {
+    const [c, g] = canvas(size);
+    g.drawImage(img, at.x, at.y, at.w, at.h);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = color;
+    g.fillRect(0, 0, size, size);
+    return c;
+  };
+  const glyph = (g, paths, size, scale) => {
+    const px = 24 * scale;
+    g.save();
+    g.translate((size - px) / 2, (size - px) / 2 + 1);
+    g.scale(scale, scale);
+    g.strokeStyle = '#fff';
+    g.lineWidth = 2.6;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const d of paths) g.stroke(new Path2D(d));
+    g.restore();
+  };
+  const out = {};
+  const S = 64;
+
+  // The app icon source: centred on a transparent square with a little room around it.
+  {
+    const [c, g] = canvas(1024);
+    const at = place(1024, 1024 * 0.92);
+    g.drawImage(img, at.x, at.y, at.w, at.h);
+    out.square = c.toDataURL('image/png');
+  }
+  // Idle: the icon as large as the tray allows.
+  const full = place(S, 62);
+  {
+    const [c, g] = canvas(S);
+    g.drawImage(img, full.x, full.y, full.w, full.h);
+    out.idle = c.toDataURL('image/png');
+  }
+  // In voice: a green dot with a dark rim, bottom right.
+  {
+    const [c, g] = canvas(S);
+    g.drawImage(img, full.x, full.y, full.w, full.h);
+    g.fillStyle = '#111214';
+    g.beginPath();
+    g.arc(51, 49, 12.5, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#3ba55d';
+    g.beginPath();
+    g.arc(51, 49, 9, 0, Math.PI * 2);
+    g.fill();
+    out.connected = c.toDataURL('image/png');
+  }
+  // Speaking: a green outline that follows the icon's shape (its silhouette drawn around it, then the icon).
+  {
+    const at = place(S, 54);
+    const green = silhouette(S, at, '#3ba55d');
+    const [c, g] = canvas(S);
+    const r = 4;
+    for (let a = 0; a < 32; a++) {
+      const t = (a / 32) * Math.PI * 2;
+      g.drawImage(green, Math.cos(t) * r, Math.sin(t) * r);
+    }
+    g.drawImage(img, at.x, at.y, at.w, at.h);
+    out.speaking = c.toDataURL('image/png');
+  }
+  // Muted / deafened: the whole shape red with a big white glyph.
+  for (const [name, paths] of Object.entries(glyphs)) {
+    const [c, g] = canvas(S);
+    g.drawImage(silhouette(S, full, '#d83c3e'), 0, 0);
+    glyph(g, paths, S, 1.55);
+    out[name] = c.toDataURL('image/png');
+  }
+  return out;
+}
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM });
-const page = await browser.newPage({ viewport: { width: 64, height: 64 } });
-for (const [name, body] of Object.entries(icons)) {
-  await page.setContent(`<body style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">${defs}${body}</svg></body>`);
-  writeFileSync(new URL(`${name}.png`, process.env.OUT ? `file://${process.env.OUT}/` : import.meta.url), await page.screenshot({ omitBackground: true }));
-}
+const page = await browser.newPage();
+const icons = await page.evaluate(render, { source, glyphs: { muted: MIC_OFF, deafened: HEADPHONE_OFF } });
 await browser.close();
-console.log('tray icons written:', Object.keys(icons).join(', '));
+const png = (url) => Buffer.from(url.split(',')[1], 'base64');
+writeFileSync(new URL('assets/icon-square.png', root), png(icons.square));
+for (const name of ['idle', 'connected', 'speaking', 'muted', 'deafened'])
+  writeFileSync(new URL(`${name}.png`, process.env.OUT ? `file://${process.env.OUT}/` : import.meta.url), png(icons[name]));
+console.log('written: assets/icon-square.png and tray icons idle, connected, speaking, muted, deafened');

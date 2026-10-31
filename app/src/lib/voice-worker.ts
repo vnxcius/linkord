@@ -35,6 +35,8 @@ export type WorkerIn =
   | { type: 'vad'; threshold: number; auto: boolean; ptt: boolean }
   | { type: 'ptt'; active: boolean }
   | { type: 'denoise'; kind: DenoiseKind | null }
+  /** Watch together is playing out loud here (its audio can reach the mic and confuse speech detection). */
+  | { type: 'media_playing'; on: boolean }
   /** Play a soundboard sound for everyone in the channel. */
   | { type: 'sound'; sound_id: string };
 
@@ -82,6 +84,13 @@ const post = (m: WorkerOut, transfer: Transferable[] = []) => (self as unknown a
 
 // Voice activity gate: only frames louder than the threshold (after the browser's noise suppression) are sent.
 const VAD_HANGOVER_MS = 350;
+/** While other audio plays (watch together, a stream), words trail off under it: hold the gate open longer. */
+const VAD_HANGOVER_MEDIA_MS = 600;
+/** RNNoise's speech probability that opens the gate, normally and while other audio plays. */
+const SPEECH_OPEN = 0.5;
+const SPEECH_OPEN_MEDIA = 0.25;
+/** Stream audio we received within this long counts as playing. */
+const STREAM_AUDIO_RECENT_MS = 400;
 const MUTED_HINT_EVERY_MS = 4000;
 const SPEAKING_TIMEOUT_MS = 250;
 /** Voice is dropped (not queued) beyond this, so a slow uplink never adds delay to speech. */
@@ -125,6 +134,13 @@ const watched = new Set<string>();
 // Advanced noise suppression (RNNoise) and its speech probability for the current frame.
 let denoiser: Denoiser | null = null;
 let denoiseKind: DenoiseKind | null = null;
+/**
+ * RNNoise's probability jumps around from frame to frame, and music under a voice pulls it down: a decaying peak
+ * keeps one weak frame mid-word from closing the gate (which swallowed syllables during watch together).
+ */
+let speechHold = 0;
+let mediaPlaying = false;
+let lastStreamAudio = -Infinity;
 // Windows 10 stream audio contains our own playback; this removes it (see echo-canceller.ts).
 let canceller: EchoCanceller | null = null;
 
@@ -225,8 +241,16 @@ function onCapture(frame: Float32Array) {
     return setSelfSpeaking(false);
   }
   // With RNNoise and automatic sensitivity, its speech detection decides; otherwise the level threshold does.
-  const talking = speech >= 0 && autoThreshold ? speech > 0.55 && level > 0.002 : level > currentThreshold();
-  if (pushToTalk ? pttActive : talking) gateUntil = now + (pushToTalk ? 0 : VAD_HANGOVER_MS);
+  // Under other audio, speech scores lower, so the bar drops, and a clearly loud voice opens the gate by itself.
+  const media = mediaPlaying || now - lastStreamAudio < STREAM_AUDIO_RECENT_MS;
+  speechHold = Math.max(speech, speechHold * 0.8);
+  const talking =
+    speech >= 0 && autoThreshold
+      ? (speechHold > (media ? SPEECH_OPEN_MEDIA : SPEECH_OPEN) && level > 0.002) ||
+        (media && level > currentThreshold() * 2.5)
+      : level > currentThreshold();
+  if (pushToTalk ? pttActive : talking)
+    gateUntil = now + (pushToTalk ? 0 : media ? VAD_HANGOVER_MEDIA_MS : VAD_HANGOVER_MS);
   const open = pushToTalk ? pttActive : now < gateUntil;
   setSelfSpeaking(open);
   if (open && encoder) sendPacket(KIND_VOICE, encoder.encodeFloat(frame), MAX_VOICE_BUFFER);
@@ -288,8 +312,10 @@ function onBinary(buf: ArrayBuffer) {
   const kind = view.getUint8(0);
   const id = view.getBigUint64(1).toString();
   if (kind === KIND_VOICE) void onAudio(id, new Uint8Array(buf, 9));
-  else if (kind === KIND_SCREEN_AUDIO) void onStreamAudio(id, new Uint8Array(buf, 9));
-  else if (kind === KIND_MUSIC) void onMusic(id, new Uint8Array(buf, 9));
+  else if (kind === KIND_SCREEN_AUDIO) {
+    if (watched.has(id)) lastStreamAudio = performance.now();
+    void onStreamAudio(id, new Uint8Array(buf, 9));
+  } else if (kind === KIND_MUSIC) void onMusic(id, new Uint8Array(buf, 9));
   else if (kind === 2 || kind === 3) {
     const data = buf.slice(9);
     post({ type: 'video', id, source: kind === 2 ? 'camera' : 'screen', data }, [data]);
@@ -454,6 +480,9 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       return;
     case 'ptt':
       pttActive = m.active;
+      return;
+    case 'media_playing':
+      mediaPlaying = m.on;
       return;
     case 'denoise': {
       if (m.kind === denoiseKind) return;

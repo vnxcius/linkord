@@ -19,6 +19,7 @@ import viewerJoinUrl from '../assets/sounds/viewer-join.wav';
 import viewerLeaveUrl from '../assets/sounds/viewer-leave.wav';
 import ringIncomingUrl from '../assets/sounds/ring-incoming.mp3';
 import ringOutgoingUrl from '../assets/sounds/ring-outgoing.mp3';
+import fanfareUrl from '../assets/sounds/fanfare.wav';
 
 /** The files are mastered loud; this keeps them in line with voice. */
 const GAIN = 0.5;
@@ -75,7 +76,51 @@ function loop(kind: SoundKind, url: string): () => void {
   };
 }
 
+/**
+ * A one-off celebration (the 1.0 dialog's fanfare): follows only the master sound switch. Without a click yet
+ * (browsers block autoplay) it waits for the first click or key press instead. Returns a cancel function.
+ */
+function celebrate(url: string): () => void {
+  if (!prefs.sounds) return () => {};
+  ctx ??= new AudioContext();
+  const audio = ctx;
+  let done = false;
+  const start = () => {
+    if (done) return;
+    done = true;
+    off();
+    void audio.resume().catch(() => {});
+    void load(url).then((buffer) => {
+      if (!buffer) return;
+      const src = audio.createBufferSource();
+      const g = audio.createGain();
+      src.buffer = buffer;
+      g.gain.value = GAIN;
+      src.connect(g).connect(audio.destination);
+      src.start();
+    });
+  };
+  const events = ['pointerdown', 'keydown'] as const;
+  const off = () => events.forEach((e) => window.removeEventListener(e, start, true));
+  void load(url);
+  if (audio.state === 'running') start();
+  else {
+    events.forEach((e) => window.addEventListener(e, start, true));
+    // Allowed without a gesture (the desktop app, or the user already clicked something): plays right away.
+    void audio.resume().then(
+      () => audio.state === 'running' && start(),
+      () => {},
+    );
+  }
+  return () => {
+    done = true;
+    off();
+  };
+}
+
 export const sounds = {
+  /** Version 1.0 is here! */
+  fanfare: () => celebrate(fanfareUrl),
   /** Someone is calling you (loops until stopped). */
   ringIncoming: () => loop('calls', ringIncomingUrl),
   /** You're calling someone and they haven't picked up yet. */

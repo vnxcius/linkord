@@ -1,4 +1,5 @@
 // The soundboard picker (from the call controls) and the server settings page for a server's own sounds.
+import { Slider } from './ui/slider';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { api, serverUrl } from '../lib/api';
@@ -11,6 +12,7 @@ import { state } from '../lib/store';
 import { attempt, toast } from '../lib/ui';
 import { previewSound, sendSound, voiceUi } from '../lib/voice';
 import { GuildIcon } from './Avatar';
+import { EmojiPicker } from './EmojiPicker';
 import * as I from './Icons';
 
 /** One sound: click plays it in the call; the speaker previews it just for you. */
@@ -140,6 +142,8 @@ export function SoundboardButton(p: { class: string; label?: boolean; size?: num
 // ---------- server settings ----------
 
 const MAX_SECONDS = 5.2;
+/** Per server, like the server's limit (soundboard.rs MAX_PER_GUILD). */
+const MAX_SOUNDS = 50;
 const MAX_SOURCE = 8 * 1024 * 1024;
 
 let decodeCtx: AudioContext | null = null;
@@ -184,6 +188,7 @@ function SoundEditor(p: {
   const [draft, setDraft] = createSignal<Draft>(p.initial);
   const [busy, setBusy] = createSignal(false);
   const [playhead, setPlayhead] = createSignal<number | null>(null);
+  const [picker, setPicker] = createSignal<{ x: number; y: number } | null>(null);
   const set = (patch: Partial<Draft>) => setDraft({ ...draft(), ...patch });
   onMount(async () => {
     try {
@@ -304,12 +309,11 @@ function SoundEditor(p: {
           </button>
           <label class="field grow">
             <span>{t('Volume {n}%', { n: Math.round(draft().volume * 100) })}</span>
-            <input
-              type="range"
-              min="5"
-              max="100"
+            <Slider
+              min={5}
+              max={100}
               value={Math.round(draft().volume * 100)}
-              onInput={(e) => set({ volume: +e.currentTarget.value / 100 })}
+              onInput={(v) => set({ volume: v / 100 })}
             />
           </label>
         </div>
@@ -318,16 +322,56 @@ function SoundEditor(p: {
             <span>{t('Name')}</span>
             <input value={draft().name} maxLength={32} onInput={(e) => set({ name: e.currentTarget.value })} />
           </label>
-          <label class="field emoji-field">
+          <div class="field emoji-field">
             <span>{t('Emoji')}</span>
-            <input
-              value={draft().emoji}
-              maxLength={8}
-              placeholder="🔊"
-              onInput={(e) => set({ emoji: e.currentTarget.value })}
-            />
-          </label>
+            <div class="emoji-pick">
+              <button
+                type="button"
+                class="emoji-pick-btn"
+                classList={{ empty: !draft().emoji }}
+                aria-label={t('Pick an emoji')}
+                data-tip={t('Pick an emoji')}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const below = r.bottom + 6 + 368 < innerHeight;
+                  setPicker({
+                    x: Math.max(8, Math.min(r.left, innerWidth - 348)),
+                    y: below ? r.bottom + 6 : Math.max(8, r.top - 366),
+                  });
+                }}
+              >
+                {draft().emoji || '🔊'}
+              </button>
+              <Show when={draft().emoji}>
+                <button
+                  type="button"
+                  class="emoji-pick-clear"
+                  aria-label={t('Remove emoji')}
+                  onClick={() => set({ emoji: '' })}
+                >
+                  <I.Close size={12} />
+                </button>
+              </Show>
+            </div>
+          </div>
         </div>
+        <Show when={picker()}>
+          {(at) => (
+            <Portal>
+              {/* Only the app's emoji: a sound's emoji is shown as text, server emoji wouldn't draw. */}
+              <EmojiPicker
+                unicodeOnly
+                class="message-picker"
+                style={{ left: `${at().x}px`, top: `${at().y}px` }}
+                onClose={() => setPicker(null)}
+                onPick={(picked) => {
+                  set({ emoji: picked.text });
+                  setPicker(null);
+                }}
+              />
+            </Portal>
+          )}
+        </Show>
         <div class="sound-editor-actions">
           <button class="link-btn" onClick={p.onCancel}>
             {t('Cancel')}
@@ -390,20 +434,22 @@ export function SoundboardSettings(p: { guildId: string }) {
   return (
     <div class="stack">
       <p class="muted small">
-        {t('Sounds anyone in a call can play for everyone. Pick any audio file and choose up to 5 seconds of it.')}
+        {t('Sounds anyone in a call can play for everyone. Pick any audio file and choose up to 5 seconds of it.')}{' '}
+        {t('{n} of {max} sounds.', { n: list().length, max: MAX_SOUNDS })}
       </p>
       <Show when={manage()}>
         <Show
           when={file()}
           keyed
           fallback={
-            <label class="btn small-btn sound-pick">
+            <label class="btn small-btn sound-pick" classList={{ disabled: list().length >= MAX_SOUNDS }}>
               <I.Plus size={14} /> {t('Choose a sound')}
               <input
                 ref={input}
                 type="file"
                 accept="audio/*,.mp3,.ogg,.wav,.webm,.m4a"
                 hidden
+                disabled={list().length >= MAX_SOUNDS}
                 onChange={(e) => pick(e.currentTarget.files?.[0])}
               />
             </label>

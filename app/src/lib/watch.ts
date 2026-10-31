@@ -14,6 +14,8 @@ export interface Watch {
   updated_at: number;
   /** It played to the end: "Video ended" for everyone until someone plays it again. */
   ended?: boolean;
+  /** Who has it open (servers before 0.2.15 don't say). */
+  viewers?: string[];
 }
 
 export const [watches, setWatches] = createStore<Record<string, Watch>>({});
@@ -47,15 +49,15 @@ const hms = (s: number) => {
   return `${Math.floor(t / 3600)}h${Math.floor((t % 3600) / 60)}m${t % 60}s`;
 };
 
-/** The embed to load for a watch, starting at `at` seconds. */
-export function embedSrc(w: Watch, at: number, hostname = location.hostname): string {
+/** The embed to load for a watch, starting at `at` seconds (muted: without sound, for our own stream's sake). */
+export function embedSrc(w: Watch, at: number, hostname = location.hostname, muted = false): string {
   if (w.provider === 'youtube')
-    return `https://www.youtube.com/embed/${w.media}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=${Math.floor(at)}&origin=${encodeURIComponent(location.origin)}`;
+    return `https://www.youtube.com/embed/${w.media}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=${Math.floor(at)}&origin=${encodeURIComponent(location.origin)}${muted ? '&mute=1' : ''}`;
   if (w.provider === 'twitch')
     return w.media.startsWith('v')
-      ? `https://player.twitch.tv/?video=${w.media}&time=${hms(at)}&parent=${hostname}&autoplay=true`
-      : `https://player.twitch.tv/?channel=${w.media}&parent=${hostname}&autoplay=true`;
-  return `https://player.kick.com/${w.media}?autoplay=true`;
+      ? `https://player.twitch.tv/?video=${w.media}&time=${hms(at)}&parent=${hostname}&autoplay=true&muted=${muted}`
+      : `https://player.twitch.tv/?channel=${w.media}&parent=${hostname}&autoplay=true&muted=${muted}`;
+  return `https://player.kick.com/${w.media}?autoplay=true${muted ? '&muted=true' : ''}`;
 }
 
 /**
@@ -76,20 +78,36 @@ export class YouTubeSync {
   private ours = 0;
   private timer: number;
   private listening: number;
+  /** The window the player's messages arrive at: ours, or the pop-out window's once it moved there. */
+  private view: Window = window;
+  private attached = false;
 
   constructor(
     private frame: HTMLIFrameElement,
     private watch: () => Watch | undefined,
     private channelId: string,
   ) {
-    window.addEventListener('message', this.onMessage);
+    this.attach();
     // The player only reports once we say we're listening; keep saying it until it answers.
-    this.listening = window.setInterval(() => this.post({ event: 'listening', id: 1, channel: 'widget' }), 500);
-    this.timer = window.setInterval(() => this.sync(), 1000);
+    this.listening = window.setInterval(() => {
+      this.attach();
+      this.post({ event: 'listening', id: 1, channel: 'widget' });
+    }, 500);
+    this.timer = window.setInterval(() => (this.attach(), this.sync()), 1000);
+  }
+
+  /** Listens where the frame lives now (a pop-out window is a different window). */
+  private attach() {
+    const view = this.frame.ownerDocument.defaultView ?? window;
+    if (this.attached && view === this.view) return;
+    this.view.removeEventListener('message', this.onMessage);
+    this.view = view;
+    this.view.addEventListener('message', this.onMessage);
+    this.attached = true;
   }
 
   dispose() {
-    window.removeEventListener('message', this.onMessage);
+    this.view.removeEventListener('message', this.onMessage);
     clearInterval(this.timer);
     clearInterval(this.listening);
   }

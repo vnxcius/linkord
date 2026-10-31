@@ -30,8 +30,25 @@ function dictionaries(): Plugin {
   };
 }
 
+/**
+ * hunspell-asm's ESM build (and its emscripten-wasm-loader) import CommonJS functions as namespaces and then call
+ * them (`import * as nanoid from 'nanoid'; nanoid()`, the same with the Emscripten runtime), which only works with
+ * CommonJS interop. Default imports instead. It runs in the spellcheck worker, so workers get this plugin too.
+ */
+function fixHunspellAsm(): Plugin {
+  const namespaces = /import \* as (nanoid|runtime) from ('[^']+')/g;
+  return {
+    name: 'linkord-hunspell-asm',
+    transform(code, id) {
+      if (!/hunspell-asm|emscripten-wasm-loader/.test(id) || !namespaces.test(code)) return;
+      namespaces.lastIndex = 0;
+      return code.replace(namespaces, 'import $1 from $2');
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [solid(), tailwindcss(), dictionaries()],
+  plugins: [solid(), tailwindcss(), dictionaries(), fixHunspellAsm()],
   clearScreen: false,
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   server: {
@@ -44,7 +61,7 @@ export default defineConfig({
     },
   },
   // Voice runs in a module worker (Opus/WASM) plus audio worklets.
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [fixHunspellAsm()] },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
     target: 'es2022',

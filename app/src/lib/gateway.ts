@@ -314,7 +314,7 @@ function onMessage(m: Message) {
   const body =
     m.content.replace(/<@&?(\d+)>/g, (_, id) => '@' + nameOf(id, ch.guild_id)).replace(/<a?:(\w+):\d+>/g, ':$1:') ||
     (m.forwarded ? t('Forwarded a message') : t('Sent an attachment'));
-  void notify(where, body.slice(0, 200), media(m.author.avatar));
+  void notify(where, body.slice(0, 200), media(m.author.avatar), { channelId: m.channel_id, messageId: m.id });
 }
 
 function onReaction(add: boolean, d: { channel_id: string; message_id: string; user_id: string; emoji: string }) {

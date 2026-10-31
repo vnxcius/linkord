@@ -43,6 +43,8 @@ pub struct Inner {
     pub music: crate::music::Music,
     /// Watch together: what each call is watching (watch.rs).
     pub watches: DashMap<Id, crate::watch::Watch>,
+    /// Stream previews (previews.rs): each streamer's latest JPEG and when it came (unix ms).
+    pub previews: DashMap<Id, (axum::body::Bytes, i64)>,
 }
 
 #[derive(Clone)]

@@ -6,7 +6,7 @@ import { createEffect, createRoot, createSignal, untrack } from 'solid-js';
 import { createStore, produce, reconcile } from 'solid-js/store';
 import workletUrl from './voice-worklets.ts?worker&url';
 import type { StreamAudioStats, WorkerIn, WorkerOut } from './voice-worker';
-import { getToken, serverUrl } from './api';
+import { api, getToken, serverUrl } from './api';
 import { prefs, setPrefs } from './prefs';
 import { sounds } from './sounds';
 import { state } from './store';
@@ -99,6 +99,17 @@ let generation = 0;
 let retries = 0;
 
 const send = (m: WorkerIn, transfer: Transferable[] = []) => worker?.postMessage(m, transfer);
+
+let mediaPlaying = false;
+/**
+ * Watch together is playing out loud here: its sound reaches the mic, and the voice gate eases up so it doesn't
+ * swallow words under it (voice-worker.ts). Streams we watch are noticed by the worker itself.
+ */
+export function setMediaPlaying(on: boolean) {
+  if (on === mediaPlaying) return;
+  mediaPlaying = on;
+  send({ type: 'media_playing', on });
+}
 
 /** A server's AFK channel: everyone in it is muted. */
 export const isAfkChannel = (channelId: string | null) => {
@@ -201,6 +212,7 @@ function onWorker(m: WorkerOut, channelId: string) {
       setVoiceUi('connecting', false);
       // After a reconnect, resume watching what we were watching.
       for (const [id, on] of Object.entries(voiceUi.watching)) if (on) send({ type: 'watch', user_id: id, on: true });
+      send({ type: 'media_playing', on: mediaPlaying });
       if (voiceUi.muted || voiceUi.deafened) syncState();
       return;
     case 'speaking':
@@ -590,6 +602,7 @@ async function publish(source: VideoSource, stream: MediaStream, fps: number, op
   track.addEventListener('ended', () => pub.track === track && stopPublish(source));
   pump(pub);
   setVoiceUi(source, true);
+  if (source === 'screen') schedulePreview();
   setTiles((t) => [
     ...t.filter((x) => x.key !== `me-${source}`),
     { key: `me-${source}`, identity: state.me!.id, source, stream },
@@ -690,6 +703,7 @@ async function startNativeScreenShare(q: StreamQuality, source: string): Promise
   }
   setPrefs({ screenQuality: q });
   setVoiceUi({ screen: true, streamQuality: q, focus: `${state.me!.id}-screen` });
+  schedulePreview();
   return true;
 }
 
@@ -902,6 +916,65 @@ export async function toggleCamera() {
 
 export const stopScreenShare = () => stopPublish('screen');
 
+// ---------- stream preview ----------
+// While we stream, a small picture of it goes to the server now and then: people hovering us in the channel list
+// see it (StreamPreview.tsx), like Discord.
+
+const PREVIEW_FIRST_MS = 3000;
+const PREVIEW_EVERY_MS = 45_000;
+const PREVIEW_WIDTH = 480;
+let previewTimer: number | undefined;
+
+function schedulePreview(delay = PREVIEW_FIRST_MS) {
+  clearTimeout(previewTimer);
+  previewTimer = window.setTimeout(async () => {
+    if (!voiceUi.screen) return;
+    await sendPreview().catch(() => {});
+    if (voiceUi.screen) schedulePreview(PREVIEW_EVERY_MS);
+  }, delay);
+}
+
+async function sendPreview() {
+  const jpeg = await grabOwnStream();
+  if (jpeg && voiceUi.screen) await api('PUT', '/voice/preview', jpeg);
+}
+
+/** A frame of what we stream, as a small JPEG: decoded from our own native stream, or grabbed from the track. */
+async function grabOwnStream(): Promise<Blob | null> {
+  const out = document.createElement('canvas');
+  const draw = (src: CanvasImageSource, w: number, h: number) => {
+    if (!w || !h) return false;
+    out.width = Math.min(PREVIEW_WIDTH, w);
+    out.height = Math.round((out.width * h) / w);
+    out.getContext('2d')!.drawImage(src, 0, 0, out.width, out.height);
+    return true;
+  };
+  if (native) {
+    // Our own stream is decoded while a canvas shows it: lend it one until a frame lands (a keyframe is asked for).
+    const key = `${state.me!.id}-screen`;
+    const c = document.createElement('canvas');
+    c.width = c.height = 0;
+    registerCanvas(key, c, true);
+    try {
+      for (let i = 0; i < 40 && !c.width; i++) await new Promise((r) => setTimeout(r, 100));
+    } finally {
+      registerCanvas(key, c, false);
+    }
+    if (!draw(c, c.width, c.height)) return null;
+  } else {
+    const track = publishers.screen?.track;
+    const Capture = (
+      window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { grabFrame(): Promise<ImageBitmap> } }
+    ).ImageCapture;
+    if (!track || track.readyState !== 'live' || !Capture) return null;
+    const frame = await new Capture(track).grabFrame();
+    const ok = draw(frame, frame.width, frame.height);
+    frame.close();
+    if (!ok) return null;
+  }
+  return new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.72));
+}
+
 // ---------- soundboard ----------
 
 const soundBuffers = new Map<string, Promise<AudioBuffer>>();
@@ -924,26 +997,46 @@ export function sendSound(sound: Sound) {
   send({ type: 'sound', sound_id: sound.id });
 }
 
+/** Each person's sound that is playing; a new one from them cuts it off (spamming plays only the latest). */
+const playingSounds = new Map<string, { seq: number; src?: AudioBufferSourceNode }>();
+let soundSeq = 0;
+
 /** A sound someone played: at its volume, times our soundboard volume and our volume for them. */
 async function playSoundboard(userId: string, sound: Sound) {
   if (!audio || voiceUi.deafened) return;
   const volume = sound.volume * prefs.soundboardVolume * (prefs.soundboardUserVolumes[userId] ?? 1);
+  const seq = ++soundSeq;
+  const prev = playingSounds.get(userId);
+  if (prev?.src) {
+    prev.src.onended = null;
+    try {
+      prev.src.stop();
+    } catch {}
+  }
+  playingSounds.set(userId, { seq });
+  const current = () => playingSounds.get(userId)?.seq === seq;
+  const done = () => {
+    if (!current()) return;
+    playingSounds.delete(userId);
+    setVoiceUi('soundPlaying', userId, undefined!);
+  };
   setVoiceUi('soundPlaying', userId, sound.emoji || '🔊');
   try {
-    if (volume <= 0) return;
+    if (volume <= 0) return void setTimeout(done, 1500);
     const buf = await soundBuffer(audio, sound.url);
-    if (!audio) return;
+    // A newer sound from them arrived while this one was loading.
+    if (!audio || !current()) return;
     const src = audio.createBufferSource();
     const gain = audio.createGain();
     gain.gain.value = Math.min(2, volume);
     src.buffer = buf;
     src.connect(gain).connect(audio.destination);
+    src.onended = done;
+    playingSounds.set(userId, { seq, src });
     src.start();
-    src.onended = () => setVoiceUi('soundPlaying', userId, undefined!);
   } catch (e) {
     console.warn('soundboard', e);
-  } finally {
-    if (volume <= 0) setTimeout(() => setVoiceUi('soundPlaying', userId, undefined!), 1500);
+    done();
   }
 }
 

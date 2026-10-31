@@ -31,6 +31,8 @@ pub struct Watch {
     pub updated_at: i64,
     /// The video played to the end (everyone sees "Video ended" until someone plays it again).
     pub ended: bool,
+    /// Who opened it (watching is opt-in, like a screen share): "who's watching" in the call.
+    pub viewers: Vec<Id>,
 }
 
 fn now_ms() -> i64 {
@@ -97,7 +99,9 @@ fn parse_time(t: &str) -> f64 {
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/channels/{id}/watch", put(start).patch(control).delete(stop))
+    Router::new()
+        .route("/channels/{id}/watch", put(start).patch(control).delete(stop))
+        .route("/channels/{id}/watch/view", put(view))
 }
 
 /// The call's audience hears about changes (sidebars show what a call is watching).
@@ -128,8 +132,14 @@ struct Start {
 async fn start(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<Start>) -> ApiResult<Json<Watch>> {
     let guild = in_call(&st, id, me).await?;
     let (provider, media, live, position) = parse(&body.url).ok_or_else(|| bad("paste a YouTube, Twitch or Kick link"))?;
-    let w = Watch { provider, media, url: body.url.trim().to_string(), live, started_by: me, playing: true, position, updated_at: now_ms(), ended: false };
+    // Whoever shares it is watching it; a new link keeps the people who already had the player open.
+    let mut viewers = st.watches.get(&id).map(|w| w.viewers.clone()).unwrap_or_default();
+    if !viewers.contains(&me) {
+        viewers.push(me);
+    }
+    let w = Watch { provider, media, url: body.url.trim().to_string(), live, started_by: me, playing: true, position, updated_at: now_ms(), ended: false, viewers };
     st.watches.insert(id, w.clone());
+    crate::stats::bump(&st, me, "videos_shared");
     tracing::info!(user = %me, channel = %id, provider = %w.provider, "watch together: started");
     announce(&st, id, guild).await;
     Ok(Json(w))
@@ -195,6 +205,43 @@ async fn control(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     };
     announce(&st, id, guild).await;
     Ok(Json(w))
+}
+
+#[derive(Deserialize)]
+struct View {
+    on: bool,
+}
+
+/// Opening or hiding the shared video for yourself: only changes who's watching.
+async fn view(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<View>) -> ApiResult<()> {
+    st.limits.check(format!("watch-view:{me}"), 10.0, 1.0)?;
+    let guild = in_call(&st, id, me).await?;
+    let changed = {
+        let Some(mut w) = st.watches.get_mut(&id) else { return Err(bad("nothing is playing")) };
+        let has = w.viewers.contains(&me);
+        if body.on && !has {
+            w.viewers.push(me);
+        } else if !body.on && has {
+            w.viewers.retain(|v| *v != me);
+        }
+        has != body.on
+    };
+    if changed {
+        announce(&st, id, guild).await;
+    }
+    Ok(())
+}
+
+/// Someone left the call: they aren't watching any more.
+pub async fn left(st: &AppState, channel: Id, guild: Option<Id>, user: Id) {
+    let changed = st.watches.get_mut(&channel).is_some_and(|mut w| {
+        let before = w.viewers.len();
+        w.viewers.retain(|v| *v != user);
+        w.viewers.len() != before
+    });
+    if changed {
+        announce(st, channel, guild).await;
+    }
 }
 
 async fn stop(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<()> {

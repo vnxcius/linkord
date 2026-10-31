@@ -19,6 +19,7 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { Calls } from './components/Call';
 import { WatchHost, watchTheater } from './components/Watch';
+import { StreamPreviewHost } from './components/StreamPreview';
 import { prefs } from './lib/prefs';
 import { installShortcuts } from './lib/shortcuts';
 import { Close, Emblem, Rejoin } from './components/Icons';
@@ -31,6 +32,7 @@ import { Rail } from './components/Rail';
 import { Dock, GuildBanner, Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
 import { PickUsername } from './components/Username';
+import { Onboarding } from './components/Onboarding';
 import { Button } from './components/ui/button';
 
 const INVITE_KEY = 'linkord.pendingInvite';
@@ -175,9 +177,11 @@ function Main() {
       </Show>
       <Calls />
       <WatchHost />
+      <StreamPreviewHost />
       <Show when={state.me?.needs_username}>
         <PickUsername />
       </Show>
+      <Onboarding />
       <Show when={ui.toast}>
         <div class="toast">{ui.toast}</div>
       </Show>

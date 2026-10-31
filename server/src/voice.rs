@@ -336,6 +336,7 @@ pub async fn stop_ringing(st: &AppState, channel: Id, user: Id) {
 
 /// Disconnects the user from voice (closing their sockets) and tells their guild.
 pub async fn leave(st: &AppState, user: Id) {
+    st.previews.remove(&user);
     if let Some((_, mut vs)) = st.voice.by_user.remove(&user) {
         if let Some(peer) = vs.channel_id.and_then(|ch| st.voice.remove_peer(ch, vs.conn)) {
             let _ = peer.tx.try_send(WsMsg::Close(None));
@@ -358,6 +359,8 @@ pub async fn leave(st: &AppState, user: Id) {
         if let Some(ch) = left {
             if st.voice.rooms.get(&ch).is_none_or(|r| r.is_empty()) {
                 crate::watch::call_ended(st, ch, vs.guild_id).await;
+            } else {
+                crate::watch::left(st, ch, vs.guild_id, user).await;
             }
             if vs.guild_id.is_none() {
                 end_dm_call_if_empty(st, ch).await;
@@ -390,6 +393,10 @@ pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self
         watching: Mutex::new(HashSet::new()),
     });
     let (started_at, status_cleared) = st.voice.join_call(channel, guild_id);
+    // Whoever opens a DM's call started it (a call already going started earlier than this).
+    if guild_id.is_none() && chrono::Utc::now().timestamp_millis() - started_at < 1000 {
+        crate::stats::bump(st, me, "calls_started");
+    }
     let vs = VoiceState {
         user_id: me,
         guild_id,
@@ -434,6 +441,7 @@ pub async fn part(st: &AppState, me: Id, conn: u64, channel: Id) {
     }
     if let Some((_, mut vs)) = st.voice.by_user.remove_if(&me, |_, v| v.conn == conn) {
         tracing::info!(user = %me, channel = %channel, "voice: left");
+        st.previews.remove(&me);
         vs.channel_id = None;
         vs.self_stream = false;
         vs.self_video = false;
@@ -442,6 +450,8 @@ pub async fn part(st: &AppState, me: Id, conn: u64, channel: Id) {
         announce(st, &vs).await;
         if st.voice.rooms.get(&channel).is_none_or(|r| r.is_empty()) {
             crate::watch::call_ended(st, channel, vs.guild_id).await;
+        } else {
+            crate::watch::left(st, channel, vs.guild_id, me).await;
         }
         if vs.guild_id.is_none() {
             end_dm_call_if_empty(st, channel).await;
@@ -450,6 +460,11 @@ pub async fn part(st: &AppState, me: Id, conn: u64, channel: Id) {
 }
 
 /// The voice channel a user is in (and its server; None for DM calls).
+/// The channel the user is streaming their screen in, if they are.
+pub fn streaming_in(st: &AppState, user: Id) -> Option<Id> {
+    st.voice.by_user.get(&user).filter(|v| v.self_stream).and_then(|v| v.channel_id)
+}
+
 pub fn channel_of(st: &AppState, user: Id) -> Option<(Option<Id>, Id)> {
     st.voice.by_user.get(&user).and_then(|v| v.channel_id.map(|c| (v.guild_id, c)))
 }
@@ -606,6 +621,7 @@ async fn on_media(st: &AppState, me: Id, conn: u64, channel: Id, prefix: &[u8; 8
             *flag = true;
         });
         if let Some(vs) = vs.filter(|_| turned_on) {
+            crate::stats::bump(st, me, if kind == KIND_SCREEN { "streams_started" } else { "camera_sessions" });
             announce(st, &vs).await;
         }
     }
@@ -635,6 +651,8 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
     let mut last_seen = Instant::now();
     // Time in voice, saved every ping so a restart loses at most a few seconds.
     let mut counted = Instant::now();
+    let session = Instant::now();
+    crate::stats::bump(&st, me, "voice_sessions");
 
     while ready {
         tokio::select! {
@@ -701,6 +719,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                                 announce(&st, &vs).await;
                             }
                             if on {
+                                crate::stats::bump(&st, me, "streams_watched");
                                 // A new viewer needs a keyframe to start decoding.
                                 let msg = json!({ "op": "keyframe", "source": "screen" }).to_string();
                                 st.voice.send_to(channel, user_id, WsMsg::Text(msg.into()));
@@ -719,6 +738,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                                 st.voice.with_peer(channel, conn, |p| *p.active.lock().unwrap() = Instant::now());
                                 let msg = json!({ "op": "sound", "user_id": me, "sound": sound }).to_string();
                                 st.voice.send_all(channel, WsMsg::Text(msg.into()));
+                                crate::stats::bump(&st, me, "sounds_played");
                             }
                         }
                         Ok(ClientOp::Ping { t }) => {
@@ -738,6 +758,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         }
     }
     add_voice_time(&st, me, &mut counted).await;
+    crate::stats::max(&st, me, "longest_voice_seconds", session.elapsed().as_secs() as i64).await;
     part(&st, me, conn, channel).await;
 }
 
@@ -795,6 +816,22 @@ async fn add_voice_time(st: &AppState, user: Id, since: &mut Instant) {
     }
     *since += Duration::from_secs(secs);
     let _ = sqlx::query("UPDATE users SET voice_seconds = voice_seconds + $2 WHERE id = $1").bind(user).bind(secs as i64).execute(&st.db).await;
+    // What they were doing in the call this whole stretch (the state now stands for the last ~20 s).
+    let Some(vs) = st.voice.by_user.get(&user).map(|v| v.clone()) else { return };
+    let secs = secs as i64;
+    let watching_together = vs.channel_id.is_some_and(|c| st.watches.get(&c).is_some_and(|w| w.viewers.contains(&user)));
+    for (key, on) in [
+        ("stream_seconds", vs.self_stream),
+        ("camera_seconds", vs.self_video),
+        ("stream_watch_seconds", !vs.watching.is_empty()),
+        ("watch_together_seconds", watching_together),
+        ("muted_seconds", vs.self_mute && !vs.self_deaf),
+        ("deafened_seconds", vs.self_deaf),
+    ] {
+        if on {
+            crate::stats::add(st, user, key, secs).await;
+        }
+    }
 }
 
 /// The media socket: attaches to the user's existing voice session in the channel.

@@ -7,6 +7,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 notes="${1:-Bug fixes and improvements}"
 updates="${LINKORD_UPDATES_DIR:-../server/data/updates}"
+key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
+[[ -f "$key" ]] || { echo "Updater signing key not found at $key: can't publish (installed apps would reject the update)."; exit 1; }
+export LINKORD_REQUIRE_SIGNING=1
+# The update feed is the production server's data/updates. On a Windows dev PC ../server/data/updates is only
+# the local dev server, so say where the feed is (LINKORD_UPDATES_DIR) or publish from the server.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    [[ -n "${LINKORD_UPDATES_DIR:-}" ]] || { echo "On Windows, set LINKORD_UPDATES_DIR to the production server's data/updates."; exit 1; }
+    ;;
+esac
 
 current=$(node -p "require('./src-tauri/tauri.conf.json').version")
 next=${LINKORD_VERSION:-$(node -p "const [a,b,c]='$current'.split('.').map(Number); [a,b,c+1].join('.')")}

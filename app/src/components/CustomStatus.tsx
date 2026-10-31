@@ -213,18 +213,23 @@ export const clearCustomStatusNow = () => attempt(clearCustomStatus);
 
 /** Your own status bubble on your user card: click to edit it right there (Enter or click away saves, Esc cancels). */
 export function MyStatusBubble() {
-  const [editing, setEditing] = createSignal(false);
+  // Editing keeps the bubble's size (a little wider when it was empty), so the card doesn't jump.
+  const [editing, setEditing] = createSignal<number | null>(null);
   return (
-    <Show when={editing()} fallback={<MyStatusView onEdit={() => setEditing(true)} />}>
-      <MyStatusEditor onDone={() => setEditing(false)} />
+    <Show when={editing()} fallback={<MyStatusView onEdit={setEditing} />}>
+      {(width) => <MyStatusEditor width={width()} onDone={() => setEditing(null)} />}
     </Show>
   );
 }
 
-function MyStatusView(p: { onEdit: () => void }) {
+function MyStatusView(p: { onEdit: (width: number) => void }) {
   return (
     <div class="status-bubble mine" classList={{ empty: !state.customStatus }}>
-      <button class="status-bubble-edit" title={t('Edit status')} onClick={p.onEdit}>
+      <button
+        class="status-bubble-edit"
+        title={t('Edit status')}
+        onClick={(e) => p.onEdit((e.currentTarget.parentElement as HTMLElement).offsetWidth)}
+      >
         <Show when={state.customStatus} fallback={<span class="muted">{t("What's on your mind?")}</span>}>
           {(s) => <CustomStatusView status={s()} size={16} />}
         </Show>
@@ -243,7 +248,7 @@ function MyStatusView(p: { onEdit: () => void }) {
   );
 }
 
-function MyStatusEditor(p: { onDone: () => void }) {
+function MyStatusEditor(p: { width: number; onDone: () => void }) {
   const current = state.customStatus;
   const [text, setText] = createSignal(current?.state ?? '');
   const [emoji, setEmoji] = createSignal<StatusEmoji | null>(current?.emoji ?? null);
@@ -266,7 +271,7 @@ function MyStatusEditor(p: { onDone: () => void }) {
   };
 
   return (
-    <div class="status-bubble mine editing">
+    <div class="status-bubble mine editing" style={{ width: `${Math.max(p.width, 170)}px` }}>
       <button
         class="status-emoji-btn"
         type="button"

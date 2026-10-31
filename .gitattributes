@@ -1,0 +1,6 @@
+# LF everywhere, on Windows too (core.autocrlf would turn shell scripts into CRLF, which bash can't run,
+# and make formatters see different files than on Linux).
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf

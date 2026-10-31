@@ -1,3 +1,4 @@
+import { Slider } from './ui/slider';
 import * as I from './Icons';
 
 /**
@@ -87,17 +88,7 @@ export function UserVolumeSlider(p: { label: string; value: number; onChange: (v
           <span>%</span>
         </label>
       </div>
-      <input
-        class="uv-range"
-        type="range"
-        min="0"
-        max="200"
-        step="1"
-        aria-label={p.label}
-        value={pct()}
-        style={{ '--fill': `${pct() / 2}%` }}
-        onInput={(e) => set(+e.currentTarget.value)}
-      />
+      <Slider min={0} max={200} mark={100} label={p.label} value={pct()} onInput={set} />
       <div class="uv-scale">
         <span>0%</span>
         <button classList={{ on: pct() === 100 }} onClick={() => set(100)}>

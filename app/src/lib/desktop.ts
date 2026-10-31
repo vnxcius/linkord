@@ -5,7 +5,8 @@ import { createEffect, createRoot, createSignal, on } from 'solid-js';
 import { initGames } from './games';
 import { msg, t } from './i18n';
 import { initKeybinds } from './keybinds';
-import { isTauri } from './platform';
+import { isTauri, setNotificationClickHandler, type NotifyTarget } from './platform';
+import { Kind } from './types';
 import { prefs } from './prefs';
 import { anyAlert, state, totalMentions } from './store';
 import { voiceUi } from './voice';
@@ -71,13 +72,68 @@ function badgePng(count: number): Promise<Uint8Array> {
   );
 }
 
+/** A click on a message notification: bring the window up and open the channel at that message. */
+async function openFromNotification(target: NotifyTarget) {
+  if (isTauri) {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const win = getCurrentWindow();
+    await win.show().catch(() => {});
+    await win.unminimize().catch(() => {});
+    await win.setFocus().catch(() => {});
+  }
+  const { jumpToMessage, openVoiceChat, selectChannel } = await import('./actions');
+  const ch = state.channels[target.channelId];
+  if (!ch) return;
+  // A voice channel's chat opens beside the call.
+  if (ch.kind === Kind.Voice) openVoiceChat(ch.id);
+  if (target.messageId) await jumpToMessage(ch.id, target.messageId).catch(() => selectChannel(ch.id));
+  else selectChannel(ch.id);
+}
+
+/**
+ * Right-clicks inside embedded players (lib.rs forward_frame_menus, Windows): the shared video gets its own menu,
+ * other players (videos in chat) a short one, instead of WebView2's.
+ */
+async function listenFrameMenus() {
+  const { listen } = await import('@tauri-apps/api/event');
+  await listen<{ x: number; y: number; frame: string }>('frame-context-menu', async ({ payload }) => {
+    // The point comes in the webview's pixels; the page works in CSS pixels (zoom and display scaling).
+    const scaled = { x: payload.x / devicePixelRatio, y: payload.y / devicePixelRatio };
+    const inFrame = (p: { x: number; y: number }) => document.elementFromPoint(p.x, p.y)?.tagName === 'IFRAME';
+    const at = inFrame(scaled) || !inFrame(payload) ? scaled : payload;
+    const { openWatchMenu, watchAt } = await import('../components/Watch');
+    const watching = watchAt(at.x, at.y);
+    if (watching) return openWatchMenu(at.x, at.y, watching);
+    if (!/^https?:/.test(payload.frame)) return;
+    const { setUi, toast } = await import('./ui');
+    const { openExternal } = await import('./platform');
+    setUi('menu', {
+      x: at.x,
+      y: at.y,
+      items: [
+        { label: t('Open in Browser'), run: () => void openExternal(payload.frame) },
+        {
+          label: t('Copy Link'),
+          run: () =>
+            void navigator.clipboard.writeText(payload.frame).then(
+              () => toast(t('Link copied')),
+              () => {},
+            ),
+        },
+      ],
+    });
+  });
+}
+
 export async function initDesktop() {
   void initKeybinds();
+  setNotificationClickHandler((target) => void openFromNotification(target));
   if (!isTauri) return;
   void initZoom();
   const { invoke } = await import('@tauri-apps/api/core');
   const { getCurrentWindow, UserAttentionType } = await import('@tauri-apps/api/window');
   const win = getCurrentWindow();
+  void listenFrameMenus();
 
   createRoot(() => {
     createEffect(() => {
@@ -119,7 +175,8 @@ export async function initDesktop() {
 }
 
 export async function checkForUpdates(): Promise<boolean> {
-  if (!isTauri || update()) return !!update();
+  // `tauri dev` (Linkord Dev) never updates: the update is the released installer, which would replace the real app.
+  if (!isTauri || import.meta.env.DEV || update()) return !!update();
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const u = await check();

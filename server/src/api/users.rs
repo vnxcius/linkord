@@ -363,33 +363,138 @@ async fn connections(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiR
     Ok(Json(json!(list)))
 }
 
-/// Numbers for Settings -> My Account. Voice time is counted since 0.1.14; deleted messages don't count.
-async fn stats(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<Json<serde_json::Value>> {
+#[derive(Deserialize)]
+struct StatsQuery {
+    /// The viewer's UTC offset in minutes, so the activity chart uses their hours.
+    #[serde(default)]
+    tz: i32,
+}
+
+/// Everything measured about you, for Settings -> Stats. Voice time is counted since 0.1.14, the rest of what's
+/// counted live (stats.rs) since 0.2.15; deleted messages don't count. The old top-level numbers stay for older
+/// clients.
+async fn stats(
+    State(st): State<AppState>,
+    AuthUser(me): AuthUser,
+    axum::extract::Query(q): axum::extract::Query<StatsQuery>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let tz = q.tz.clamp(-14 * 60, 14 * 60);
+    let db = &st.db;
     let (created_at, voice_seconds, upload_bytes): (DateTime<Utc>, i64, i64) =
-        sqlx::query_as("SELECT created_at, voice_seconds, upload_bytes FROM users WHERE id = $1").bind(me).fetch_one(&st.db).await?;
-    let (messages, attachments): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), COALESCE(SUM(jsonb_array_length(attachments)), 0)::BIGINT FROM messages WHERE author_id = $1",
-    )
-    .bind(me)
-    .fetch_one(&st.db)
-    .await?;
-    let reactions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM reactions WHERE user_id = $1").bind(me).fetch_one(&st.db).await?;
-    let servers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM members WHERE user_id = $1").bind(me).fetch_one(&st.db).await?;
+        sqlx::query_as("SELECT created_at, voice_seconds, upload_bytes FROM users WHERE id = $1").bind(me).fetch_one(db).await?;
+    let count = |sql: &'static str| sqlx::query_scalar::<_, i64>(sql).bind(me).fetch_one(db);
+    let servers = count("SELECT COUNT(*) FROM members WHERE user_id = $1").await?;
+    let servers_owned = count("SELECT COUNT(*) FROM guilds WHERE owner_id = $1").await?;
     let friends: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM relationships WHERE user_id = $1 AND kind = $2")
         .bind(me)
         .bind(relationships::FRIEND)
-        .fetch_one(&st.db)
+        .fetch_one(db)
         .await?;
+    let avatars = count("SELECT COUNT(*) FROM avatar_history WHERE user_id = $1").await?;
+    let invites_created = count("SELECT COUNT(*) FROM invites WHERE creator_id = $1").await?;
+    let invite_uses = count("SELECT COALESCE(SUM(uses), 0)::BIGINT FROM invites WHERE creator_id = $1").await?;
+    let emojis_uploaded = count("SELECT COUNT(*) FROM emojis WHERE creator_id = $1").await?;
+    let sounds_uploaded = count("SELECT COUNT(*) FROM soundboard_sounds WHERE creator_id = $1").await?;
+    let reactions = count("SELECT COUNT(*) FROM reactions WHERE user_id = $1").await?;
+    let reactions_received =
+        count("SELECT COUNT(*) FROM reactions r JOIN messages m ON m.id = r.message_id WHERE m.author_id = $1 AND r.user_id <> $1").await?;
+    let mentions_received = count("SELECT COUNT(*) FROM messages WHERE content LIKE '%<@' || $1::TEXT || '>%'").await?;
+    let pins = count("SELECT COUNT(*) FROM messages WHERE author_id = $1 AND type = 6").await?;
+    let threads: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE owner_id = $1 AND kind = $2")
+        .bind(me)
+        .bind(kind::THREAD)
+        .fetch_one(db)
+        .await?;
+
+    // Your own messages (not system ones).
+    let m: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, Option<DateTime<Utc>>, i64) = sqlx::query_as(
+        r"SELECT COUNT(*),
+                COALESCE(SUM(jsonb_array_length(attachments)), 0)::BIGINT,
+                COALESCE(SUM((SELECT COUNT(*) FROM jsonb_array_elements(attachments) a WHERE a->>'content_type' LIKE 'image/%')), 0)::BIGINT,
+                COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(attachments) a WHERE a ? 'waveform')),
+                COUNT(*) FILTER (WHERE reply_to IS NOT NULL),
+                COUNT(*) FILTER (WHERE forwarded IS NOT NULL),
+                COUNT(*) FILTER (WHERE edited_at IS NOT NULL),
+                COUNT(*) FILTER (WHERE content ~ 'https?://'),
+                COALESCE(SUM(array_length(regexp_split_to_array(btrim(content), '\s+'), 1)) FILTER (WHERE btrim(content) <> ''), 0)::BIGINT,
+                COALESCE(SUM(char_length(content)), 0)::BIGINT,
+                MIN(created_at),
+                COUNT(DISTINCT (created_at + make_interval(mins => $2))::date)
+           FROM messages WHERE author_id = $1 AND type = 0",
+    )
+    .bind(me)
+    .bind(tz)
+    .fetch_one(db)
+    .await?;
+    let top_emoji: Vec<(String, i64)> =
+        sqlx::query_as("SELECT emoji, COUNT(*) FROM reactions WHERE user_id = $1 GROUP BY emoji ORDER BY 2 DESC, 1 LIMIT 6")
+            .bind(me)
+            .fetch_all(db)
+            .await?;
+    let top_channels: Vec<(Id, i64)> = sqlx::query_as(
+        "SELECT channel_id, COUNT(*) FROM messages WHERE author_id = $1 AND type = 0 GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
+    )
+    .bind(me)
+    .fetch_all(db)
+    .await?;
+    // When you write: [weekday 0 = Sunday, hour, messages], in your time.
+    let activity: Vec<(i32, i32, i64)> = sqlx::query_as(
+        "SELECT EXTRACT(DOW FROM t)::INT, EXTRACT(HOUR FROM t)::INT, COUNT(*)
+           FROM (SELECT created_at + make_interval(mins => $2) AS t FROM messages WHERE author_id = $1 AND type = 0) m
+          GROUP BY 1, 2",
+    )
+    .bind(me)
+    .bind(tz)
+    .fetch_all(db)
+    .await?;
+    let counters: Vec<(String, i64)> = sqlx::query_as("SELECT key, value FROM user_stats WHERE user_id = $1").bind(me).fetch_all(db).await?;
+    let games: Vec<(String, Option<String>, i64, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT name, icon, seconds, last_played FROM user_games WHERE user_id = $1 ORDER BY seconds DESC LIMIT 8",
+    )
+    .bind(me)
+    .fetch_all(db)
+    .await?;
+
     Ok(Json(json!({
         "created_at": created_at,
         "voice_seconds": voice_seconds,
-        "messages": messages,
-        "attachments": attachments,
+        "messages": m.0,
+        "attachments": m.1,
         "reactions": reactions,
         "servers": servers,
         "friends": friends,
         "upload_bytes": upload_bytes,
         "upload_quota": st.cfg.upload_quota,
+        "servers_owned": servers_owned,
+        "avatars": avatars,
+        "invites_created": invites_created,
+        "invite_uses": invite_uses,
+        "emojis_uploaded": emojis_uploaded,
+        "sounds_uploaded": sounds_uploaded,
+        "reactions_received": reactions_received,
+        "mentions_received": mentions_received,
+        "pins": pins,
+        "threads": threads,
+        "message_stats": {
+            "images": m.2,
+            "voice_notes": m.3,
+            "replies": m.4,
+            "forwards": m.5,
+            "edited": m.6,
+            "links": m.7,
+            "words": m.8,
+            "characters": m.9,
+            "first_at": m.10,
+            "active_days": m.11,
+        },
+        "top_emoji": top_emoji.into_iter().map(|(emoji, n)| json!({ "emoji": emoji, "count": n })).collect::<Vec<_>>(),
+        "top_channels": top_channels.into_iter().map(|(id, n)| json!({ "channel_id": id, "count": n })).collect::<Vec<_>>(),
+        "activity": activity.into_iter().map(|(d, h, n)| json!([d, h, n])).collect::<Vec<_>>(),
+        "counters": counters.into_iter().collect::<std::collections::HashMap<_, _>>(),
+        "games": games
+            .into_iter()
+            .map(|(name, icon, seconds, last)| json!({ "name": name, "icon": icon, "seconds": seconds, "last_played": last }))
+            .collect::<Vec<_>>(),
     })))
 }
 

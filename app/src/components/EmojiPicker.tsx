@@ -31,6 +31,8 @@ export function EmojiPicker(p: {
   class?: string;
   style?: JSX.CSSProperties;
   guildId?: string | null;
+  /** Only the app's own emoji (no server emoji), for places that show plain text, like a sound's emoji. */
+  unicodeOnly?: boolean;
 }) {
   const [query, setQuery] = createSignal('');
   let root!: HTMLDivElement;
@@ -38,7 +40,7 @@ export function EmojiPicker(p: {
 
   // Custom emoji from every server you're in (current server first), like Discord.
   const servers = () =>
-    Object.entries(state.emojis)
+    Object.entries(p.unicodeOnly ? {} : state.emojis)
       .filter(([, list]) => list.length)
       .sort(([a], [b]) => (a === p.guildId ? -1 : b === p.guildId ? 1 : 0))
       .map(([gid, list]) => ({ name: state.guilds[gid]?.name ?? t('Server'), list }));

@@ -28,7 +28,7 @@ function IncomingCall(p: { channelId: string }) {
   onCleanup(stop);
   if (!document.hasFocus()) {
     const who = callers()[0];
-    void notify(dmName(ch()!), t('Incoming call'), media(state.users[who ?? '']?.avatar));
+    void notify(dmName(ch()!), t('Incoming call'), media(state.users[who ?? '']?.avatar), { channelId: p.channelId });
   }
   const accept = async (video = false) => {
     stop();

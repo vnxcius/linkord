@@ -11,10 +11,12 @@ mod logs;
 mod models;
 mod music;
 mod perms;
+mod previews;
 mod ratelimit;
 mod soundboard;
 mod spotify;
 mod state;
+mod stats;
 mod uploads;
 mod voice;
 mod watch;
@@ -83,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
         games: Default::default(),
         music: Default::default(),
         watches: Default::default(),
+        previews: Default::default(),
         db,
         cfg: cfg.clone(),
     }));
@@ -110,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(logs::routes())
         .merge(soundboard::routes())
         .merge(watch::routes())
+        .merge(previews::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(uploads::MAX_FILE * 4));

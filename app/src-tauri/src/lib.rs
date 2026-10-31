@@ -217,6 +217,7 @@ pub fn run() {
             *app.state::<Tray>().0.lock().unwrap() = Some(build_tray(&handle)?);
             if let Some(w) = app.get_webview_window("main") {
                 enable_media(&w);
+                forward_frame_menus(&w);
                 // Started with the OS: stay in the tray until opened, unless "Start minimized" is off.
                 let with_os = std::env::args().any(|a| a == "--minimized");
                 if !with_os || start_open_flag(&handle).is_some_and(|p| p.exists()) {
@@ -318,3 +319,41 @@ fn enable_media(window: &tauri::WebviewWindow) {
 
 #[cfg(not(any(target_os = "linux", windows)))]
 fn enable_media(_window: &tauri::WebviewWindow) {}
+
+/// Right-clicks inside embedded players (watch together, videos in chat) would open WebView2's own menu, which a
+/// page can't stop from inside a cross-origin frame. Windows: those requests come to the page instead, as a
+/// `frame-context-menu` event {x, y, frame} (x/y in the webview's pixels), which shows the app's own menu.
+#[cfg(windows)]
+fn forward_frame_menus(window: &tauri::WebviewWindow) {
+    let app = window.app_handle().clone();
+    let _ = window.with_webview(move |webview| unsafe {
+        use webview2_com::ContextMenuRequestedEventHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::*;
+        use windows::core::{Interface, BOOL, PWSTR};
+
+        let Ok(core) = webview.controller().CoreWebView2() else { return };
+        let Ok(core) = core.cast::<ICoreWebView2_11>() else { return };
+        let handler = ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let target = args.ContextMenuTarget()?;
+            let mut main = BOOL::default();
+            target.IsRequestedForMainFrame(&mut main)?;
+            // The app's own document shows its own menus already (contextmenu.ts).
+            if main.as_bool() {
+                return Ok(());
+            }
+            let mut at = windows::Win32::Foundation::POINT::default();
+            args.Location(&mut at)?;
+            let mut uri = PWSTR::null();
+            let frame = if target.FrameUri(&mut uri).is_ok() { webview2_com::take_pwstr(uri) } else { String::new() };
+            args.SetHandled(true)?;
+            let _ = app.emit("frame-context-menu", serde_json::json!({ "x": at.x, "y": at.y, "frame": frame }));
+            Ok(())
+        }));
+        let mut token = Default::default();
+        let _ = core.add_ContextMenuRequested(&handler, &mut token);
+    });
+}
+
+#[cfg(not(windows))]
+fn forward_frame_menus(_window: &tauri::WebviewWindow) {}

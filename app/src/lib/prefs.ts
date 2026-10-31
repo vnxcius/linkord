@@ -62,6 +62,8 @@ export interface Prefs {
   spellWords: string[];
   /** Height of the call above DM chats, set by dragging its edge (0 = automatic). */
   dmCallHeight: number;
+  /** Width of a voice channel's chat beside the call (px; 0 = the default). */
+  voiceChatWidth: number;
   /** The channel list is hidden while a voice channel is open (the header's sidebar button). */
   voiceNavCollapsed: boolean;
 }
@@ -102,6 +104,7 @@ const DEFAULTS: Prefs = {
   spellLanguage: 'auto',
   spellWords: [],
   dmCallHeight: 0,
+  voiceChatWidth: 0,
   voiceNavCollapsed: false,
 };
 

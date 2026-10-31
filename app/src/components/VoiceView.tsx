@@ -32,15 +32,20 @@ import * as I from './Icons';
 import { openSwitchSource, volumeMenu } from './Sidebar';
 import { UserVolumeSlider, VolumeControl } from './VolumeControl';
 import { SoundboardButton } from './Soundboard';
-import { WatchButton, WatchCard, watchExpanded } from './Watch';
+import { userMenu } from './Profile';
+import { WATCH_KEY, WatchButton, WatchTile } from './Watch';
+import { watches } from '../lib/watch';
 
 export const canShareScreen = canSendVideo && !!navigator.mediaDevices?.getDisplayMedia;
 
-/** A stream or camera that can be shown large. Keys look like `<userId>-screen` / `<userId>-camera`. */
+/**
+ * A stream, camera or the call's shared video (watch together) that can be shown large. Keys look like
+ * `<userId>-screen` / `<userId>-camera`, and `watch` for the shared video (its userId is who shared it).
+ */
 interface VideoItem {
   key: string;
   userId: string;
-  source: 'screen' | 'camera';
+  source: 'screen' | 'camera' | 'watch';
 }
 
 export function VoiceView(p: { channel: Channel }) {
@@ -54,6 +59,8 @@ export function VoiceView(p: { channel: Channel }) {
 
   const videos = (): VideoItem[] => {
     const out: VideoItem[] = [];
+    const shared = watches[p.channel.id];
+    if (shared) out.push({ key: WATCH_KEY, userId: shared.started_by, source: 'watch' });
     for (const v of members()) {
       const isMe = v.user_id === me();
       if (isMe ? voiceUi.screen : v.self_stream)
@@ -66,17 +73,20 @@ export function VoiceView(p: { channel: Channel }) {
   // Keyed on the plain key string so the view tears down cleanly when the stream ends.
   const focusKey = () => (connected() ? videos().find((v) => v.key === voiceUi.focus)?.key : undefined);
   const parseKey = (key: string): VideoItem => {
+    if (key === WATCH_KEY) return { key, userId: watches[p.channel.id]?.started_by ?? '', source: 'watch' };
     const i = key.lastIndexOf('-');
     return { key, userId: key.slice(0, i), source: key.slice(i + 1) as VideoItem['source'] };
   };
 
   const ParticipantTile = (v: { user_id: string; self_mute: boolean; self_deaf: boolean; self_stream?: boolean }) => {
-    const speaking = () => !!voiceUi.speaking[v.user_id] && !v.self_mute;
+    // A soundboard sound they play lights them up like talking, so it's clear who it was.
+    const speaking = () => (!!voiceUi.speaking[v.user_id] && !v.self_mute) || !!voiceUi.soundPlaying[v.user_id];
     return (
       <div
         class="voice-tile"
         classList={{ speaking: speaking(), quiet: prefs.userVolumes[v.user_id] === 0 }}
-        onContextMenu={(e) => v.user_id !== me() && openMenu(e, volumeMenu(v.user_id))}
+        onClick={() => setUi('modal', { type: 'user-profile', userId: v.user_id, guildId: gid() ?? undefined })}
+        onContextMenu={(e) => openMenu(e, userMenu(v.user_id, gid()))}
       >
         <Avatar user={state.users[v.user_id]} size={64} />
         <Show when={voiceUi.soundPlaying[v.user_id]}>
@@ -109,8 +119,7 @@ export function VoiceView(p: { channel: Channel }) {
         keyed
         fallback={
           <div class="voice-stage">
-            <WatchCard channelId={p.channel.id} guildId={gid()} />
-            <Show when={videos().length && !watchExpanded(p.channel.id)}>
+            <Show when={videos().length}>
               <div class="grid-show seg" role="tablist">
                 <For each={GRID_SHOW}>
                   {([id, label]) => (
@@ -121,38 +130,38 @@ export function VoiceView(p: { channel: Channel }) {
                 </For>
               </div>
             </Show>
-            <Show when={!watchExpanded(p.channel.id)}>
-              <Show
-                when={voiceUi.gridShow === 'video' && videos().length}
-                fallback={
-                  <div class="voice-grid">
-                    <Show when={voiceUi.gridShow !== 'people'}>
-                      <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} />}</For>
-                    </Show>
-                    <Show when={voiceUi.gridShow !== 'video'}>
-                      <For each={members()} fallback={<p class="muted">{t('No one is here yet.')}</p>}>
-                        {(v) => ParticipantTile(v)}
-                      </For>
-                      <For each={ringing()}>
-                        {(id) => (
-                          <div class="voice-tile ringing">
-                            <Avatar user={state.users[id]} size={64} />
-                            <span class="voice-tile-name">
-                              <span class="name">{nameOf(id, gid())}</span>
-                            </span>
-                            <span class="ringing-label">{t('Calling…')}</span>
-                          </div>
-                        )}
-                      </For>
-                    </Show>
-                  </div>
-                }
-              >
-                {/* Only streams and cameras, sized to fill the stage so several can be watched at once. */}
-                <div class="stream-grid" style={gridSize(videos().length)}>
-                  <For each={videos()}>{(item) => <VideoCard item={item} guildId={gid()} tiled />}</For>
+            <Show
+              when={voiceUi.gridShow === 'video' && videos().length}
+              fallback={
+                <div class="voice-grid">
+                  <Show when={voiceUi.gridShow !== 'people'}>
+                    <For each={videos()}>{(item) => <Tile channelId={p.channel.id} item={item} guildId={gid()} />}</For>
+                  </Show>
+                  <Show when={voiceUi.gridShow !== 'video'}>
+                    <For each={members()} fallback={<p class="muted">{t('No one is here yet.')}</p>}>
+                      {(v) => ParticipantTile(v)}
+                    </For>
+                    <For each={ringing()}>
+                      {(id) => (
+                        <div class="voice-tile ringing">
+                          <Avatar user={state.users[id]} size={64} />
+                          <span class="voice-tile-name">
+                            <span class="name">{nameOf(id, gid())}</span>
+                          </span>
+                          <span class="ringing-label">{t('Calling…')}</span>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
                 </div>
-              </Show>
+              }
+            >
+              {/* Only streams and cameras, sized to fill the stage so several can be watched at once. */}
+              <div class="stream-grid" style={gridSize(videos().length)}>
+                <For each={videos()}>
+                  {(item) => <Tile channelId={p.channel.id} item={item} guildId={gid()} tiled />}
+                </For>
+              </div>
             </Show>
           </div>
         }
@@ -160,7 +169,7 @@ export function VoiceView(p: { channel: Channel }) {
         {(key) => (
           <>
             <div class="focus-stage">
-              <VideoCard item={parseKey(key)} guildId={gid()} large />
+              <Tile channelId={p.channel.id} item={parseKey(key)} guildId={gid()} large />
             </div>
             <div class="strip-wrap" classList={{ hidden: voiceUi.hideStrip }}>
               <button
@@ -174,7 +183,7 @@ export function VoiceView(p: { channel: Channel }) {
               <Show when={!voiceUi.hideStrip}>
                 <div class="strip">
                   <For each={videos().filter((v) => v.key !== key)}>
-                    {(v) => <VideoCard item={v} guildId={gid()} small />}
+                    {(v) => <Tile channelId={p.channel.id} item={v} guildId={gid()} small />}
                   </For>
                   <For each={members()}>{(v) => ParticipantTile(v)}</For>
                 </div>
@@ -265,6 +274,22 @@ export function VoiceView(p: { channel: Channel }) {
   );
 }
 
+/** A tile of the call: the shared video, or a stream / camera. */
+function Tile(p: {
+  item: VideoItem;
+  channelId: string;
+  guildId?: string | null;
+  large?: boolean;
+  small?: boolean;
+  tiled?: boolean;
+}) {
+  return (
+    <Show when={p.item.source === 'watch'} fallback={<VideoCard {...p} />}>
+      <WatchTile channelId={p.channelId} guildId={p.guildId} large={p.large} small={p.small} tiled={p.tiled} />
+    </Show>
+  );
+}
+
 const GRID_SHOW = [
   ['all', msg('Everyone')],
   ['video', msg('Streams')],
@@ -291,18 +316,20 @@ export function viewersOf(userId: string): string[] {
 
 export { canPopOut, popOut };
 
-export function Viewers(p: { userId: string; guildId?: string | null }) {
-  const ids = () => viewersOf(p.userId);
+/** Who's watching a stream (`userId`), or anything else watched by `ids` (watch together). */
+export function Viewers(p: { userId?: string; ids?: string[]; guildId?: string | null }) {
+  const ids = () => p.ids ?? viewersOf(p.userId!);
   const open = (e: MouseEvent) => {
     e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setUi('menu', { x: r.left, y: r.bottom + 6, items: viewerItems(p.userId, p.guildId) });
+    setUi('menu', { x: r.left, y: r.bottom + 6, items: viewerList(ids(), p.guildId) });
   };
   return (
     <Show when={ids().length}>
       <button
         class="viewers"
         aria-label={t('{n} watching', { n: ids().length })}
+        data-tip={t('{n} watching', { n: ids().length })}
         onClick={open}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -318,7 +345,11 @@ export function Viewers(p: { userId: string; guildId?: string | null }) {
 
 /** Who's watching a stream, as a menu: a header, then each viewer (click opens their card). */
 export function viewerItems(userId: string, guildId?: string | null): MenuEntry[] {
-  const ids = viewersOf(userId);
+  return viewerList(viewersOf(userId), guildId);
+}
+
+/** A list of people watching, as a menu: a header, then each of them (click opens their card). */
+export function viewerList(ids: string[], guildId?: string | null): MenuEntry[] {
   return [
     {
       label: t('Watching'),
@@ -501,6 +532,7 @@ async function videoMenu(
     if (canPopOut) items.push({ label: t('Pop out'), icon: () => <I.PopOut size={16} />, run: () => popOut(item.key) });
     items.push(debugItem(), 'separator', {
       label: t('View Profile'),
+      icon: () => <I.Eye size={16} />,
       run: () => setUi('modal', { type: 'user-profile', userId: item.userId, guildId: guildId ?? undefined }),
     });
   }

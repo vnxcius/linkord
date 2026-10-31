@@ -234,6 +234,10 @@ export interface Settings {
   channel_notifications?: Record<string, NotifyLevel>;
   guild_folders?: GuildFolder[];
   collapsed_categories?: string[];
+  /** The guided tour was finished or skipped (accounts from before 1.0 start with it set). */
+  tour_done?: boolean;
+  /** The last release whose "what's new" dialog was seen. */
+  release_seen?: string;
 }
 
 export const displayName = (u?: Pick<User, 'username' | 'display_name'> | null) =>

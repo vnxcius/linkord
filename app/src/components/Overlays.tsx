@@ -2,8 +2,16 @@ import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from 's
 import { downloadFile, filenameFromUrl } from '../lib/download';
 import { t } from '../lib/i18n';
 import { openExternal } from '../lib/platform';
-import { openMenu, setUi, toast, ui } from '../lib/ui';
+import { openMenu, setUi, toast, ui, type MenuEntry } from '../lib/ui';
 import * as I from './Icons';
+
+/** Menus built from pieces: no separator first, last or twice in a row. */
+function tidy(items: MenuEntry[]): MenuEntry[] {
+  const out: MenuEntry[] = [];
+  for (const item of items) if (item !== 'separator' || (out.length && out.at(-1) !== 'separator')) out.push(item);
+  if (out.at(-1) === 'separator') out.pop();
+  return out;
+}
 
 export function ContextMenu() {
   let el!: HTMLDivElement;
@@ -34,7 +42,7 @@ export function ContextMenu() {
       style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <For each={ui.menu!.items}>
+      <For each={tidy(ui.menu!.items)}>
         {(item) =>
           item === 'separator' ? (
             <div class="menu-sep" />

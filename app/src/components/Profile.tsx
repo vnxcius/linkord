@@ -46,12 +46,25 @@ export function friendItems(userId: string): MenuEntry[] {
   return items;
 }
 
+/** Right-click on someone anywhere (voice tiles, the voice list): their profile, then what the ⋯ menu offers. */
+export function userMenu(userId: string, guildId?: string | null): MenuEntry[] {
+  return [
+    {
+      label: t('View Profile'),
+      icon: () => <I.Eye size={16} />,
+      run: () => setUi('modal', { type: 'user-profile', userId, guildId: guildId ?? undefined }),
+    },
+    'separator',
+    ...memberMenu(userId, guildId ?? undefined),
+  ];
+}
+
 /** Right-click menu for a member in a server. */
 export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   const me = state.me?.id;
   const items: MenuEntry[] = [];
   if (userId !== me) items.push({ label: t('Message'), run: () => attempt(() => openDm(userId)) });
-  if (guildId && voiceUi.channelId && userId !== me && state.voice[userId]?.channel_id === voiceUi.channelId) {
+  if (voiceUi.channelId && userId !== me && state.voice[userId]?.channel_id === voiceUi.channelId) {
     items.push('separator', ...volumeMenu(userId));
   }
   if (guildId) {

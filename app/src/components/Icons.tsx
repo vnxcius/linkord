@@ -1,8 +1,9 @@
 // UI icons from Heroicons (MIT, outline set), under the names the components use. Heroicons has no headphones,
 // pushpin, controller, keyboard, picture-in-picture, signal bars or crossed-out mic, so those are drawn below on
-// the same 24px grid and stroke. The Linkord emblem is our own.
+// the same 24px grid and stroke. The Linkord emblem is the app icon itself (a picture).
 import type { JSX } from 'solid-js';
 import { splitProps } from 'solid-js';
+import emblemUrl from '../assets/emblem.png';
 import adjustmentsHorizontal from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
 import arrowDownTray from 'heroicons/24/outline/arrow-down-tray.svg?raw';
 import arrowPath from 'heroicons/24/outline/arrow-path.svg?raw';
@@ -18,6 +19,7 @@ import atSymbol from 'heroicons/24/outline/at-symbol.svg?raw';
 import bell from 'heroicons/24/outline/bell.svg?raw';
 import bellSlash from 'heroicons/24/outline/bell-slash.svg?raw';
 import camera from 'heroicons/24/outline/camera.svg?raw';
+import chartBar from 'heroicons/24/outline/chart-bar.svg?raw';
 import chatBubbleLeftRight from 'heroicons/24/outline/chat-bubble-left-right.svg?raw';
 import check from 'heroicons/24/outline/check.svg?raw';
 import chevronDown from 'heroicons/24/outline/chevron-down.svg?raw';
@@ -119,6 +121,7 @@ const bars = (n: number) =>
     .join('');
 
 export const Hash = hero(hashtag);
+export const Chart = hero(chartBar);
 export const Speaker = heroSolid(speakerWaveSolid);
 export const ChatBubble = heroSolid(chatBubbleOvalSolid);
 export const Phone = hero(phone);
@@ -238,20 +241,18 @@ export const ExitFullscreen = hero(arrowsPointingIn);
 export const Rejoin = hero(arrowPath);
 export const ArrowRight = hero(arrowRight);
 
-/** The Triforce, in the one accent gold. */
+/** The app icon (assets/icon.png): the Triforce on its dark tile, the same everywhere (window, tray, the app). */
 export function Emblem(p: { size?: number }) {
+  const w = () => p.size ?? 28;
   return (
-    <svg
-      width={p.size ?? 28}
-      height={((p.size ?? 28) * 173.2) / 200}
-      viewBox="0 0 200 173.2"
-      aria-label="Linkord"
-      style={{ fill: 'var(--gold, #e3b341)' }}
-    >
-      <path d="M100 0 150 86.6H50Z" />
-      <path d="M50 86.6 100 173.2H0Z" />
-      <path d="M150 86.6 200 173.2H100Z" />
-    </svg>
+    <img
+      class="emblem"
+      src={emblemUrl}
+      width={w()}
+      height={Math.round((w() * 621) / 827)}
+      alt="Linkord"
+      draggable={false}
+    />
   );
 }
 export const Send = hero(paperAirplane);

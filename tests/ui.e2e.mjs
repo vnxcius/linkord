@@ -57,8 +57,8 @@ const step = async (name, fn) => {
   }
 };
 
-async function user(name, prefs) {
-  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, permissions: ['microphone', 'camera', 'clipboard-read', 'clipboard-write'] });
+async function user(name, prefs, context = {}, tour = false) {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, permissions: ['microphone', 'camera', 'clipboard-read', 'clipboard-write'], ...context });
   if (TIMEOUT) ctx.setDefaultTimeout(TIMEOUT);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
@@ -71,6 +71,8 @@ async function user(name, prefs) {
   await page.fill('.dev-login input', `${name}.${run}`);
   await page.click('.dev-login button');
   await page.waitForSelector('.layout');
+  // New accounts start with the guided tour (its own step below covers it).
+  if (!tour) await page.click('.tour .tour-skip');
   return { page, name: `${name}.${run}` };
 }
 
@@ -420,19 +422,20 @@ await step('friends: request by username and accept', async () => {
   await shot(a.page, 'e2e-friends');
 });
 
-await step('spotify: connect in Settings → Connections; friends see "Listening to Spotify", the song card and Active Now', async () => {
+await step('spotify: connect (the Connections tab is hidden for now, so through the API); friends see "Listening to Spotify", the song card and Active Now', async () => {
   const play = (track) => fetch('http://localhost:7702/mock/playing', { method: 'POST', body: JSON.stringify({ track }) });
   await play(null);
   await a.page.click('[aria-label="Settings"]');
-  await a.page.click('.settings-nav button:has-text("Connections")');
-  // The button opens Spotify's consent page in a new tab; the fake one approves and returns to Linkord.
-  const [consent] = await Promise.all([a.page.context().waitForEvent('page'), a.page.click('[aria-label="Connect Spotify"]')]);
+  assert.equal(await a.page.locator('.settings-nav button:has-text("Connections")').count(), 0, 'Connections tab is on hold');
+  await a.page.click('.settings-close');
+  // Spotify's (fake) consent page approves and returns to Linkord.
+  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const { url } = await (await fetch(`${BASE}/api/connections/spotify/authorize`, { headers: { authorization: `Bearer ${token}` } })).json();
+  const consent = await a.page.context().newPage();
+  await consent.goto(url);
   await consent.waitForURL(/\/api\/connections\/spotify\/callback/);
   assert.match(await consent.textContent('body'), /Mock Listener.*connected/);
   await consent.close();
-  await a.page.waitForSelector('.conn-account:has-text("Mock Listener")');
-  await shot(a.page, 'e2e-spotify-settings');
-  await a.page.click('.settings-close');
 
   await play({ id: 'trk1', name: 'Song of the Wind', artists: ['Kaepora', 'Saria'], album: 'Ocarina Nights', duration_ms: 200000 });
   // b sees it on the friends page (row + Active Now) and on a's profile card.
@@ -638,16 +641,16 @@ await step('voice: both connect, hear each other, mute, per-user volume', async 
   await a.page.waitForSelector('.context-menu .uv');
   // Any whole percentage: typed into the number (the slider follows), kept when the menu opens again, 100% one click away.
   await a.page.fill('.uv-value input', '137');
-  assert.equal(await a.page.inputValue('.uv-range'), '137');
+  assert.equal(await a.page.inputValue('.uv input.slider'), '137');
   await shot(a.page, 'e2e-voice');
   await a.page.keyboard.press('Escape');
   await a.page.click(`.voice-tile:has-text("${b.name}")`, { button: 'right' });
   assert.equal(await a.page.inputValue('.uv-value input'), '137');
-  await a.page.focus('.uv-range');
+  await a.page.focus('.uv input.slider');
   await a.page.keyboard.press('ArrowRight');
   assert.equal(await a.page.inputValue('.uv-value input'), '138');
   await a.page.click('.uv-scale button:has-text("100%")');
-  assert.equal(await a.page.inputValue('.uv-range'), '100');
+  assert.equal(await a.page.inputValue('.uv input.slider'), '100');
   await a.page.keyboard.press('Escape');
 });
 
@@ -708,7 +711,9 @@ await step('voice channel: hide the channel list from the header; watch together
   const watch = (method, body) =>
     fetch(`${BASE}/api/channels/${channelId}/watch`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
   assert.equal((await watch('PUT', { url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' })).status, 200);
+  // Opt-in, like a stream: an invitation tile until you open it; then you're among who's watching.
   await a.page.click('.watch-invite button:has-text("Watch together")');
+  await a.page.waitForSelector('.watch-bar .viewers:has-text("1")');
   await a.page.click('.watch-bar [aria-label="Theater mode"]');
   await a.page.waitForSelector('.watch-party.expanded');
   await a.page.waitForSelector('.nav-pane', { state: 'hidden' });
@@ -871,7 +876,7 @@ await step('reload keeps the channel in the URL and rejoins voice; leaving on pu
 });
 
 await step('desktop app: dismissable banner, download page with this computer first, patch notes, "updated" banner; Back returns to the app', async () => {
-  // A release in the test server's update feed (the browser here reports Linux, so the .deb/.rpm come first).
+  // A release in the test server's update feed (this browser reports Linux, on any host, so the .deb/.rpm come first).
   const dir = path.join(process.env.LINKORD_TEST_DATA_DIR, 'updates');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'Linkord_9.9.9_amd64.deb'), Buffer.alloc(3 * 1048576));
@@ -884,7 +889,8 @@ await step('desktop app: dismissable banner, download page with this computer fi
     { version: '9.9.9', date, notes: 'First change\n- Second change' },
     { version: '9.9.8', date, notes: 'Older change' },
   ]));
-  const c = await user('cleo', { lastSeenVersion: '0.0.1' });
+  const linux = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+  const c = await user('cleo', { lastSeenVersion: '0.0.1' }, { userAgent: linux });
   const pg = c.page;
   try {
     await pg.waitForSelector('.download-banner:has-text("Get the desktop app")');
@@ -954,6 +960,70 @@ await step('narrow window: the member list opens as a drawer', async () => {
   await a.page.setViewportSize({ width: 1400, height: 860 });
 });
 
+await step('onboarding: a new account gets the tour; an account from before 1.0 gets "Version 1.0 is here!" once, with confetti and the fanfare', async () => {
+  const n = await user('nova', undefined, {}, true);
+  const pg = n.page;
+  try {
+    await pg.waitForSelector(`.tour-card h2:has-text("Welcome to Linkord, ${n.name}")`);
+    await shot(pg, 'e2e-tour-welcome');
+    await pg.click('.tour-next:has-text("Show me around")');
+    // Step 1 points at the server list: the spotlight sits on it and the card beside it.
+    await pg.waitForSelector('.tour.anchored .tour-spot');
+    await pg.waitForSelector('.tour-card h2:has-text("Your servers")');
+    const spot = await pg.locator('.tour-spot').boundingBox();
+    const rail = await pg.locator('.rail').boundingBox();
+    assert.ok(Math.abs(spot.x - (rail.x - 6)) < 2 && Math.abs(spot.width - (rail.width + 12)) < 2, 'spotlight on the server list');
+    const card = await pg.locator('.tour-card').boundingBox();
+    assert.ok(card.x >= spot.x + spot.width, 'card beside the spotlight');
+    await shot(pg, 'e2e-tour-rail');
+    // Back and forth with the keyboard; a step without a place (calls) shows its screenshot in the middle.
+    await pg.keyboard.press('ArrowRight');
+    await pg.keyboard.press('ArrowRight');
+    await pg.waitForSelector('.tour:not(.anchored) .tour-card.with-shot .tour-shot img');
+    await pg.keyboard.press('ArrowLeft');
+    await pg.waitForSelector('.tour-card h2:has-text("Channels")');
+    for (let i = 0; i < 20 && !(await pg.locator('.tour-next:has-text("Start chatting")').count()); i++) await pg.click('.tour-next');
+    await pg.click('.tour-next:has-text("Start chatting")');
+    await pg.waitForSelector('.tour', { state: 'detached' });
+    // Remembered for the account: a reload doesn't bring it (or the 1.0 dialog) back.
+    await pg.reload();
+    await pg.waitForSelector('.layout');
+    await pg.waitForTimeout(1500);
+    assert.equal(await pg.locator('.tour, .release').count(), 0);
+
+    // An account from before 1.0 (the migration marks those tour_done) gets the dialog instead.
+    const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+    await fetch(`${BASE}/api/users/@me/settings`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ release_seen: null }),
+    });
+    await pg.reload();
+    await pg.waitForSelector('.release h2:has-text("Version 1.0 is here!")');
+    await pg.waitForSelector('canvas.confetti');
+    await pg.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/fanfare[^/]*\.wav/.test(e.name)), null, { timeout: 5000 });
+    await shot(pg, 'e2e-release');
+    await pg.click('.release-list button:has-text("Watch together")');
+    await pg.waitForSelector('.release-slide h3:has-text("Watch together")');
+    await pg.keyboard.press('ArrowDown');
+    await pg.waitForSelector('.release-slide h3:has-text("Kass, the music bot")');
+    await pg.click(`.release button:has-text("Let's go")`);
+    await pg.waitForSelector('.release', { state: 'detached' });
+    await pg.reload();
+    await pg.waitForSelector('.layout');
+    await pg.waitForTimeout(1500);
+    assert.equal(await pg.locator('.release').count(), 0, 'shown once');
+    // Both can be seen again from Settings.
+    await pg.click('[aria-label="Settings"]');
+    await pg.click('.settings-foot button:has-text("Take the tour")');
+    await pg.waitForSelector('.tour-card h2:has-text("Welcome to Linkord")');
+    await pg.keyboard.press('Escape');
+    await pg.waitForSelector('.tour', { state: 'detached' });
+  } finally {
+    await pg.context().close();
+  }
+});
+
 await step('phone layout: one pane at a time, back button, no sideways scrolling', async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const pg = await ctx.newPage();
@@ -961,6 +1031,9 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await pg.goto(BASE);
   await pg.fill('.dev-login input', `phone.${run}`);
   await pg.click('.dev-login button');
+  // On a phone the tour's cards sit in the middle of the screen.
+  await pg.waitForSelector('.tour:not(.anchored) .tour-card');
+  await pg.click('.tour .tour-skip');
   await pg.waitForSelector('.sidebar');
   assert.equal(await pg.locator('.main').isVisible(), false, 'lists first');
   await pg.click('.friends-item');
@@ -1015,7 +1088,7 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await ctx.close();
 });
 
-await step('language: follows the browser (pt-BR), can be switched in settings; account stats show', async () => {
+await step('language: follows the browser (pt-BR), can be switched in settings; the stats tab shows', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 }, locale: 'pt-BR' });
   const pg = await ctx.newPage();
   pg.on('pageerror', (e) => errors.push(`pt-BR: ${e.message}`));
@@ -1024,13 +1097,17 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
   await pg.fill('.dev-login input', `lang.${run}`);
   await pg.click('.dev-login button');
   await pg.waitForSelector('.layout');
+  await pg.click('.tour .tour-skip:text("Pular")');
   assert.equal(await pg.evaluate(() => document.documentElement.lang), 'pt-BR');
   await pg.waitForSelector('.sidebar-title:text("Mensagens diretas")');
   await pg.click('[aria-label="Configurações"]');
   await pg.waitForSelector('.settings-content h1:text("Minha conta")');
-  await pg.waitForSelector('.stat-label:text("Tempo em chamadas")');
-  await pg.waitForFunction(() => [...document.querySelectorAll('.stat strong')].every((s) => s.textContent !== '…'));
   await shot(pg, 'settings-account-pt');
+  // The stats have their own tab now.
+  await pg.click('.settings-nav button:has-text("Estatísticas")');
+  await pg.waitForSelector('.stats-hero .stat-label:text("Tempo em chamadas")');
+  await pg.waitForSelector('.stats-block h2:text("Voz e vídeo")');
+  await shot(pg, 'settings-stats-pt');
   await pg.click('.settings-nav button:has-text("Idioma")');
   await shot(pg, 'settings-language-pt');
   await pg.click('.lang-row:has-text("English")');
@@ -1065,6 +1142,23 @@ await step('logs page: an admin sees new lines appear live', async () => {
   }
   await shot(page, 'e2e-logs-live');
   await ctx.close();
+});
+
+await step('spellcheck: Portuguese (Hunspell) underlines only the misspelled word', async () => {
+  const setLang = (lang) =>
+    b.page.evaluate((l) => {
+      const p = JSON.parse(localStorage.getItem('linkord.prefs') || '{}');
+      localStorage.setItem('linkord.prefs', JSON.stringify({ ...p, spellLanguage: l, spellcheck: true }));
+    }, lang);
+  await setLang('pt');
+  await b.page.reload();
+  await b.page.click(`.rail-btn[aria-label="Keep ${run}"]`);
+  await b.page.click('.channel-item:has-text("general")');
+  await b.page.fill('.composer textarea', 'Você não está falando comigo, a mensagen chegou amanhã');
+  await b.page.waitForSelector('.spell-layer mark:has-text("mensagen")', { timeout: 15000 });
+  assert.deepEqual(await b.page.locator('.spell-layer mark').allTextContents(), ['mensagen']);
+  await b.page.fill('.composer textarea', '');
+  await setLang('auto');
 });
 
 await step('no uncaught page errors', async () => assert.deepEqual(errors, [], errors.join('\n')));

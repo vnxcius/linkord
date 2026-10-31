@@ -14,7 +14,7 @@ export function TitleBar() {
       <span class="titlebar-side" data-tauri-drag-region>
         <span class="titlebar-brand" data-tauri-drag-region>
           <Emblem size={15} />
-          <span data-tauri-drag-region>Linkord</span>
+          <span data-tauri-drag-region>{import.meta.env.DEV ? 'Linkord Dev' : 'Linkord'}</span>
         </span>
         <Show when={state.connection === 'reconnecting'}>
           <span class="titlebar-status">{t('Reconnecting…')}</span>

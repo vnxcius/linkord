@@ -126,6 +126,77 @@ pub async fn init(st: &AppState) -> anyhow::Result<()> {
     .fetch_one(&st.db)
     .await?;
     let _ = st.music.bot.set(id);
+    // Kass is in every server, except the ones that removed him.
+    sqlx::query("INSERT INTO members (guild_id, user_id) SELECT id, $1 FROM guilds WHERE music_bot ON CONFLICT DO NOTHING")
+        .bind(id)
+        .execute(&st.db)
+        .await?;
+    Ok(())
+}
+
+pub fn bot_id(st: &AppState) -> Option<Id> {
+    st.music.bot.get().copied()
+}
+
+async fn in_guild(st: &AppState, guild: Id, bot: Id) -> ApiResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM members WHERE guild_id = $1 AND user_id = $2)")
+        .bind(guild)
+        .bind(bot)
+        .fetch_one(&st.db)
+        .await?)
+}
+
+/// Kicking Kass is how a server opts out: he stays out (even after restarts) until he's added back.
+pub async fn removed_from(st: &AppState, guild: Id) {
+    let _ = sqlx::query("UPDATE guilds SET music_bot = false WHERE id = $1").bind(guild).execute(&st.db).await;
+}
+
+/// Server Settings or Settings -> Kass: takes Kass out of a server (like kicking him), Manage Server.
+async fn remove_from_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(guild): Path<Id>) -> ApiResult<()> {
+    crate::perms::guild_perms(&st.db, guild, me).await?.require(perms::MANAGE_GUILD)?;
+    let bot = bot_id(&st).ok_or(ApiError::NotFound)?;
+    removed_from(&st, guild).await;
+    if in_guild(&st, guild, bot).await? {
+        tracing::info!(user = %me, guild = %guild, "music bot removed");
+        crate::api::guilds::remove_member(&st, guild, bot).await?;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct KassSettings {
+    /// Servers you create start with Kass.
+    new_servers: bool,
+}
+
+async fn kass_settings(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<Json<serde_json::Value>> {
+    let on: bool = sqlx::query_scalar("SELECT kass_new_servers FROM users WHERE id = $1").bind(me).fetch_one(&st.db).await?;
+    Ok(Json(json!({ "new_servers": on })))
+}
+
+async fn set_kass_settings(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<KassSettings>) -> ApiResult<Json<serde_json::Value>> {
+    sqlx::query("UPDATE users SET kass_new_servers = $2 WHERE id = $1").bind(me).bind(body.new_servers).execute(&st.db).await?;
+    Ok(Json(json!({ "new_servers": body.new_servers })))
+}
+
+/// Server Settings: brings Kass back into a server that removed him (Manage Server).
+async fn add_to_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(guild): Path<Id>) -> ApiResult<()> {
+    crate::perms::guild_perms(&st.db, guild, me).await?.require(perms::MANAGE_GUILD)?;
+    let bot = bot_id(&st).ok_or(ApiError::NotFound)?;
+    sqlx::query("UPDATE guilds SET music_bot = true WHERE id = $1").bind(guild).execute(&st.db).await?;
+    let joined = sqlx::query("INSERT INTO members (guild_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+        .bind(guild)
+        .bind(bot)
+        .execute(&st.db)
+        .await?
+        .rows_affected()
+        > 0;
+    if joined {
+        tracing::info!(user = %me, guild = %guild, "music bot added back");
+        let member = load_member(&st.db, guild, bot).await?;
+        let others = guild_members(&st.db, guild).await?;
+        st.hub.send(&others, "GUILD_MEMBER_ADD", &json!({ "guild_id": guild, "member": member, "status": "online" }));
+    }
     Ok(())
 }
 
@@ -133,6 +204,8 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/channels/{id}/commands", post(run_command))
         .route("/bots/music/avatar", post(set_avatar).delete(reset_avatar))
+        .route("/guilds/{id}/bots/music", post(add_to_guild).delete(remove_from_guild))
+        .route("/users/@me/kass", axum::routing::get(kass_settings).put(set_kass_settings))
 }
 
 const MAX_AVATAR: usize = 4 * 1024 * 1024;
@@ -166,7 +239,7 @@ fn ytdlp(st: &AppState) -> PathBuf {
     if let Some(p) = std::env::var_os("LINKORD_YTDLP").filter(|p| !p.is_empty()) {
         return p.into();
     }
-    let local = st.cfg.data_dir.join("bin/yt-dlp");
+    let local = st.cfg.data_dir.join(if cfg!(windows) { "bin/yt-dlp.exe" } else { "bin/yt-dlp" });
     if local.exists() {
         local
     } else {
@@ -264,6 +337,10 @@ async fn run_command(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
     };
     a.require(perms::SEND_MESSAGES)?;
     let bot = *st.music.bot.get().ok_or(ApiError::NotFound)?;
+    if !in_guild(&st, guild, bot).await? {
+        return Err(bad("Kass isn't in this server. Someone with Manage Server can add him back in Settings → Kass."));
+    }
+    crate::stats::bump(&st, me, "kass_commands");
     let name = body.name.as_str();
     let reply = |content: String, embeds: serde_json::Value| {
         let (st, a) = (st.clone(), &a);
@@ -309,6 +386,7 @@ async fn run_command(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
             *player.prepared.lock().unwrap() = Some((track.url.clone(), pipe));
         }
         *player.text_channel.lock().unwrap() = a.ch.id;
+        let added = 1 + more.len();
         let queued = {
             let idle = player.now.lock().unwrap().is_none();
             let mut q = player.queue.lock().unwrap();
@@ -328,6 +406,7 @@ async fn run_command(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
             pos
         };
         player.poke();
+        crate::stats::bump_by(&st, me, "songs_queued", added.min(MAX_QUEUE) as i64);
         if let Some(list) = spotify.filter(|l| l.kind != "track") {
             return reply(String::new(), spotify::list_embed(&list, queued == 0, GOLD)).await;
         }

@@ -152,7 +152,10 @@ export async function api<T = any>(method: string, path: string, body?: unknown,
   if (token) headers.authorization = `Bearer ${token}`;
   let payload: BodyInit | undefined;
   if (body instanceof FormData) payload = body;
-  else if (body !== undefined) {
+  else if (body instanceof Blob) {
+    headers['content-type'] = body.type || 'application/octet-stream';
+    payload = body;
+  } else if (body !== undefined) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }

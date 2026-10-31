@@ -810,7 +810,7 @@ function EmojiPage(p: { guildId: string }) {
     <div class="stack">
       <p class="muted small">
         {t(
-          'Add up to 50 custom emoji anyone in this server can use. PNG, GIF or WebP, up to 256 KB. Animated GIFs stay animated.',
+          'Add up to 100 custom emoji anyone in this server can use. PNG, GIF or WebP, up to 256 KB. Animated GIFs stay animated.',
         )}
       </p>
       <div class="row">

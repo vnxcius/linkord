@@ -189,6 +189,17 @@ export function ChatHeader(p: { channel: Channel }) {
         <Show when={p.channel.kind !== Kind.Voice}>
           <SearchBox channel={p.channel} />
         </Show>
+        <Show when={p.channel.kind === Kind.Voice}>
+          <button
+            class="icon-btn"
+            classList={{ on: ui.voiceChat === p.channel.id }}
+            aria-label={ui.voiceChat === p.channel.id ? t('Close chat') : t('Open chat')}
+            data-tip={ui.voiceChat === p.channel.id ? t('Close chat') : t('Open chat')}
+            onClick={() => setUi('voiceChat', ui.voiceChat === p.channel.id ? null : p.channel.id)}
+          >
+            <I.ChatBubble size={19} />
+          </button>
+        </Show>
         {/* Theater mode hides the list by itself; its own button brings it back. */}
         <Show when={p.channel.kind === Kind.Voice && !isMobile() && !watchTheater(p.channel.id)}>
           <button
@@ -495,6 +506,7 @@ function GroupMembers(p: { channel: Channel }) {
     if (id !== state.me?.id) items.push({ label: t('Message'), run: () => attempt(() => openDm(id)) });
     items.push({
       label: t('View Profile'),
+      icon: () => <I.Eye size={16} />,
       run: () => setUi('modal', { type: 'user-profile', userId: id }),
     });
     if (amOwner() && id !== state.me?.id)
@@ -715,10 +727,38 @@ function DmCall(p: { channel: Channel }) {
   );
 }
 
-/** A voice channel's own chat, beside the call (Discord's text in voice). */
+/** A voice channel's own chat, beside the call (Discord's text in voice). Drag its left edge to resize it. */
 function VoiceChat(p: { channel: Channel }) {
+  let el!: HTMLElement;
+  const resize = (e: PointerEvent) => {
+    e.preventDefault();
+    const right = el.getBoundingClientRect().right;
+    const room = el.parentElement!.getBoundingClientRect().width;
+    const move = (ev: PointerEvent) =>
+      setPrefs({ voiceChatWidth: Math.round(Math.max(280, Math.min(room - 360, right - ev.clientX))) });
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.classList.remove('resizing-x');
+    };
+    document.body.classList.add('resizing-x');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   return (
-    <aside class="chat voice-chat">
+    <aside
+      class="chat voice-chat"
+      ref={el}
+      style={prefs.voiceChatWidth ? { width: `${prefs.voiceChatWidth}px` } : undefined}
+    >
+      <div
+        class="voice-chat-resize"
+        role="separator"
+        aria-orientation="vertical"
+        title={t('Drag to resize; double-click to reset')}
+        onPointerDown={resize}
+        onDblClick={() => setPrefs({ voiceChatWidth: 0 })}
+      />
       <div class="voice-chat-head">
         <I.ChatBubble size={16} />
         <span>{t('Chat')}</span>

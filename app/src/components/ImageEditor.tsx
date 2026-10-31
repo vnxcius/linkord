@@ -4,6 +4,7 @@
 // GIF pictures and banners are framed here as usual (the preview plays them) but the original is sent with the
 // crop, and the server cuts it, still animated; animated nameplates (GIF or WebM video) are sent as they are and
 // the member card crops them when shown.
+import { Slider } from './ui/slider';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { uploadForm } from '../lib/api';
@@ -415,16 +416,14 @@ export function ImageEditor(p: Props) {
 
             <div class="img-controls">
               <span class="muted">{t('Zoom')}</span>
-              <input
-                class="range"
-                type="range"
-                min="1"
+              <Slider
+                min={1}
                 max={MAX_ZOOM}
-                step="0.01"
+                step={0.01}
                 value={zoom()}
                 disabled={busy() || !img() || animated}
-                aria-label={t('Zoom')}
-                onInput={(e) => setZ(parseFloat(e.currentTarget.value))}
+                label={t('Zoom')}
+                onInput={setZ}
               />
               <button class="btn small-btn" disabled={busy() || !img() || animated} onClick={rotate}>
                 {t('Rotate')}

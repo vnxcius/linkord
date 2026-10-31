@@ -52,7 +52,9 @@ export function Composer(p: { channel: Channel }) {
     if (!canSend()) return t('You do not have permission to send messages in this channel');
     if (isPrivate(p.channel.kind))
       return t('Message {name}', { name: `${p.channel.kind === Kind.Dm ? '@' : ''}${dmName(p.channel)}` });
-    return t('Message {name}', { name: p.channel.kind === Kind.Thread ? p.channel.name : `#${p.channel.name}` });
+    // Long names (a voice channel's chat is narrow) would wrap the placeholder and make the box scroll.
+    const name = p.channel.name.length > 28 ? `${p.channel.name.slice(0, 26).trimEnd()}…` : p.channel.name;
+    return t('Message {name}', { name: p.channel.kind === Kind.Thread ? name : `#${name}` });
   };
 
   const memberIds = (): string[] => {

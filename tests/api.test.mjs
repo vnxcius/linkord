@@ -60,7 +60,7 @@ function gateway(token, resume) {
 const until = async (fn, ms = 3000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    const v = fn();
+    const v = await fn();
     if (v) return v;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -308,6 +308,52 @@ test('account stats count messages, reactions, servers, friends and time in voic
   assert.equal(stats.attachments, 0);
   assert.ok(stats.voice_seconds >= 1, `voice_seconds = ${stats.voice_seconds}`);
   assert.ok(stats.upload_quota > 0 && Date.parse(stats.created_at) > 0);
+  // The fuller report (Settings -> Stats).
+  assert.equal(stats.servers_owned, 1);
+  assert.equal(stats.message_stats.words, 2);
+  assert.equal(stats.message_stats.active_days, 1);
+  assert.deepEqual(stats.top_emoji, [{ emoji: '👍', count: 1 }]);
+  assert.deepEqual(stats.top_channels, [{ channel_id: text.id, count: 2 }]);
+  assert.equal(stats.activity.reduce((n, [, , c]) => n + c, 0), 2);
+  assert.equal(stats.counters.voice_sessions, 1);
+});
+
+test('Kass is in every server: kicking him opts the server out, Manage Server adds him back; new servers follow your setting', async () => {
+  const u = await login('kassowner');
+  const g = await ok(u.token, 'POST', '/guilds', { name: `Kass ${run}` });
+  // A server's members as a fresh session sees them (READY).
+  const membersOf = async (gid) => {
+    const gw = await gateway(u.token);
+    gw.ws.close();
+    return gw.first.d.guilds.find((x) => x.id === gid).members;
+  };
+  const members = () => membersOf(g.id);
+  assert.ok(g.members.some((m) => m.user.bot), 'the new server comes with Kass');
+  const kass = (await members()).find((m) => m.user.bot);
+  assert.ok(kass, 'Kass joins new servers');
+  assert.equal(kass.user.username, 'kass');
+  const text = g.channels.find((c) => c.kind === 0);
+  // Kicking him is the opt-out: commands say how to bring him back.
+  await ok(u.token, 'DELETE', `/guilds/${g.id}/members/${kass.user.id}`);
+  assert.ok(!(await members()).some((m) => m.user.bot));
+  const r = await call(u.token, 'POST', `/channels/${text.id}/commands`, { name: 'queue', query: '' });
+  assert.match(r.body.error, /Kass isn't in this server/);
+  // Only Manage Server adds him back.
+  const other = await login('kassmember');
+  const inv = await ok(u.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(other.token, 'POST', `/invites/${inv.code}`);
+  assert.equal((await call(other.token, 'POST', `/guilds/${g.id}/bots/music`)).status, 403);
+  await ok(u.token, 'POST', `/guilds/${g.id}/bots/music`);
+  assert.ok((await members()).some((m) => m.user.bot));
+  await ok(u.token, 'DELETE', `/guilds/${g.id}/bots/music`);
+  assert.ok(!(await members()).some((m) => m.user.bot));
+  // Settings -> Kass: servers you create start without him.
+  assert.deepEqual(await ok(u.token, 'GET', '/users/@me/kass'), { new_servers: true });
+  await ok(u.token, 'PUT', '/users/@me/kass', { new_servers: false });
+  const g2 = await ok(u.token, 'POST', '/guilds', { name: `No Kass ${run}` });
+  assert.ok(!g2.members.some((m) => m.user.bot));
+  await ok(u.token, 'POST', `/guilds/${g2.id}/bots/music`);
+  assert.ok((await membersOf(g2.id)).some((m) => m.user.bot));
 });
 
 test('connections: dev logins have no Discord link', async () => {
@@ -592,7 +638,7 @@ test('invites: preview counts, list and revoke', async () => {
   const g = await ok(owner.token, 'POST', '/guilds', { name: `Inv ${run}` });
   const inv = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});
   const pv = await ok(outsider.token, 'GET', `/invites/${inv.code}`);
-  assert.equal(pv.member_count, 1);
+  assert.equal(pv.member_count, 2, "the owner and Kass, who comes with every server");
   assert.equal(typeof pv.online_count, 'number');
   assert.equal((await call(member.token, 'GET', `/guilds/${g.id}/invites`)).status, 404);
   const list = await ok(owner.token, 'GET', `/guilds/${g.id}/invites`);
@@ -941,8 +987,9 @@ test('Kass, the music bot: /play joins your voice channel and streams music; que
     const bot = first.author.id;
     assert.equal((await call(owner.token, 'PUT', `/users/@me/relationships/${bot}`)).body.error, "bots can't be friends");
 
-    // Kass becomes a member of the server, joins the member's channel (deafened) and his music arrives as kind 5.
-    await until(() => watch.events.some((e) => e.t === 'GUILD_MEMBER_ADD' && e.d.member.user.id === bot));
+    // Kass is already in the server (he comes with every one), joins the member's channel (deafened) and his music
+    // arrives as kind 5.
+    assert.ok(watch.first.d.guilds.find((g) => g.id === guild.id).members.some((m) => m.user.id === bot));
     const botState = await until(() => watch.events.filter((e) => e.t === 'VOICE_STATE_UPDATE' && e.d.user_id === bot).pop()?.d);
     assert.equal(botState.channel_id, voiceCh.id);
     assert.ok(botState.self_deaf);
@@ -1209,6 +1256,62 @@ test('watch together: only people in the call start or control it; it ends with 
   }
   await until(() => watch.events.some((e) => e.t === 'WATCH_UPDATE' && e.d.watch === null));
   watch.ws.close();
+});
+
+test('watch together: opt-in, the server keeps who is watching; leaving the call takes you off the list', async () => {
+  const voice = guild.channels.find((c) => c.kind === 2);
+  const url = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ';
+  const watch = await gateway(owner.token);
+  const a = await voiceJoin(owner, voice.id);
+  let b;
+  try {
+    const w = await ok(owner.token, 'PUT', `/channels/${voice.id}/watch`, { url });
+    assert.deepEqual(w.viewers, [owner.id], 'whoever shares it is watching');
+    assert.equal((await call(member.token, 'PUT', `/channels/${voice.id}/watch/view`, { on: true })).body.error, 'join the call first');
+    b = await voiceJoin(member, voice.id);
+    const viewers = () => watch.events.filter((e) => e.t === 'WATCH_UPDATE' && e.d.channel_id === voice.id).pop()?.d.watch?.viewers;
+    await ok(member.token, 'PUT', `/channels/${voice.id}/watch/view`, { on: true });
+    await until(() => viewers()?.includes(member.id));
+    await ok(member.token, 'PUT', `/channels/${voice.id}/watch/view`, { on: false });
+    await until(() => viewers() && !viewers().includes(member.id));
+    await ok(member.token, 'PUT', `/channels/${voice.id}/watch/view`, { on: true });
+    await until(() => viewers()?.includes(member.id));
+    // A new link keeps who already had the player open.
+    assert.deepEqual((await ok(owner.token, 'PUT', `/channels/${voice.id}/watch`, { url })).viewers.sort(), [owner.id, member.id].sort());
+    b.close();
+    b = null;
+    await until(() => viewers() && !viewers().includes(member.id));
+  } finally {
+    b?.close();
+    a.close();
+  }
+  await until(() => watch.events.some((e) => e.t === 'WATCH_UPDATE' && e.d.channel_id === voice.id && e.d.watch === null));
+  watch.ws.close();
+});
+
+test('stream previews: only someone live can send one; people who see the channel can fetch it', async () => {
+  const voice = guild.channels.find((c) => c.kind === 2);
+  const outsider = await login('previewout');
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const put = (token, body) =>
+    fetch(`${BASE}/api/voice/preview`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'image/jpeg' }, body });
+  const get = (token) => fetch(`${BASE}/api/users/${owner.id}/stream-preview`, { headers: { authorization: `Bearer ${token}` } });
+  const a = await voiceJoin(owner, voice.id);
+  try {
+    assert.equal((await put(owner.token, jpeg)).status, 400, 'not streaming yet');
+    // The first screen frame makes us live.
+    a.send(new Uint8Array([3, 3, 0, 1, 0, 0, 0, 1]));
+    await until(async () => (await put(owner.token, jpeg)).status === 200);
+    assert.equal((await put(owner.token, new Uint8Array([1, 2, 3]))).status, 400, 'only JPEGs');
+    const res = await get(member.token);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'image/jpeg');
+    assert.deepEqual(new Uint8Array(await res.arrayBuffer()), jpeg);
+    assert.notEqual((await get(outsider.token)).status, 200, 'not in the server');
+  } finally {
+    a.close();
+  }
+  await until(async () => (await get(member.token)).status === 404);
 });
 
 test('DM calls: starting one rings the other person; joining or declining stops it', async () => {

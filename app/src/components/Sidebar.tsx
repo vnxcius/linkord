@@ -58,6 +58,8 @@ import { canSetVoiceStatus, editVoiceStatus, VoiceStatusLine } from './VoiceStat
 import { ActivityLine, CustomStatusView, elapsedSince, GameIcon } from './Activity';
 import { clearCustomStatusNow, openCustomStatus } from './CustomStatus';
 import { Avatar } from './Avatar';
+import { userMenu } from './Profile';
+import { streamPreviewOn } from './StreamPreview';
 import { SoundboardButton } from './Soundboard';
 import { watches } from '../lib/watch';
 
@@ -813,20 +815,28 @@ function VoiceChannelItem(p: { channel: Channel }) {
           const showing = () =>
             state.selected[gid()] === p.channel.id &&
             (v.user_id === state.me?.id ? voiceUi.focus === `${v.user_id}-screen` : !!voiceUi.watching[v.user_id]);
+          // Live: hovering shows a picture of the stream.
+          const preview = streamPreviewOn(
+            () => v.user_id,
+            gid,
+            () => !!v.self_stream,
+          );
           return (
             <button
+              {...preview}
               class="voice-user"
-              title={
-                v.self_stream && !showing() ? t("Watch {name}'s stream", { name: nameOf(v.user_id, gid()) }) : undefined
-              }
               onClick={(e) =>
                 v.self_stream && !showing()
                   ? void goToStream(p.channel.id, v.user_id)
                   : openProfile(v.user_id, e, gid())
               }
-              onContextMenu={(e) => v.user_id !== state.me?.id && openMenu(e, volumeMenu(v.user_id))}
+              onContextMenu={(e) => openMenu(e, userMenu(v.user_id, gid()))}
             >
-              <Avatar user={u()} size={22} speaking={!!voiceUi.speaking[v.user_id] && !v.self_mute} />
+              <Avatar
+                user={u()}
+                size={22}
+                speaking={(!!voiceUi.speaking[v.user_id] && !v.self_mute) || !!voiceUi.soundPlaying[v.user_id]}
+              />
               <span>{nameOf(v.user_id, gid())}</span>
               <Show when={voiceUi.soundPlaying[v.user_id]}>
                 <span class="sound-mini">{voiceUi.soundPlaying[v.user_id]}</span>

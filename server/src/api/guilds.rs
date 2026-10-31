@@ -131,6 +131,17 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): 
     let mut tx = st.db.begin().await?;
     sqlx::query("INSERT INTO guilds (id, name, owner_id) VALUES ($1, $2, $3)").bind(id).bind(&name).bind(me).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO members (guild_id, user_id) VALUES ($1, $2)").bind(id).bind(me).execute(&mut *tx).await?;
+    // Kass, the music bot, comes with every server (kick him to remove him), unless its creator turned that off
+    // (Settings -> Kass).
+    let with_kass: bool = sqlx::query_scalar("SELECT kass_new_servers FROM users WHERE id = $1").bind(me).fetch_one(&mut *tx).await?;
+    match crate::music::bot_id(&st) {
+        Some(bot) if with_kass => {
+            sqlx::query("INSERT INTO members (guild_id, user_id) VALUES ($1, $2)").bind(id).bind(bot).execute(&mut *tx).await?;
+        }
+        _ => {
+            sqlx::query("UPDATE guilds SET music_bot = false WHERE id = $1").bind(id).execute(&mut *tx).await?;
+        }
+    }
     sqlx::query("INSERT INTO roles (id, guild_id, name, permissions, position) VALUES ($1, $1, '@everyone', $2, 0)")
         .bind(id)
         .bind(perms::DEFAULT)
@@ -327,6 +338,9 @@ async fn kick(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, user
         return Err(bad("you cannot kick yourself"));
     }
     outranks(&st.db, id, me, user).await?;
+    if crate::music::bot_id(&st) == Some(user) {
+        crate::music::removed_from(&st, id).await;
+    }
     remove_member(&st, id, user).await
 }
 

@@ -8,9 +8,11 @@ import App from './App';
 import { pickReachableServer } from './lib/api';
 import { installContextMenu } from './lib/contextmenu';
 import { installErrorReporting } from './lib/report';
+import { initTooltips } from './lib/tooltip';
 
 installContextMenu();
 installErrorReporting();
+initTooltips();
 
 // The desktop app may need the direct address before anything connects (ISPs that block Cloudflare).
 void pickReachableServer().then(() => render(() => <App />, document.getElementById('root')!));

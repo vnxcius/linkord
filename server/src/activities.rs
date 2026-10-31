@@ -89,6 +89,8 @@ pub struct Games {
     pub list: RwLock<Option<Arc<GameList>>>,
     /// Users with a game activity -> when it expires.
     pub expires: DashMap<Id, Instant>,
+    /// Each user's last "Playing" report: the game and when, so the time between reports counts (stats.rs).
+    pub last_report: DashMap<Id, (String, Instant)>,
 }
 
 /// Keeps Windows executables (minus launchers and argument-matched ones, which need a command line).
@@ -213,6 +215,16 @@ async fn set_playing(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bo
         }
     };
     st.games.expires.insert(me, Instant::now() + GAME_TTL);
+    // Time since the last report of the same game counts as played (reports come every minute; a longer gap is a
+    // pause, closed app or sleeping PC, and doesn't count).
+    let game = activity["name"].as_str().unwrap_or_default().to_string();
+    let icon = activity["icon"].as_str().map(str::to_string);
+    let previous = st.games.last_report.insert(me, (game.clone(), Instant::now()));
+    if let Some((_, at)) = previous.filter(|(last, at)| *last == game && at.elapsed() <= GAME_TTL) {
+        crate::stats::game_time(&st, me, &game, icon.as_deref(), at.elapsed().as_secs() as i64).await;
+    } else {
+        crate::stats::bump(&st, me, "games_started");
+    }
     if put_activity(&st, me, PLAYING, Some(activity)) {
         announce(&st, me).await;
     }
@@ -221,6 +233,10 @@ async fn set_playing(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bo
 
 async fn clear_playing(State(st): State<AppState>, AuthUser(me): AuthUser) -> StatusCode {
     st.games.expires.remove(&me);
+    // The game closed: the stretch since its last report counts too.
+    if let Some((_, (game, at))) = st.games.last_report.remove(&me).filter(|(_, (_, at))| at.elapsed() <= GAME_TTL) {
+        crate::stats::game_time(&st, me, &game, None, at.elapsed().as_secs() as i64).await;
+    }
     if put_activity(&st, me, PLAYING, None) {
         announce(&st, me).await;
     }
@@ -326,6 +342,7 @@ async fn set_custom(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bod
     .execute(&st.db)
     .await?;
     let activity = custom_activity(text.as_deref(), emoji.as_ref(), expires_at);
+    crate::stats::bump(&st, me, "statuses_set");
     if put_activity(&st, me, CUSTOM, Some(activity.clone())) {
         announce_custom(&st, me).await;
     }
