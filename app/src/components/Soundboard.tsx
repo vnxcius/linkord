@@ -1,5 +1,6 @@
 // The soundboard picker (from the call controls) and the server settings page for a server's own sounds.
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { Portal } from 'solid-js/web';
 import { api, serverUrl } from '../lib/api';
 import { prefs } from '../lib/prefs';
 import { t } from '../lib/i18n';
@@ -126,8 +127,11 @@ export function SoundboardButton(p: { class: string; label?: boolean; size?: num
         <I.Music size={p.size ?? 20} />
         <Show when={p.label}> {t('Sounds')}</Show>
       </button>
+      {/* On <body>: inside the call controls it would share their stacking context, under the watch-together player. */}
       <Show when={open()}>
-        <SoundboardPicker onClose={() => setOpen(false)} style={style()} />
+        <Portal>
+          <SoundboardPicker onClose={() => setOpen(false)} style={style()} />
+        </Portal>
       </Show>
     </>
   );

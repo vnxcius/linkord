@@ -141,6 +141,9 @@ struct Control {
     position: Option<f64>,
     /// A player reached the end of the video (it also pauses). Playing or seeking again clears it.
     ended: Option<bool>,
+    /// The player found out the YouTube video is a live stream (a plain watch?v= link doesn't say): from then on
+    /// it never ends and isn't synced.
+    live: Option<bool>,
 }
 
 /// Play, pause or seek, for everyone.
@@ -150,6 +153,21 @@ async fn control(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     let w = {
         let Some(mut w) = st.watches.get_mut(&id) else { return Err(bad("nothing is playing")) };
         let now = now_ms();
+        if body.live == Some(true) && w.provider == "youtube" {
+            // Reported by every player that loads it: the first one wins.
+            if w.live {
+                return Ok(Json(w.clone()));
+            }
+            w.live = true;
+            w.playing = true;
+            w.ended = false;
+            w.position = 0.0;
+            w.updated_at = now;
+        }
+        // A live stream has no end (a hiccup in the player can look like one).
+        if w.live && body.ended == Some(true) {
+            return Ok(Json(w.clone()));
+        }
         // Where it is now, before the change.
         if w.playing && !w.live {
             w.position += (now - w.updated_at) as f64 / 1000.0;

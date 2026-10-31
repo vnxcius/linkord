@@ -150,6 +150,10 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 0 var(--gap) var(--gap); background: var(--bg-0);
 }
 .layout:has(> .margin) { grid-template-columns: 296px minmax(0, 1fr) auto; }
+/* Channel list hidden: a voice channel with its sidebar button off, or watch-together theater mode. */
+.layout.nav-hidden { grid-template-columns: minmax(0, 1fr); }
+.layout.nav-hidden:has(> .margin) { grid-template-columns: minmax(0, 1fr) auto; }
+.layout.nav-hidden > .nav-pane { display: none; }
 /* One panel: the server strip, the channel list, then the dock (game, voice, you). */
 .nav-pane {
   position: relative; min-height: 0; display: flex; flex-direction: column; background: var(--bg-1);
@@ -631,7 +635,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .profile-avatar .presence { --presence-ring: var(--bg-1); }
 .profile-body { padding: 8px 16px 16px; }
 .profile-body h3 { font: 400 28px/1.1 var(--font-display); margin: 0; }
-.profile-username { color: var(--text-2); font-size: 14px; }
+.profile-username { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-2); font-size: 14px; }
 .profile-section { margin-top: 14px; }
 .profile-section .label { font-size: 10.5px; text-transform: uppercase; color: var(--text-3); }
 .profile-section p { margin: 4px 0 0; font-size: 14px; }
@@ -866,6 +870,9 @@ input, textarea, select { font: inherit; color: inherit; }
 .waiting { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 
 .splash-emblem { animation: breathe 2.4s ease-in-out infinite; }
+/* Covers the app under the title bar (still there to minimize or close) while an update installs at launch. */
+.launch-update { position: fixed; inset: 40px 0 0; z-index: 500; }
+.launch-update-bar { width: 220px; }
 .splash { align-content: center; gap: 18px; justify-items: center; }
 
 .home { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px; }
@@ -1590,6 +1597,19 @@ button.viewers:hover { background: rgba(255, 255, 255, 0.12); }
 .account-facts { margin: 14px 16px 16px; padding: 12px 14px; background: var(--bg-0); border-radius: var(--radius-sm); display: grid; gap: 12px; }
 .account-facts dt { font-size: 10.5px; text-transform: uppercase; color: var(--text-3); }
 .account-facts dd { margin: 3px 0 0; }
+.username-row { display: inline-flex; align-items: center; gap: 12px; }
+.username-form { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.username-input {
+  display: flex; align-items: center; gap: 2px; padding: 0 12px; background: var(--bg-0); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); font-family: var(--font-mono); color: var(--text-3);
+}
+.username-input:focus-within { border-color: rgba(227, 179, 65, 0.5); }
+.username-input input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); padding: 10px 0; font: inherit; outline: none; }
+.username-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.username-form .error { margin: 0; }
+.pick-username { z-index: 300; }
+.pick-username .modal p { line-height: 1.5; margin: 0 0 18px; }
+.pick-username-emblem { margin-bottom: 14px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .stat { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .stat-label { font-size: 10.5px; text-transform: uppercase; color: var(--text-3); }
@@ -1617,6 +1637,14 @@ button.viewers:hover { background: rgba(255, 255, 255, 0.12); }
 .edit-banner { display: block; height: 108px; position: relative; cursor: pointer; overflow: hidden; }
 .edit-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .edit-avatar { display: block; cursor: pointer; }
+.edit-banner-wrap { position: relative; }
+.edit-remove {
+  position: absolute; top: 8px; right: 8px; z-index: 2; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: rgba(10, 10, 12, 0.72); color: #fff; border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.edit-remove:hover { background: var(--danger); border-color: transparent; }
+.edit-avatar-wrap .edit-remove { top: -4px; right: -4px; }
+.edit-hint { line-height: 1.45; }
 .edit-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 13.5px; font-weight: 600;
   background: rgba(10, 10, 12, 0.55); opacity: 0; transition: opacity 0.14s;
@@ -2578,6 +2606,11 @@ img.status-emoji { object-fit: contain; }
 .log-field b { font-weight: 400; color: var(--text-2); }
 .log-field.block { display: block; width: 100%; white-space: pre-wrap; margin-top: 4px; }
 .logs-more { margin: 14px auto 0; display: block; }
+.logs-live { display: inline-flex; align-items: center; gap: 7px; }
+.logs-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+.logs-live.on .logs-live-dot { background: var(--speaking); animation: breathe 2s ease-in-out infinite; }
+.log-row.fresh { animation: log-fresh 1.6s ease-out; }
+@keyframes log-fresh { from { background: rgba(227, 179, 65, 0.14); } to { background: transparent; } }
 @media (max-width: 760px) { .log-row { grid-template-columns: 64px 1fr; } .log-target { display: none; } .log-level { display: none; } }
 
 /* soundboard */

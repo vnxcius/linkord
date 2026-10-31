@@ -3,7 +3,7 @@ import { getToken, setToken } from './lib/api';
 import { connectGateway } from './lib/gateway';
 import { lang, t } from './lib/i18n';
 import { isTauri } from './lib/platform';
-import { initDesktop, update, updating } from './lib/desktop';
+import { initDesktop, launchUpdate, update, updating } from './lib/desktop';
 import { can, P } from './lib/perms';
 import { currentChannel, state } from './lib/store';
 import { Kind } from './lib/types';
@@ -18,7 +18,8 @@ import { ContextMenu, Lightbox } from './components/Overlays';
 import { MiniPlayer } from './components/MiniPlayer';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { Calls } from './components/Call';
-import { WatchHost } from './components/Watch';
+import { WatchHost, watchTheater } from './components/Watch';
+import { prefs } from './lib/prefs';
 import { installShortcuts } from './lib/shortcuts';
 import { Close, Emblem, Rejoin } from './components/Icons';
 import { Login } from './components/Login';
@@ -29,6 +30,7 @@ import { ProfilePopout } from './components/Profile';
 import { Rail } from './components/Rail';
 import { Dock, GuildBanner, Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
+import { PickUsername } from './components/Username';
 import { Button } from './components/ui/button';
 
 const INVITE_KEY = 'linkord.pendingInvite';
@@ -69,6 +71,22 @@ export default function App() {
         </Show>
       </Show>
       <PageHost />
+      <Show when={launchUpdate()}>{(u) => <LaunchUpdate version={u().version} progress={u().progress} />}</Show>
+    </div>
+  );
+}
+
+/** The update found at launch installing itself; the app restarts when it's done. */
+function LaunchUpdate(p: { version: string; progress: number }) {
+  return (
+    <div class="splash launch-update" role="status">
+      <div class="splash-emblem">
+        <Emblem size={72} />
+      </div>
+      <p class="muted">{t('Updating to Linkord {version}…', { version: p.version })}</p>
+      <div class="stat-bar launch-update-bar">
+        <i style={{ width: `${Math.round(p.progress * 100)}%` }} />
+      </div>
     </div>
   );
 }
@@ -96,8 +114,18 @@ function Main() {
     }
   });
   const channel = currentChannel;
+  // The channel list steps aside for a call (sidebar button in a voice channel's header) or theater mode.
+  const navHidden = () => {
+    const c = channel();
+    if (!c || isMobile()) return false;
+    return (c.kind === Kind.Voice && prefs.voiceNavCollapsed) || watchTheater(c.id);
+  };
   return (
-    <div class="layout" classList={{ 'mobile-main': ui.mobilePane === 'main' }} ref={initSwipes}>
+    <div
+      class="layout"
+      classList={{ 'mobile-main': ui.mobilePane === 'main', 'nav-hidden': navHidden() }}
+      ref={initSwipes}
+    >
       <div class="nav-pane" classList={{ 'with-banner': state.view !== '@me' && !!state.guilds[state.view]?.banner }}>
         <GuildBanner />
         <Rail />
@@ -147,6 +175,9 @@ function Main() {
       </Show>
       <Calls />
       <WatchHost />
+      <Show when={state.me?.needs_username}>
+        <PickUsername />
+      </Show>
       <Show when={ui.toast}>
         <div class="toast">{ui.toast}</div>
       </Show>

@@ -62,6 +62,8 @@ export interface Prefs {
   spellWords: string[];
   /** Height of the call above DM chats, set by dragging its edge (0 = automatic). */
   dmCallHeight: number;
+  /** The channel list is hidden while a voice channel is open (the header's sidebar button). */
+  voiceNavCollapsed: boolean;
 }
 
 const DEFAULTS: Prefs = {
@@ -100,6 +102,7 @@ const DEFAULTS: Prefs = {
   spellLanguage: 'auto',
   spellWords: [],
   dmCallHeight: 0,
+  voiceNavCollapsed: false,
 };
 
 const KEY = 'linkord.prefs';

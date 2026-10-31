@@ -55,6 +55,7 @@ import { Avatar } from './Avatar';
 import { ColorPicker } from './ColorPicker';
 import { ImageEditor, type ImageKind } from './ImageEditor';
 import { ImageSlot, InfoTip } from './ImageSlot';
+import { UsernameEditor } from './Username';
 import * as I from './Icons';
 import { formatSize } from './MessageItem';
 import { accentCss } from './Profile';
@@ -461,7 +462,9 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
           </div>
           <div>
             <dt>{t('Username')}</dt>
-            <dd>{me().username}</dd>
+            <dd>
+              <UsernameEditor />
+            </dd>
           </div>
         </dl>
       </div>
@@ -756,21 +759,46 @@ function ProfilePage() {
       <div class="profile-side">
         <div class="field-label">{t('Preview')}</div>
         <div class="profile-preview editable">
-          <label class="edit-banner" style={{ 'background-color': accent() }}>
-            <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
-            <span class="edit-overlay">
-              <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
-            </span>
-            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('banner', e.currentTarget)} />
-          </label>
-          <label class="edit-avatar profile-avatar">
-            <Avatar user={me()} size={84} />
-            <span class="edit-overlay round">
-              <I.Photo size={20} />
-              <small>{t('Change')}</small>
-            </span>
-            <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('avatar', e.currentTarget)} />
-          </label>
+          {/* Click the banner or the picture to change it; the small × removes it. */}
+          <div class="edit-banner-wrap">
+            <label class="edit-banner" style={{ 'background-color': accent() }}>
+              <Show when={media(me().banner)}>{(src) => <img src={src()} alt="" />}</Show>
+              <span class="edit-overlay">
+                <I.AddImage size={20} /> {me().banner ? t('Change banner') : t('Add banner')}
+              </span>
+              <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('banner', e.currentTarget)} />
+            </label>
+            <Show when={me().banner}>
+              <button
+                class="edit-remove"
+                aria-label={t('Remove banner')}
+                data-tip={t('Remove banner')}
+                onClick={() => void removeImage('banner')}
+              >
+                <I.Close size={14} />
+              </button>
+            </Show>
+          </div>
+          <div class="profile-avatar edit-avatar-wrap">
+            <label class="edit-avatar">
+              <Avatar user={me()} size={84} />
+              <span class="edit-overlay round">
+                <I.Photo size={20} />
+                <small>{t('Change')}</small>
+              </span>
+              <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pick('avatar', e.currentTarget)} />
+            </label>
+            <Show when={me().avatar}>
+              <button
+                class="edit-remove"
+                aria-label={t('Remove picture')}
+                data-tip={t('Remove picture')}
+                onClick={() => void removeImage('avatar')}
+              >
+                <I.Close size={14} />
+              </button>
+            </Show>
+          </div>
           <div class="profile-body">
             <h3>{preview().display_name || me().username}</h3>
             <div class="profile-username">{me().username}</div>
@@ -779,41 +807,29 @@ function ProfilePage() {
             </Show>
           </div>
         </div>
+        <small class="muted edit-hint">
+          {t('Click your picture or banner to change it. PNG, JPG, GIF or WebP; GIFs stay animated.')}
+        </small>
+        <Show when={(recent() ?? []).length > 1}>
+          <div class="field-label">{t('Recent pictures')}</div>
+          <div class="avatar-history" aria-label={t('Recent pictures')}>
+            <For each={recent()}>
+              {(url) => (
+                <button
+                  class="avatar-history-item"
+                  classList={{ current: url === me().avatar }}
+                  title={t('Use this picture')}
+                  aria-label={t('Use this picture')}
+                  disabled={url === me().avatar}
+                  onClick={() => void restore(url)}
+                >
+                  <img src={media(url)} alt="" loading="lazy" />
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <div class="image-slots">
-          <ImageSlot
-            label={t('Picture')}
-            info={t('PNG, JPG, GIF or WebP. You can crop and resize it before saving.')}
-            has={!!me().avatar}
-            accept={IMAGE_TYPES}
-            onPick={(i) => pick('avatar', i)}
-            onRemove={() => void removeImage('avatar')}
-          >
-            <Show when={(recent() ?? []).length > 1}>
-              <div class="avatar-history" aria-label={t('Recent pictures')}>
-                <For each={recent()}>
-                  {(url) => (
-                    <button
-                      class="avatar-history-item"
-                      classList={{ current: url === me().avatar }}
-                      title={t('Use this picture')}
-                      aria-label={t('Use this picture')}
-                      disabled={url === me().avatar}
-                      onClick={() => void restore(url)}
-                    >
-                      <img src={media(url)} alt="" loading="lazy" />
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </ImageSlot>
-          <ImageSlot
-            label={t('Banner')}
-            has={!!me().banner}
-            accept={IMAGE_TYPES}
-            onPick={(i) => pick('banner', i)}
-            onRemove={() => void removeImage('banner')}
-          />
           <ImageSlot
             label={t('Nameplate')}
             info={t('Shown behind your name in the member list, faded on the right side.')}

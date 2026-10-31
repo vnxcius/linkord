@@ -32,7 +32,7 @@ export function friendItems(userId: string): MenuEntry[] {
     });
   else if (rel === Rel.Outgoing)
     items.push({ label: t('Cancel Friend Request'), run: () => attempt(() => removeRelationship(userId)) });
-  else if (rel !== Rel.Blocked)
+  else if (rel !== Rel.Blocked && !state.users[userId]?.bot)
     items.push({
       label: t('Add Friend'),
       icon: () => <I.UserPlus size={16} />,
@@ -315,7 +315,7 @@ export function ProfilePopout() {
                   <button class="btn primary" onClick={() => (close(), void attempt(() => openDm(u().id)))}>
                     {t('Message')}
                   </button>
-                  <Show when={rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
+                  <Show when={!u().bot && rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
                     <button
                       class="btn"
                       title={rel() === Rel.Incoming ? t('Accept friend request') : t('Add friend')}
@@ -404,7 +404,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                   <button class="btn primary" onClick={() => (close(), void attempt(() => openDm(u().id)))}>
                     {t('Message')}
                   </button>
-                  <Show when={rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
+                  <Show when={!u().bot && rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
                     <button
                       class="btn"
                       onClick={() =>

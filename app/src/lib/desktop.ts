@@ -16,12 +16,20 @@ export const isWindows = navigator.userAgent.includes('Windows');
 export interface PendingUpdate {
   version: string;
   notes?: string;
-  install: () => Promise<void>;
+  /** Downloads (progress 0-1), installs and restarts. */
+  install: (onProgress?: (fraction: number) => void) => Promise<void>;
 }
 
 const [update, setUpdate] = createSignal<PendingUpdate | null>(null);
 const [updating, setUpdating] = createSignal(false);
-export { update, updating };
+/** Updating by itself right after launch, before you start using the app (download progress 0-1). */
+const [launchUpdate, setLaunchUpdate] = createSignal<{ version: string; progress: number } | null>(null);
+export { launchUpdate, update, updating };
+
+/** Set for the life of the window, so a reload isn't mistaken for a launch. */
+const LAUNCHED = 'linkord.launched';
+/** An update found later than this after launch waits for the banner: you may be using the app by then. */
+const LAUNCH_WINDOW = 15_000;
 
 /** Tray icon state, like Discord's: a green ring while you talk, red when muted or deafened. */
 function trayState(): string {
@@ -95,7 +103,17 @@ export async function initDesktop() {
     );
   });
 
-  void checkForUpdates();
+  // At launch (not a reload of the window) an update installs right away; once the app is in use, the banner
+  // offers it instead.
+  let launch = false;
+  try {
+    launch = !sessionStorage.getItem(LAUNCHED);
+    sessionStorage.setItem(LAUNCHED, '1');
+  } catch {}
+  const started = Date.now();
+  void checkForUpdates().then((found) => {
+    if (found && launch && Date.now() - started < LAUNCH_WINDOW && !voiceUi.channelId) void installAtLaunch();
+  });
   setInterval(checkForUpdates, 30 * 60_000);
   initGames();
 }
@@ -109,10 +127,18 @@ export async function checkForUpdates(): Promise<boolean> {
     setUpdate({
       version: u.version,
       notes: u.body,
-      install: async () => {
+      install: async (onProgress) => {
         setUpdating(true);
         try {
-          await u.downloadAndInstall();
+          let total = 0;
+          let done = 0;
+          await u.downloadAndInstall((e) => {
+            if (e.event === 'Started') total = e.data.contentLength ?? 0;
+            else if (e.event === 'Progress') {
+              done += e.data.chunkLength;
+              if (total) onProgress?.(Math.min(1, done / total));
+            } else onProgress?.(1);
+          });
           const { relaunch } = await import('@tauri-apps/plugin-process');
           await relaunch();
         } finally {
@@ -124,6 +150,19 @@ export async function checkForUpdates(): Promise<boolean> {
   } catch (e) {
     console.warn('update check failed', e);
     return false;
+  }
+}
+
+async function installAtLaunch() {
+  const u = update();
+  if (!u) return;
+  setLaunchUpdate({ version: u.version, progress: 0 });
+  try {
+    await u.install((progress) => setLaunchUpdate({ version: u.version, progress }));
+  } catch (e) {
+    // The banner still offers it.
+    console.warn('update at launch failed', e);
+    setLaunchUpdate(null);
   }
 }
 

@@ -5,7 +5,7 @@ import { Portal } from 'solid-js/web';
 import { selectChannel } from '../lib/actions';
 import { t } from '../lib/i18n';
 import { nameOf } from '../lib/store';
-import { attempt, toast } from '../lib/ui';
+import { attempt, isMobile, toast } from '../lib/ui';
 import { voiceUi } from '../lib/voice';
 import { controlWatch, embedSrc, expectedPosition, startWatch, stopWatch, watches, YouTubeSync } from '../lib/watch';
 import * as I from './Icons';
@@ -16,8 +16,12 @@ const PROVIDERS = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' } as cons
 const [opened, setOpened] = createSignal<Record<string, boolean>>({});
 /** Channels where the video fills the call (people hidden under it). */
 const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
+/** Channels in theater mode: the video fills the call and the channel list is hidden too. */
+const [theater, setTheater] = createSignal<Record<string, boolean>>({});
+const showing = (channelId: string) => !!opened()[channelId] && !!watches[channelId] && voiceUi.channelId === channelId;
+export const watchTheater = (channelId: string) => !!theater()[channelId] && showing(channelId);
 export const watchExpanded = (channelId: string) =>
-  !!expanded()[channelId] && !!opened()[channelId] && !!watches[channelId] && voiceUi.channelId === channelId;
+  (!!expanded()[channelId] || !!theater()[channelId]) && showing(channelId);
 /** Where the player sits in the call view, when the call view is on screen. */
 const [slot, setSlot] = createSignal<HTMLElement | null>(null);
 /** The Document Picture-in-Picture window the player was popped out to. */
@@ -197,7 +201,8 @@ export function WatchCard(p: { channelId: string; guildId?: string | null }) {
   const w = () => watches[p.channelId];
   const inCall = () => voiceUi.channelId === p.channelId;
   const open = () => !!opened()[p.channelId];
-  const big = () => !!expanded()[p.channelId];
+  const big = () => !!expanded()[p.channelId] || theaterOn();
+  const theaterOn = () => !!theater()[p.channelId];
   return (
     <Show when={w()}>
       {(watch) => (
@@ -254,10 +259,25 @@ export function WatchCard(p: { channelId: string; guildId?: string | null }) {
                   classList={{ on: big() }}
                   data-tip={big() ? t('Show people') : t('Hide people')}
                   aria-label={big() ? t('Show people') : t('Hide people')}
-                  onClick={() => setExpanded({ ...expanded(), [p.channelId]: !big() })}
+                  onClick={() => {
+                    // Showing people again also leaves theater mode.
+                    if (big()) setTheater({ ...theater(), [p.channelId]: false });
+                    setExpanded({ ...expanded(), [p.channelId]: !big() });
+                  }}
                 >
                   <I.Users size={16} />
                 </button>
+                <Show when={!isMobile()}>
+                  <button
+                    class="vp-btn"
+                    classList={{ on: theaterOn() }}
+                    data-tip={theaterOn() ? t('Exit theater mode') : t('Theater mode')}
+                    aria-label={theaterOn() ? t('Exit theater mode') : t('Theater mode')}
+                    onClick={() => setTheater({ ...theater(), [p.channelId]: !theaterOn() })}
+                  >
+                    <I.Theater size={16} />
+                  </button>
+                </Show>
                 <button
                   class="vp-btn"
                   data-tip={t('Fullscreen')}

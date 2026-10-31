@@ -14,6 +14,8 @@ export interface User {
   status?: Status;
   /** Bot account (Kass, the music bot): BOT tag, answers slash commands. */
   bot?: boolean;
+  /** Only on your own user: you signed up with a taken username and must pick another. */
+  needs_username?: boolean;
 }
 
 export const enum Kind {

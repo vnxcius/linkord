@@ -91,6 +91,9 @@ async fn send_request(st: &AppState, me: Id, target: Id) -> ApiResult<()> {
     if target == me {
         return Err(bad("you can't add yourself"));
     }
+    if User::get(&st.db, target).await?.bot {
+        return Err(bad("bots can't be friends"));
+    }
     match kind_of(&st.db, me, target).await? {
         Some(FRIEND) => return Err(bad("you're already friends")),
         Some(BLOCKED) => return Err(bad("unblock this user first")),

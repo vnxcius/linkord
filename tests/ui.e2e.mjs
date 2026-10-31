@@ -117,6 +117,32 @@ await step('nameplates: a WebM default plays behind your name in everyone\'s mem
   await shot(b.page, 'e2e-nameplate-video');
 });
 
+await step('profile: click the picture to set a GIF (stays animated), × removes it; change the username in My Account', async () => {
+  const gif = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=200x150:rate=10', '-t', '1', '-f', 'gif', 'pipe:1']);
+  await a.page.click('[aria-label="Settings"]');
+  await a.page.click('.settings-nav button:has-text("Profile")');
+  // Only the nameplate keeps an upload row; the picture and banner are changed by clicking them.
+  assert.equal(await a.page.locator('.image-slot').count(), 1);
+  await a.page.locator('.edit-avatar input[type=file]').setInputFiles({ name: 'a.gif', mimeType: 'image/gif', buffer: gif });
+  await a.page.waitForSelector('.img-editor:has-text("GIFs stay animated")');
+  await a.page.click('.img-editor .btn.primary');
+  await a.page.waitForSelector('.img-editor', { state: 'detached', timeout: 15000 });
+  await a.page.waitForSelector('.edit-avatar img[src$=".webp"]');
+  await shot(a.page, 'e2e-profile-gif');
+  await a.page.click('.edit-avatar-wrap .edit-remove');
+  await a.page.waitForSelector('.edit-avatar-wrap .edit-remove', { state: 'detached' });
+
+  await a.page.click('.settings-nav button:has-text("My Account")');
+  const renamed = `${a.name}_x`;
+  for (const name of [renamed, a.name]) {
+    await a.page.click('.username-row button:has-text("Edit")');
+    await a.page.fill('.username-input input', name);
+    await a.page.click('.username-form button.primary');
+    await a.page.waitForSelector(`.account-names span:text-is("@${name}")`);
+  }
+  await a.page.click('.settings-close');
+});
+
 await step('messages, link preview, reactions via context menu', async () => {
   await a.page.fill('.composer textarea', 'Map of the ruins https://example.com');
   await a.page.keyboard.press('Enter');
@@ -593,7 +619,7 @@ await step('voice: both connect, hear each other, mute, per-user volume', async 
   // Aria's tone reaches Bram.
   await b.page.waitForSelector(`.voice-tile.speaking:has-text("${a.name}")`, { timeout: 8000 });
   // Aria heard Bram join: the join sound file was loaded and decoded.
-  await a.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/join[^/]*\.mp3/.test(e.name)), null, { timeout: 5000 });
+  await a.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/join[^/]*\.(mp3|wav)/.test(e.name)), null, { timeout: 5000 });
   // Bram's RNNoise is running and keeps the tone (not speech) from opening his mic.
   await b.page.click('[aria-label="Settings"]');
   await b.page.click('.settings-nav button:has-text("Voice & Video")');
@@ -668,6 +694,40 @@ await step('voice channel status: set it from the header; everyone sees it under
   await b.page.keyboard.press('Enter');
   await a.page.waitForSelector('.voice-status-line', { state: 'detached' });
   await a.page.waitForSelector('.chat-header .voice-status-btn.empty');
+});
+
+await step('voice channel: hide the channel list from the header; watch together theater mode hides it too', async () => {
+  const navShown = () => a.page.locator('.nav-pane').isVisible();
+  await a.page.click('.chat-header [aria-label="Hide channel list"]');
+  await a.page.waitForSelector('.layout.nav-hidden .nav-pane', { state: 'hidden' });
+  await a.page.click('.chat-header [aria-label="Show channel list"]');
+  await a.page.waitForSelector('.nav-pane', { state: 'visible' });
+
+  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const channelId = a.page.url().split('/').pop();
+  const watch = (method, body) =>
+    fetch(`${BASE}/api/channels/${channelId}/watch`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  assert.equal((await watch('PUT', { url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' })).status, 200);
+  await a.page.click('.watch-invite button:has-text("Watch together")');
+  await a.page.click('.watch-bar [aria-label="Theater mode"]');
+  await a.page.waitForSelector('.watch-party.expanded');
+  await a.page.waitForSelector('.nav-pane', { state: 'hidden' });
+  // The header's own button steps aside while theater mode has the list hidden.
+  assert.equal(await a.page.locator('.chat-header [aria-label="Show channel list"]').count(), 0);
+  await shot(a.page, 'e2e-watch-theater');
+  await a.page.click('.watch-bar [aria-label="Exit theater mode"]');
+  await a.page.waitForSelector('.nav-pane', { state: 'visible' });
+  assert.ok(await navShown());
+  // The soundboard from the voice panel reaches over the player: it must draw on top of it.
+  await a.page.click('.dock .soundboard-toggle');
+  const box = await a.page.locator('.soundboard').boundingBox();
+  const player = await a.page.locator('.watch-host').boundingBox();
+  const [x, y] = [box.x + box.width - 10, Math.max(box.y, player.y) + 20];
+  assert.ok(x > player.x, 'the soundboard should overlap the player in this layout');
+  assert.ok(await a.page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.soundboard'), [x, y]), 'soundboard is under the player');
+  await a.page.keyboard.press('Escape');
+  await watch('DELETE');
+  await a.page.waitForSelector('.watch-party', { state: 'detached' });
 });
 
 await step('keybinds: Ctrl+Shift+M toggles mute; a recorded push-to-talk key opens the mic only while held', async () => {
@@ -979,6 +1039,31 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
   assert.equal(await pg.evaluate(() => JSON.parse(localStorage.getItem('linkord.prefs')).language), 'en');
   await pg.click('.lang-row:has-text("System default")');
   await pg.waitForSelector('.settings-content h1:text("Idioma")');
+  await ctx.close();
+});
+
+await step('logs page: an admin sees new lines appear live', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+  if (TIMEOUT) ctx.setDefaultTimeout(TIMEOUT);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(`logadmin: ${e.message}`));
+  await page.goto(BASE);
+  await page.fill('.dev-login input', 'logadmin');
+  await page.click('.dev-login button');
+  await page.waitForSelector('.layout');
+  await page.goto(`${BASE}/logs`);
+  await page.waitForSelector('.logs-live.on');
+  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const report = () =>
+    fetch(`${BASE}/api/logs/client`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ level: 'warn', message: `ui live ${run}` }) });
+  // The page may still be connecting: report until a line shows up, without reloading.
+  for (let i = 0; ; i++) {
+    await report();
+    const seen = await page.waitForSelector(`.log-row.fresh:has-text("ui live ${run}")`, { timeout: 1500 }).catch(() => null);
+    if (seen) break;
+    assert.ok(i < 8, 'no live line arrived');
+  }
+  await shot(page, 'e2e-logs-live');
   await ctx.close();
 });
 

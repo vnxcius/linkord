@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgPool};
 use crate::error::{ApiError, ApiResult};
 use crate::id::Id;
 
-pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, status, bot";
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, status, bot, needs_username";
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct User {
@@ -23,6 +23,9 @@ pub struct User {
     /// The user's chosen status. Only sent to the user themselves; others see presence.
     #[serde(skip)]
     pub status: String,
+    /// Signed up with a username someone else had: must pick another (only sent to the user themselves).
+    #[serde(skip)]
+    pub needs_username: bool,
 }
 
 /// Same as [`User`] but includes the private status field (for the user's own client).
@@ -31,11 +34,12 @@ pub struct SelfUser<'a> {
     #[serde(flatten)]
     pub user: &'a User,
     pub status: &'a str,
+    pub needs_username: bool,
 }
 
 impl User {
     pub fn me(&self) -> SelfUser<'_> {
-        SelfUser { user: self, status: &self.status }
+        SelfUser { user: self, status: &self.status, needs_username: self.needs_username }
     }
 
     pub async fn get(db: &PgPool, id: Id) -> ApiResult<User> {

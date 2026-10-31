@@ -1,7 +1,9 @@
 // Crop / zoom / rotate dialog for profile pictures and banners. The picture is only uploaded when the user
 // confirms; it is cropped and compressed here (WebP, no larger than needed), so what the preview shows is
-// exactly what gets sent. Animated nameplates (GIF or WebM video) are the exception: a canvas would keep only the
-// first frame, so they are sent as they are and the member card crops them when shown.
+// exactly what gets sent. Animated pictures are the exception, since a canvas would keep only the first frame:
+// GIF pictures and banners are framed here as usual (the preview plays them) but the original is sent with the
+// crop, and the server cuts it, still animated; animated nameplates (GIF or WebM video) are sent as they are and
+// the member card crops them when shown.
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { uploadForm } from '../lib/api';
@@ -22,6 +24,8 @@ const SPEC = {
 };
 /** What the server accepts for an animated nameplate (sent uncropped). */
 const MAX_ANIMATED = 3 * 1024 * 1024;
+/** What the server accepts for a GIF picture or banner (the original, cropped there). */
+const MAX_GIF = 15 * 1024 * 1024;
 const MAX_SOURCE = 40 * 1024 * 1024;
 const MAX_ZOOM = 5;
 
@@ -36,7 +40,12 @@ export function ImageEditor(p: Props) {
   const spec = SPEC[p.kind];
   const video = p.kind === 'nameplate' && p.file.type === 'video/webm';
   const animated = video || (p.kind === 'nameplate' && p.file.type === 'image/gif');
-  const max = animated ? MAX_ANIMATED : spec.max;
+  /** A GIF picture or banner: framed here, cropped by the server. */
+  const gif = p.kind !== 'nameplate' && p.file.type === 'image/gif';
+  const max = animated ? MAX_ANIMATED : gif ? MAX_GIF : spec.max;
+  /** The GIF frame on show (WebCodecs' ImageDecoder plays it); null draws the first frame. */
+  let frame: (CanvasImageSource & { close(): void }) | null = null;
+  const [tick, setTick] = createSignal(0);
   const [src, setSrc] = createSignal<string>();
   const [img, setImg] = createSignal<HTMLImageElement>();
   /** A WebM nameplate has no picture to frame; it's ready once the browser can play it. */
@@ -67,6 +76,9 @@ export function ImageEditor(p: Props) {
     }
     if (animated && p.file.size > MAX_ANIMATED)
       return setLoadError(t('Animated nameplates must be under {size}.', { size: formatSize(MAX_ANIMATED) }));
+    if (gif && p.file.size > MAX_GIF)
+      return setLoadError(t('GIFs must be under {size}.', { size: formatSize(MAX_GIF) }));
+    if (gif) void playGif();
     const url = URL.createObjectURL(p.file);
     setSrc(url);
     onCleanup(() => URL.revokeObjectURL(url));
@@ -84,6 +96,36 @@ export function ImageEditor(p: Props) {
     el.src = url;
   });
   onCleanup(() => abort?.abort());
+
+  /** Plays the GIF in the stage and previews, frame by frame, until the editor closes. */
+  async function playGif() {
+    const Decoder = (window as unknown as { ImageDecoder?: any }).ImageDecoder;
+    if (!Decoder) return;
+    let stopped = false;
+    const decoder = new Decoder({ data: p.file.stream(), type: 'image/gif' });
+    onCleanup(() => {
+      stopped = true;
+      decoder.close();
+      frame?.close();
+      frame = null;
+    });
+    try {
+      await decoder.completed;
+      const count: number = decoder.tracks.selectedTrack?.frameCount ?? 1;
+      for (let i = 0; count > 1 && !stopped; i = (i + 1) % count) {
+        const { image } = await decoder.decode({ frameIndex: i });
+        if (stopped) return image.close();
+        const old = frame;
+        frame = image;
+        setTick((n) => n + 1);
+        old?.close();
+        // VideoFrame durations are in microseconds; GIFs without a delay play at 10 fps, like browsers do.
+        await new Promise((r) => setTimeout(r, Math.max(20, (image.duration || 100_000) / 1000)));
+      }
+    } catch {
+      // The first frame stays on show.
+    }
+  }
 
   /** Source size after rotation, and the scale at which it just covers the frame. */
   const dims = createMemo(() => {
@@ -114,12 +156,13 @@ export function ImageEditor(p: Props) {
     ctx.rotate((rot() * Math.PI) / 180);
     const s = d.cover * zoom() * k;
     ctx.scale(s, s);
-    ctx.drawImage(i, -i.naturalWidth / 2, -i.naturalHeight / 2);
+    ctx.drawImage(frame ?? i, -i.naturalWidth / 2, -i.naturalHeight / 2, i.naturalWidth, i.naturalHeight);
     ctx.restore();
   };
 
   createEffect(() => {
     if (!img()) return;
+    tick();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     stage.width = spec.w * dpr;
     stage.height = spec.h * dpr;
@@ -146,7 +189,7 @@ export function ImageEditor(p: Props) {
 
   /** Crops and compresses. Never larger than the source resolution, and shrunk until it fits the server's limit. */
   const encode = async (): Promise<Blob> => {
-    if (animated) return p.file;
+    if (animated || gif) return p.file;
     const d = dims()!;
     const srcScale = d.cover * zoom(); // frame px per source px
     const k = Math.min(spec.outW / spec.w, 1 / srcScale, 4);
@@ -172,6 +215,19 @@ export function ImageEditor(p: Props) {
     return blob;
   };
 
+  /** The framed part of a GIF, in source pixels after rotation (the server crops it the same way). */
+  const crop = () => {
+    const d = dims()!;
+    const s = d.cover * zoom();
+    return {
+      x: Math.max(0, Math.round(d.w / 2 - (spec.w / 2 + pos().x) / s)),
+      y: Math.max(0, Math.round(d.h / 2 - (spec.h / 2 + pos().y) / s)),
+      w: Math.round(spec.w / s),
+      h: Math.round(spec.h / s),
+      rotate: rot(),
+    };
+  };
+
   const save = async () => {
     setError(undefined);
     setProgress(0);
@@ -181,7 +237,8 @@ export function ImageEditor(p: Props) {
       const blob = await encode();
       if (blob.size > max) throw new Error(t('That image is still too big after compressing. Try a smaller one.'));
       const fd = new FormData();
-      const ext = video ? 'webm' : animated ? 'gif' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+      if (gif) fd.append('crop', JSON.stringify(crop()));
+      const ext = video ? 'webm' : animated || gif ? 'gif' : blob.type === 'image/webp' ? 'webp' : 'jpg';
       fd.append('file', blob, `${p.kind}.${ext}`);
       setPhase('upload');
       await uploadForm(
@@ -331,7 +388,14 @@ export function ImageEditor(p: Props) {
                     <canvas ref={(c) => (preview2 = c)} />
                   </div>
                 </Show>
-                <Show when={estimate() != null} fallback={<small class="muted">{t('Measuring…')}</small>}>
+                <Show
+                  when={!gif && estimate() != null}
+                  fallback={
+                    <Show when={!gif}>
+                      <small class="muted">{t('Measuring…')}</small>
+                    </Show>
+                  }
+                >
                   <small class="muted">
                     {t('Will be sent as {size} (original {original})', {
                       size: formatSize(estimate()!),
@@ -343,7 +407,7 @@ export function ImageEditor(p: Props) {
                   <small class="muted">
                     {animated
                       ? t('Animated nameplates are saved as they are: no cropping, zoom or rotation.')
-                      : t('Animated pictures are saved as a still image.')}
+                      : t('GIFs stay animated. The server crops them after you save, so it takes a moment longer.')}
                   </small>
                 </Show>
               </div>

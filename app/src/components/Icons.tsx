@@ -123,6 +123,18 @@ export const Speaker = heroSolid(speakerWaveSolid);
 export const ChatBubble = heroSolid(chatBubbleOvalSolid);
 export const Phone = hero(phone);
 export const Tv = hero(tv);
+/** A window with its left column marked: show or hide the channel list. */
+export const Sidebar = icon(
+  path(
+    'M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v10.5A2.25 2.25 0 0 1 18 19.5H6a2.25 2.25 0 0 1-2.25-2.25V6.75Z',
+  ) + path('M9 4.5v15'),
+);
+/** Theater mode: a wide screen. */
+export const Theater = icon(
+  path(
+    'M2.25 9a1.5 1.5 0 0 1 1.5-1.5h16.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5V9Z',
+  ),
+);
 export const Music = hero(musicalNote);
 /** Group DM owner: a crown on Heroicons' grid. */
 export const Crown = icon(path('M3.75 18.75h16.5M4.5 15.75 3 6.75l5.25 4.5L12 4.5l3.75 6.75L21 6.75l-1.5 9H4.5Z'));

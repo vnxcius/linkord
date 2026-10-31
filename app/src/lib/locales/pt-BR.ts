@@ -394,11 +394,19 @@ export const UI: Record<string, string> = {
   'Change banner': 'Trocar banner',
   'Add banner': 'Adicionar banner',
   Change: 'Trocar',
-  'PNG, JPG, GIF or WebP. You can crop and resize it before saving.':
-    'PNG, JPG, GIF ou WebP. Você pode cortar e redimensionar antes de salvar.',
-  Picture: 'Foto',
-  Banner: 'Banner',
   'Recent pictures': 'Fotos recentes',
+  'Remove banner': 'Remover banner',
+  'Remove picture': 'Remover foto',
+  'Click your picture or banner to change it. PNG, JPG, GIF or WebP; GIFs stay animated.':
+    'Clique na sua foto ou no banner para trocar. PNG, JPG, GIF ou WebP; GIFs continuam animados.',
+  'Usernames are 2 to 32 characters.': 'Nomes de usuário têm de 2 a 32 caracteres.',
+  'Use only lowercase letters, numbers, _ and .': 'Use só letras minúsculas, números, _ e .',
+  'No two dots in a row.': 'Sem dois pontos seguidos.',
+  'Username changed': 'Nome de usuário alterado',
+  Continue: 'Continuar',
+  'Pick a username': 'Escolha um nome de usuário',
+  'Someone on Linkord already has your Discord username, so your account got a stand-in. Pick the name people will find you by; you can change it later in Settings.':
+    'Alguém no Linkord já tem o seu nome de usuário do Discord, então sua conta ganhou um provisório. Escolha o nome pelo qual as pessoas vão te encontrar; dá para mudar depois nas Configurações.',
   Nameplate: 'Plaquinha',
   'Shown behind your name in the member list, faded on the right side.':
     'Aparece atrás do seu nome na lista de membros, esmaecida no lado direito.',
@@ -427,7 +435,9 @@ export const UI: Record<string, string> = {
   'Animated nameplates must be under {size}.': 'Plaquinhas animadas precisam ter menos de {size}.',
   'Animated nameplates are saved as they are: no cropping, zoom or rotation.':
     'Plaquinhas animadas são salvas como estão: sem recorte, zoom ou rotação.',
-  'Animated pictures are saved as a still image.': 'Imagens animadas são salvas como imagem estática.',
+  'GIFs stay animated. The server crops them after you save, so it takes a moment longer.':
+    'GIFs continuam animados. O servidor recorta depois que você salva, então demora um pouco mais.',
+  'GIFs must be under {size}.': 'GIFs precisam ter menos de {size}.',
   Zoom: 'Zoom',
   Rotate: 'Girar',
   'Cancel upload': 'Cancelar envio',
@@ -1110,6 +1120,11 @@ export const UI: Record<string, string> = {
   Everything: 'Tudo',
   'Search the logs': 'Buscar nos logs',
   'Nothing logged here.': 'Nada registrado aqui.',
+  Live: 'Ao vivo',
+  Paused: 'Pausado',
+  'New lines appear as they happen. Click to pause.': 'As linhas novas aparecem na hora. Clique para pausar.',
+  'Paused. Click to follow new lines.': 'Pausado. Clique para acompanhar as linhas novas.',
+  'Updating to Linkord {version}…': 'Atualizando para o Linkord {version}…',
   'Older lines': 'Linhas mais antigas',
   '{name} joined the party.': '{name} entrou na party.',
   '{name} just showed up!': '{name} acabou de aparecer!',
@@ -1235,6 +1250,10 @@ export const UI: Record<string, string> = {
   'Back to the call': 'Voltar para a chamada',
   'Show people': 'Mostrar pessoas',
   'Hide people': 'Esconder pessoas',
+  'Theater mode': 'Modo teatro',
+  'Exit theater mode': 'Sair do modo teatro',
+  'Show channel list': 'Mostrar lista de canais',
+  'Hide channel list': 'Esconder lista de canais',
   'Everyone is muted in the AFK channel': 'Todo mundo fica silenciado no canal AFK',
   Spellcheck: 'Corretor ortográfico',
   'Underlines misspelled words in the message box; right-click one for suggestions.':
@@ -1263,6 +1282,13 @@ export const UI: Record<string, string> = {
 /** Error messages from the server (server/src), shown as they arrive. */
 export const SERVER: Record<string, string> = {
   'unknown nameplate': 'plaquinha desconhecida',
+  "bots can't be friends": 'bots não podem ser amigos',
+  "couldn't read that GIF": 'não deu para ler esse GIF',
+  'invalid crop': 'recorte inválido',
+  'that GIF took too long to process; try a shorter one': 'esse GIF demorou demais para processar; tente um mais curto',
+  'that GIF is too big even after shrinking it; try a shorter one':
+    'esse GIF ficou grande demais mesmo depois de reduzido; tente um mais curto',
+  'that username is taken': 'esse nome de usuário já está em uso',
   'that picture is no longer available': 'essa foto não está mais disponível',
   'join the voice channel to set its status': 'entre no canal de voz para definir o status dele',
   'status must be at most 500 characters': 'o status pode ter no máximo 500 caracteres',

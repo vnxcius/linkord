@@ -29,8 +29,18 @@ import { isPrivate, Kind } from '../lib/types';
 import { canSendVideo, voiceUi } from '../lib/voice';
 import { prefs, setPrefs } from '../lib/prefs';
 import { watches } from '../lib/watch';
-import { watchExpanded } from './Watch';
-import { attempt, focusComposer, isNarrow, openMenu, openProfile, setUi, ui, type MenuEntry } from '../lib/ui';
+import { watchExpanded, watchTheater } from './Watch';
+import {
+  attempt,
+  focusComposer,
+  isMobile,
+  isNarrow,
+  openMenu,
+  openProfile,
+  setUi,
+  ui,
+  type MenuEntry,
+} from '../lib/ui';
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import { Members } from './Members';
@@ -178,6 +188,18 @@ export function ChatHeader(p: { channel: Channel }) {
         </Show>
         <Show when={p.channel.kind !== Kind.Voice}>
           <SearchBox channel={p.channel} />
+        </Show>
+        {/* Theater mode hides the list by itself; its own button brings it back. */}
+        <Show when={p.channel.kind === Kind.Voice && !isMobile() && !watchTheater(p.channel.id)}>
+          <button
+            class="icon-btn"
+            classList={{ on: prefs.voiceNavCollapsed }}
+            aria-label={prefs.voiceNavCollapsed ? t('Show channel list') : t('Hide channel list')}
+            data-tip={prefs.voiceNavCollapsed ? t('Show channel list') : t('Hide channel list')}
+            onClick={() => setPrefs({ voiceNavCollapsed: !prefs.voiceNavCollapsed })}
+          >
+            <I.Sidebar size={20} />
+          </button>
         </Show>
       </div>
     </header>

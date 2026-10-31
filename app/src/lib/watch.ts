@@ -36,8 +36,10 @@ export function expectedPosition(w: Watch): number {
 }
 
 export const startWatch = (channelId: string, url: string) => api('PUT', `/channels/${channelId}/watch`, { url });
-export const controlWatch = (channelId: string, patch: { playing?: boolean; position?: number; ended?: boolean }) =>
-  api('PATCH', `/channels/${channelId}/watch`, patch).catch(() => {});
+export const controlWatch = (
+  channelId: string,
+  patch: { playing?: boolean; position?: number; ended?: boolean; live?: boolean },
+) => api('PATCH', `/channels/${channelId}/watch`, patch).catch(() => {});
 export const stopWatch = (channelId: string) => api('DELETE', `/channels/${channelId}/watch`);
 
 const hms = (s: number) => {
@@ -67,6 +69,8 @@ export class YouTubeSync {
   private state = -1;
   /** Length of the video once the player says (0 = not yet). */
   private duration = 0;
+  /** The player says it's a live stream (a watch?v= link doesn't tell the server), before the server knows too. */
+  private live = false;
   /** The player answered (it reports "unstarted", -1, until something plays). */
   private ready = false;
   private ours = 0;
@@ -99,6 +103,10 @@ export class YouTubeSync {
     this.post({ event: 'command', func, args, id: 1, channel: 'widget' });
   }
 
+  private isLive(w: Watch) {
+    return w.live || this.live;
+  }
+
   private current() {
     return this.state === 1 ? this.time + (Date.now() - this.timeAt) / 1000 : this.time;
   }
@@ -117,6 +125,11 @@ export class YouTubeSync {
     const w = this.watch();
     if (!w) return;
     if (m.event === 'infoDelivery' && m.info) {
+      // Live streams have no end and no shared position: tell everyone, once.
+      if (m.info.videoData?.isLive === true && !this.live) {
+        this.live = true;
+        if (!w.live) void controlWatch(this.channelId, { live: true });
+      }
       if (typeof m.info.duration === 'number' && m.info.duration > 0) this.duration = m.info.duration;
       if (typeof m.info.currentTime === 'number') {
         const expected = this.current();
@@ -126,7 +139,7 @@ export class YouTubeSync {
         // A seek in the player (not one we made): everyone goes there. Not the jump back to the start that
         // follows the end of the video, nor anything once it has ended.
         const atEnd = this.state === 0 || w.ended || (this.duration > 0 && expected >= this.duration - 1.5);
-        if (jumped && !atEnd && Date.now() > this.ours && !w.live) {
+        if (jumped && !atEnd && Date.now() > this.ours && !this.isLive(w)) {
           this.ours = Date.now() + 1500;
           void controlWatch(this.channelId, { position: this.time });
         }
@@ -141,12 +154,12 @@ export class YouTubeSync {
     const was = this.state;
     this.state = s;
     // Played to the end: everyone gets "Video ended" (reported once; the server ignores repeats).
-    if (s === 0 && !w.ended && !w.live) {
+    if (s === 0 && !w.ended && !this.isLive(w)) {
       void controlWatch(this.channelId, { ended: true, position: this.duration || this.current() });
       return;
     }
     // Leaving "unstarted" is the player catching up with us, not a choice.
-    if (s === was || was === -1 || Date.now() < this.ours || w.live) return;
+    if (s === was || was === -1 || Date.now() < this.ours || this.isLive(w)) return;
     if (s === 2 && w.playing) void controlWatch(this.channelId, { playing: false, position: this.current() });
     else if (s === 1 && !w.playing) void controlWatch(this.channelId, { playing: true, position: this.current() });
   }
@@ -156,18 +169,18 @@ export class YouTubeSync {
     const w = this.watch();
     if (!w || !this.ready) return;
     // Ended: stay on the last frame (the "Video ended" screen covers it) instead of following the clock.
-    if (w.ended) {
+    if (w.ended && !this.isLive(w)) {
       if (this.state === 1 || this.state === 3) this.command('pauseVideo');
       return;
     }
     // Joined after the end, or the clock ran past it: that's the end too.
-    if (w.playing && this.duration > 0 && expectedPosition(w) >= this.duration) {
+    if (!this.isLive(w) && w.playing && this.duration > 0 && expectedPosition(w) >= this.duration) {
       if (this.state !== 0) void controlWatch(this.channelId, { ended: true, position: this.duration });
       return;
     }
     if (w.playing && this.state !== 1 && this.state !== 3 && this.state !== 0) this.command('playVideo');
     if (!w.playing && (this.state === 1 || this.state === 3)) this.command('pauseVideo');
-    if (w.live) return;
+    if (this.isLive(w)) return;
     const target = expectedPosition(w);
     const drift = Math.abs(this.current() - target);
     if (drift > (w.playing ? 2 : 0.6)) {

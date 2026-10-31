@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use rand::RngCore;
+use sqlx::PgPool;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -45,15 +46,19 @@ pub async fn is_admin(st: &AppState, user: Id) -> bool {
     if st.cfg.admins.is_empty() {
         return false;
     }
-    let row: Option<(String, String)> = sqlx::query_as("SELECT username, discord_id FROM users WHERE id = $1 AND deleted_at IS NULL AND NOT bot")
-        .bind(user)
-        .fetch_optional(&st.db)
-        .await
-        .ok()
-        .flatten();
-    let Some((username, discord_id)) = row else { return false };
+    let row: Option<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT username, discord_id, discord_username FROM users WHERE id = $1 AND deleted_at IS NULL AND NOT bot")
+            .bind(user)
+            .fetch_optional(&st.db)
+            .await
+            .ok()
+            .flatten();
+    let Some((username, discord_id, discord_username)) = row else { return false };
     let id = user.to_string();
-    st.cfg.admins.iter().any(|a| *a == username || *a == discord_id || *a == id)
+    // Names are matched against the Discord username: Linkord usernames can be changed, so someone could take an
+    // admin's old one. (Dev-login accounts have no Discord username; they can't sign in when dev login is off.)
+    let name = discord_username.map(|n| n.to_lowercase()).or_else(|| discord_id.starts_with("dev:").then_some(username));
+    st.cfg.admins.iter().any(|a| Some(a) == name.as_ref() || *a == discord_id || *a == id)
 }
 
 /// Same as [`AuthUser`], for admins only.
@@ -223,20 +228,15 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
         .json()
         .await?;
 
-    let username = normalize_username(&du.username);
-    let (id, inserted): (Id, bool) = sqlx::query_as(
-        "INSERT INTO users (id, discord_id, username, display_name, accent_color, discord_username) VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (discord_id) DO UPDATE SET username = EXCLUDED.username, discord_username = EXCLUDED.discord_username
-         RETURNING id, (xmax = 0)",
-    )
-    .bind(Id::new())
-    .bind(&du.id)
-    .bind(&username)
-    .bind(&du.global_name)
-    .bind(du.accent_color)
-    .bind(&du.username)
-    .fetch_one(&st.db)
-    .await?;
+    let (id, inserted) = sign_up_or_in(&st.db, &du.id, &normalize_username(&du.username), Some(&du.username)).await?;
+    if inserted {
+        sqlx::query("UPDATE users SET display_name = $2, accent_color = $3 WHERE id = $1")
+            .bind(id)
+            .bind(&du.global_name)
+            .bind(du.accent_color)
+            .execute(&st.db)
+            .await?;
+    }
 
     // Profile pictures are copied from Discord once, on first login. After that the profile is linkord's own.
     if inserted {
@@ -264,6 +264,64 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
             .await?;
     }
     Ok(create_session(st, id).await?)
+}
+
+/// Someone other than `except` (deleted accounts don't count) already has this username.
+pub async fn username_taken(db: &PgPool, name: &str, except: Option<Id>) -> sqlx::Result<bool> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE username = $1 AND deleted_at IS NULL AND id IS DISTINCT FROM $2)")
+        .bind(name)
+        .bind(except)
+        .fetch_one(db)
+        .await
+}
+
+/// Finds or creates the account for `discord_id` -> (id, newly created). New accounts take `wanted` as their
+/// username; if someone has it, they get a free stand-in ("name_1234") and must pick their own (needs_username).
+/// Existing accounts follow their Discord username until they pick one in Linkord, as long as it's free.
+async fn sign_up_or_in(db: &PgPool, discord_id: &str, wanted: &str, discord_username: Option<&str>) -> sqlx::Result<(Id, bool)> {
+    let existing: Option<(Id, String, bool)> = sqlx::query_as("SELECT id, username, username_set FROM users WHERE discord_id = $1")
+        .bind(discord_id)
+        .fetch_optional(db)
+        .await?;
+    if let Some((id, username, set)) = existing {
+        let follow = !set && username != wanted && !username_taken(db, wanted, Some(id)).await?;
+        sqlx::query("UPDATE users SET username = $2, discord_username = COALESCE($3, discord_username) WHERE id = $1")
+            .bind(id)
+            .bind(if follow { wanted } else { username.as_str() })
+            .bind(discord_username)
+            .execute(db)
+            .await?;
+        return Ok((id, false));
+    }
+    let taken = username_taken(db, wanted, None).await?;
+    let username = if taken { stand_in(db, wanted).await? } else { wanted.to_string() };
+    let id: Id = sqlx::query_scalar(
+        "INSERT INTO users (id, discord_id, username, discord_username, needs_username) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (discord_id) DO UPDATE SET discord_username = EXCLUDED.discord_username RETURNING id",
+    )
+    .bind(Id::new())
+    .bind(discord_id)
+    .bind(&username)
+    .bind(discord_username)
+    .bind(taken)
+    .fetch_one(db)
+    .await?;
+    if taken {
+        tracing::info!(user = %id, "signed up with a taken username: asked to pick another");
+    }
+    Ok((id, true))
+}
+
+/// A free "name_1234" for a new account whose username is taken.
+async fn stand_in(db: &PgPool, base: &str) -> sqlx::Result<String> {
+    let mut base = base.to_string();
+    base.truncate(27);
+    loop {
+        let name = format!("{base}_{:04}", rand::thread_rng().next_u32() % 10_000);
+        if !username_taken(db, &name, None).await? {
+            return Ok(name);
+        }
+    }
 }
 
 /// Discord usernames already follow linkord's rules; this only guards against legacy names.
@@ -316,15 +374,7 @@ async fn dev_login(State(st): State<AppState>, ClientIp(ip): ClientIp, Json(body
     st.limits.check(format!("dev:{ip}"), 20.0, 1.0)?;
     let username = body.username.trim().to_string();
     validate_username(&username).map_err(bad)?;
-    let id: Id = sqlx::query_scalar(
-        "INSERT INTO users (id, discord_id, username) VALUES ($1, $2, $3)
-         ON CONFLICT (discord_id) DO UPDATE SET username = EXCLUDED.username RETURNING id",
-    )
-    .bind(Id::new())
-    .bind(format!("dev:{username}"))
-    .bind(&username)
-    .fetch_one(&st.db)
-    .await?;
+    let (id, _) = sign_up_or_in(&st.db, &format!("dev:{username}"), &username, None).await?;
     let token = create_session(&st, id).await?;
     Ok(Json(json!({ "token": token })))
 }

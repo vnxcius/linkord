@@ -5,8 +5,10 @@
 //! their first six digits ("109360…"), tokens, secrets, codes and passwords are dropped, query strings are
 //! removed from URLs, emails are hidden and IP addresses shortened. Message contents are never logged.
 //! Clients report their own errors to POST /logs/client (they go through the same redaction).
+//! GET /admin/logs/live streams new lines as they're written (server-sent events) for the page's live view.
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -16,7 +18,10 @@ use std::time::{Duration, Instant};
 use axum::extract::{Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
+use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::Response;
+use futures_util::Stream;
+use tokio::sync::broadcast;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use regex::Regex;
@@ -113,6 +118,12 @@ impl DailyFile {
     }
 }
 
+/// Every line as it's written (already redacted), for the live view.
+fn live() -> &'static broadcast::Sender<String> {
+    static LIVE: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+    LIVE.get_or_init(|| broadcast::channel(512).0)
+}
+
 /// A tracing layer that writes redacted JSON lines to the daily file.
 pub struct FileLayer {
     out: Mutex<DailyFile>,
@@ -155,9 +166,12 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         if !fields.0.is_empty() {
             line["fields"] = Value::Object(fields.0.into_iter().map(|(k, v)| (k, Value::String(redact(&v)))).collect());
         }
+        let line = line.to_string();
         if let Ok(mut out) = self.out.lock() {
-            out.write_line(&line.to_string());
+            out.write_line(&line);
         }
+        // No one watching is fine.
+        let _ = live().send(line);
     }
 }
 
@@ -217,6 +231,23 @@ pub fn routes() -> Router<AppState> {
         .route("/logs/client", post(client_log))
         .route("/admin/logs/days", get(days))
         .route("/admin/logs", get(read_day))
+        .route("/admin/logs/live", get(live_lines))
+}
+
+/// New lines as they're written, one JSON line per event; the page filters them like the day it shows.
+async fn live_lines(AdminUser(_): AdminUser) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    let stream = futures_util::stream::unfold(live().subscribe(), |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(line) => return Some((Ok(SseEvent::default().data(line)), rx)),
+                // A burst the page couldn't keep up with: those lines are still in the day's file.
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    // Cloudflare closes connections that stay quiet for 100 s.
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 #[derive(Deserialize)]

@@ -77,6 +77,7 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
 
 #[derive(Deserialize)]
 struct ProfileUpdate {
+    username: Option<String>,
     display_name: Option<String>,
     bio: Option<String>,
     status: Option<String>,
@@ -85,6 +86,22 @@ struct ProfileUpdate {
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<ProfileUpdate>) -> ApiResult<Json<serde_json::Value>> {
     let before = User::get(&st.db, me).await?;
+    if let Some(name) = body.username.as_deref().map(str::trim).filter(|n| *n != before.username) {
+        crate::models::validate_username(name).map_err(bad)?;
+        st.limits.check(format!("username:{me}"), 5.0, 1.0 / 600.0)?;
+        if crate::auth::username_taken(&st.db, name, Some(me)).await? {
+            return Err(bad("that username is taken"));
+        }
+        sqlx::query("UPDATE users SET username = $2, username_set = true, needs_username = false WHERE id = $1")
+            .bind(me)
+            .bind(name)
+            .execute(&st.db)
+            .await?;
+        tracing::info!(user = %me, "changed username");
+    } else if body.username.is_some() && before.needs_username {
+        // Keeping the stand-in name is a choice too.
+        sqlx::query("UPDATE users SET username_set = true, needs_username = false WHERE id = $1").bind(me).execute(&st.db).await?;
+    }
     if let Some(s) = &body.status {
         if !matches!(s.as_str(), "online" | "idle" | "dnd" | "invisible") {
             return Err(bad("invalid status"));
@@ -131,26 +148,63 @@ const MAX_BANNER: usize = 4 * 1024 * 1024;
 const MAX_NAMEPLATE: usize = 1024 * 1024;
 /// Animated (GIF or WebM video) nameplates are uploaded as they are, without the client's cropping and compression.
 const MAX_ANIMATED_NAMEPLATE: usize = 3 * 1024 * 1024;
+/// GIF pictures and banners: a canvas would keep only the first frame, so the client sends the original GIF and
+/// where to crop it, and the server crops and resizes it here (ffmpeg, kept animated as WebP).
+const MAX_GIF_SOURCE: usize = 15 * 1024 * 1024;
+const MAX_ANIMATED_AVATAR: usize = 4 * 1024 * 1024;
+const MAX_ANIMATED_BANNER: usize = 8 * 1024 * 1024;
+
+/// Where to crop a GIF, in source pixels after turning it `rotate` degrees clockwise (what the editor framed).
+#[derive(Deserialize, Default)]
+struct Crop {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    #[serde(default)]
+    rotate: i32,
+}
 
 async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp: Multipart, which: &'static str) -> ApiResult<Json<serde_json::Value>> {
-    let field = mp.next_field().await.map_err(|e| bad(e.body_text()))?.ok_or_else(|| bad("missing file"))?;
+    // A "crop" field (GIF pictures and banners) may come before the file.
+    let mut crop: Option<Crop> = None;
+    let field = loop {
+        let field = mp.next_field().await.map_err(|e| bad(e.body_text()))?.ok_or_else(|| bad("missing file"))?;
+        if field.name() == Some("crop") {
+            let text = field.text().await.map_err(|e| bad(e.body_text()))?;
+            crop = Some(serde_json::from_str(&text).map_err(|_| bad("invalid crop"))?);
+            continue;
+        }
+        break field;
+    };
     let ct = field.content_type().unwrap_or_default().to_string();
     let video = which == "nameplate" && ct == "video/webm";
+    let gif = which != "nameplate" && ct == "image/gif";
     if !uploads::is_image(&ct) && !video {
         return Err(bad("must be a png, jpeg, gif or webp image"));
     }
     // Clients show a nameplate as a video when its URL ends in .webm, so that name is ours to give.
-    let name = if video { "nameplate.webm".to_string() } else { field.file_name().unwrap_or("image").to_string() };
+    let name = if video {
+        "nameplate.webm".to_string()
+    } else if gif {
+        format!("{which}.webp")
+    } else {
+        field.file_name().unwrap_or("image").to_string()
+    };
     let limit = match which {
+        _ if gif => MAX_GIF_SOURCE,
         "avatar" => MAX_AVATAR,
         "nameplate" if ct == "image/gif" || video => MAX_ANIMATED_NAMEPLATE,
         "nameplate" => MAX_NAMEPLATE,
         _ => MAX_BANNER,
     };
-    let bytes = uploads::read_field(field, limit).await?;
+    let mut bytes = uploads::read_field(field, limit).await?;
     // WebM (Matroska) files start with the EBML magic number.
     if video && !bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
         return Err(bad("that file isn't a WebM video"));
+    }
+    if gif {
+        bytes = crop_gif(&st, &bytes, crop, which == "avatar").await?;
     }
     uploads::reserve(&st, me, bytes.len()).await?;
     let url = uploads::save(&st, &format!("{which}s/{me}"), &name, &bytes).await?;
@@ -167,6 +221,71 @@ async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp
     let after = User::get(&st.db, me).await?;
     notify_update(&st, &after).await?;
     Ok(Json(serde_json::to_value(after.me()).unwrap()))
+}
+
+/// Crops and resizes an animated GIF (avatar 1:1 up to 320 px, banner 3:1 up to 960 px) into an animated WebP,
+/// smaller and smaller until it fits.
+async fn crop_gif(st: &AppState, gif: &[u8], crop: Option<Crop>, avatar: bool) -> ApiResult<Vec<u8>> {
+    if !gif.starts_with(b"GIF8") {
+        return Err(bad("couldn't read that GIF"));
+    }
+    let (aspect, max_w, limit) = if avatar { (1.0, 320.0, MAX_ANIMATED_AVATAR) } else { (3.0, 960.0, MAX_ANIMATED_BANNER) };
+    let turn = match crop.as_ref().map(|c| c.rotate.rem_euclid(360)) {
+        Some(90) => "transpose=1,",
+        Some(180) => "hflip,vflip,",
+        Some(270) => "transpose=2,",
+        _ => "",
+    };
+    // The editor's frame, kept inside the picture (commas in expressions are escaped for the filter graph);
+    // without one, the largest centred frame.
+    let frame = match crop.filter(|c| [c.x, c.y, c.w, c.h].iter().all(|v| v.is_finite()) && c.w >= 1.0 && c.h >= 1.0) {
+        Some(c) => format!(
+            "crop=w=min({w}\\,iw):h=min({h}\\,ih):x=min({x}\\,iw-ow):y=min({y}\\,ih-oh)",
+            w = c.w.round(),
+            h = c.h.round(),
+            x = c.x.max(0.0).round(),
+            y = c.y.max(0.0).round()
+        ),
+        None => format!("crop=w=min(iw\\,ih*{aspect}):h=min(ih\\,iw/{aspect})"),
+    };
+    let dir = st.cfg.data_dir.join("tmp");
+    tokio::fs::create_dir_all(&dir).await?;
+    let tag = crate::auth::random_token(8);
+    let (src, out) = (dir.join(format!("{tag}.gif")), dir.join(format!("{tag}.webp")));
+    tokio::fs::write(&src, gif).await?;
+    let mut result = Err(bad("couldn't read that GIF"));
+    // Full size first; then smaller, lower quality and fewer frames per second.
+    for (scale, quality, fps) in [(1.0, 75, ""), (0.75, 60, ",fps=20"), (0.5, 50, ",fps=15")] {
+        // Never larger than the framed part.
+        let filter = format!("{turn}{frame},scale=w=min({max_w}\\,iw)*{scale}:h=ow/{aspect}:flags=lanczos{fps}");
+        let run = tokio::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+            .arg(&src)
+            .args(["-vf", &filter, "-an", "-c:v", "libwebp_anim", "-loop", "0", "-quality", &quality.to_string(), "-compression_level", "4"])
+            .arg(&out)
+            .kill_on_drop(true)
+            .output();
+        match tokio::time::timeout(std::time::Duration::from_secs(60), run).await {
+            Ok(Ok(o)) if o.status.success() => {}
+            Ok(Ok(o)) => {
+                tracing::warn!(stderr = %String::from_utf8_lossy(&o.stderr), "gif crop failed");
+                break;
+            }
+            _ => {
+                result = Err(bad("that GIF took too long to process; try a shorter one"));
+                break;
+            }
+        }
+        let bytes = tokio::fs::read(&out).await?;
+        if bytes.len() <= limit {
+            result = Ok(bytes);
+            break;
+        }
+        result = Err(bad("that GIF is too big even after shrinking it; try a shorter one"));
+    }
+    let _ = tokio::fs::remove_file(&src).await;
+    let _ = tokio::fs::remove_file(&out).await;
+    result
 }
 
 /// Drops the oldest history entries beyond the cap (never the avatar in use) and frees their files and quota.

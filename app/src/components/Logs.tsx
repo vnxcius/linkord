@@ -1,7 +1,8 @@
 // The admin's view of the server log (/logs): pick a day, filter by level, area and text, newest first.
+// Today's log is live: new lines stream in (GET /admin/logs/live) and appear on top if they pass the filters.
 // Only admins (LINKORD_ADMINS on the server) get anything back; everything in it is already redacted.
-import { createEffect, createResource, createSignal, For, on, Show } from 'solid-js';
-import { api, ApiError, getToken } from '../lib/api';
+import { createEffect, createResource, createSignal, For, on, onCleanup, Show } from 'solid-js';
+import { api, ApiError, getToken, serverUrl } from '../lib/api';
 import { dateLocale, t } from '../lib/i18n';
 
 interface LogLine {
@@ -14,6 +15,51 @@ interface LogLine {
 
 const LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 const PAGE = 300;
+const rank = (level: string) => LEVELS.indexOf(level.toLowerCase() as (typeof LEVELS)[number]);
+/** The server's days are UTC. */
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Calls `onLine` for each new log line until `signal` aborts; reconnects (calling `onReconnect`) after drops. */
+async function followLog(signal: AbortSignal, onLine: (l: LogLine) => void, onReconnect: () => void) {
+  for (let attempt = 0; !signal.aborted; attempt++) {
+    if (attempt) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (signal.aborted) return;
+      onReconnect();
+    }
+    try {
+      const res = await fetch(`${serverUrl()}/api/admin/logs/live`, {
+        headers: { authorization: `Bearer ${getToken()}` },
+        signal,
+      });
+      if (!res.ok || !res.body) continue;
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        // Server-sent events: blank-line separated, the JSON line after "data:" (keep-alives are comments).
+        let end;
+        while ((end = buf.indexOf('\n\n')) >= 0) {
+          const event = buf.slice(0, end);
+          buf = buf.slice(end + 2);
+          const data = event
+            .split('\n')
+            .filter((l) => l.startsWith('data:'))
+            .map((l) => l.slice(5).trimStart())
+            .join('\n');
+          if (!data) continue;
+          try {
+            onLine(JSON.parse(data));
+          } catch {}
+        }
+      }
+    } catch {
+      if (signal.aborted) return;
+    }
+  }
+}
 
 export function LogsPage() {
   const [days] = createResource(() =>
@@ -28,8 +74,24 @@ export function LogsPage() {
   const [lines, setLines] = createSignal<LogLine[]>([]);
   const [more, setMore] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
-  const [open, setOpen] = createSignal<number | null>(null);
-  createEffect(() => !day() && days()?.[0] && setDay(days()![0].day));
+  const [open, setOpen] = createSignal<LogLine | null>(null);
+  const [live, setLive] = createSignal(true);
+  /** Lines that arrived live, highlighted for a moment. */
+  const fresh = new WeakSet<LogLine>();
+  // Today first, even before anything was written today.
+  const dayList = () => {
+    const list = days() ?? [];
+    return list.some((d) => d.day === today()) ? list : [{ day: today(), size: 0 }, ...list];
+  };
+  createEffect(() => !day() && days() && setDay(dayList()[0].day));
+  const matches = (l: LogLine) => {
+    const q = query().trim().toLowerCase();
+    return (
+      rank(l.level) >= rank(level()) &&
+      (!area() || l.target === area()) &&
+      (!q || JSON.stringify(l).toLowerCase().includes(q))
+    );
+  };
 
   const load = async (append = false) => {
     if (!day()) return;
@@ -57,6 +119,22 @@ export function LogsPage() {
       timer = window.setTimeout(() => void load(), 250);
     }),
   );
+  const following = () => live() && day() === today() && !!days() && !denied();
+  createEffect(() => {
+    if (!following()) return;
+    const ctrl = new AbortController();
+    void followLog(
+      ctrl.signal,
+      (l) => {
+        if (!matches(l)) return;
+        fresh.add(l);
+        setLines([l, ...lines()]);
+      },
+      // Lines written while it was disconnected.
+      () => void load(),
+    );
+    onCleanup(() => ctrl.abort());
+  });
   const areas = () => [...new Set(lines().map((l) => l.target))].sort();
   const time = (iso: string) =>
     new Date(iso).toLocaleTimeString(dateLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -75,7 +153,7 @@ export function LogsPage() {
         </p>
         <div class="logs-filters">
           <select value={day()} onChange={(e) => setDay(e.currentTarget.value)}>
-            <For each={days() ?? []}>
+            <For each={dayList()}>
               {(d) => (
                 <option value={d.day}>
                   {d.day} · {(d.size / 1024).toFixed(0)} KB
@@ -102,17 +180,40 @@ export function LogsPage() {
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />
-          <button class="btn small-btn" onClick={() => void load()} disabled={loading()}>
-            {t('Refresh')}
-          </button>
+          <Show
+            when={day() === today()}
+            fallback={
+              <button class="btn small-btn" onClick={() => void load()} disabled={loading()}>
+                {t('Refresh')}
+              </button>
+            }
+          >
+            <button
+              class="btn small-btn logs-live"
+              classList={{ on: live() }}
+              aria-pressed={live()}
+              title={
+                live() ? t('New lines appear as they happen. Click to pause.') : t('Paused. Click to follow new lines.')
+              }
+              onClick={() => {
+                // Resuming catches up on what was written while paused.
+                if (!live()) void load();
+                setLive(!live());
+              }}
+            >
+              <i class="logs-live-dot" />
+              {live() ? t('Live') : t('Paused')}
+            </button>
+          </Show>
         </div>
         <div class="logs-table" role="table">
           <For each={lines()} fallback={<p class="muted">{loading() ? t('Loading…') : t('Nothing logged here.')}</p>}>
-            {(l, i) => (
+            {(l) => (
               <div
                 class={`log-row level-${l.level.toLowerCase()}`}
+                classList={{ fresh: fresh.has(l) }}
                 role="row"
-                onClick={() => setOpen(open() === i() ? null : i())}
+                onClick={() => setOpen(open() === l ? null : l)}
               >
                 <time>{time(l.t)}</time>
                 <span class="log-level">{l.level}</span>
@@ -121,7 +222,7 @@ export function LogsPage() {
                   {l.msg}
                   <Show when={l.fields}>
                     <span class="log-fields">
-                      <For each={Object.entries(l.fields!).filter(([k]) => open() === i() || k !== 'context')}>
+                      <For each={Object.entries(l.fields!).filter(([k]) => open() === l || k !== 'context')}>
                         {([k, v]) => (
                           <span class="log-field" classList={{ block: k === 'context' }}>
                             <b>{k}</b>={v}

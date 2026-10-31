@@ -388,6 +388,55 @@ test('nameplates: WebM videos work as defaults and uploads; a fake WebM is refus
   await ok(member.token, 'DELETE', '/users/@me/nameplate');
 });
 
+test('GIF pictures and banners stay animated: the server crops them into animated WebP', async () => {
+  const gif = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=240x135:rate=10', '-t', '1', '-f', 'gif', 'pipe:1']);
+  const frames = async (url) => {
+    const webp = Buffer.from(await (await fetch(`${BASE}${url}`)).arrayBuffer());
+    assert.equal(webp.subarray(8, 12).toString(), 'WEBP');
+    // Canvas size (VP8X) and animation frames (ANMF chunks).
+    const at = webp.indexOf('VP8X');
+    return { w: webp.readUIntLE(at + 12, 3) + 1, h: webp.readUIntLE(at + 15, 3) + 1, n: webp.toString('latin1').split('ANMF').length - 1 };
+  };
+  const fd = new FormData();
+  fd.append('crop', JSON.stringify({ x: 60, y: 0, w: 135, h: 135, rotate: 90 }));
+  fd.append('file', new Blob([gif], { type: 'image/gif' }), 'a.gif');
+  const me = await ok(member.token, 'POST', '/users/@me/avatar', fd);
+  assert.match(me.avatar, /\.webp$/);
+  assert.deepEqual(await frames(me.avatar), { w: 135, h: 135, n: 10 });
+  // No crop: the largest centred 3:1 frame.
+  const banner = new FormData();
+  banner.append('file', new Blob([gif], { type: 'image/gif' }), 'b.gif');
+  const withBanner = await ok(member.token, 'POST', '/users/@me/banner', banner);
+  assert.deepEqual(await frames(withBanner.banner), { w: 240, h: 80, n: 10 });
+  const fake = new FormData();
+  fake.append('file', new Blob(['not a gif'], { type: 'image/gif' }), 'f.gif');
+  assert.equal((await call(member.token, 'POST', '/users/@me/avatar', fake)).body.error, "couldn't read that GIF");
+  await ok(member.token, 'DELETE', '/users/@me/avatar');
+  await ok(member.token, 'DELETE', '/users/@me/banner');
+});
+
+test('usernames: change yours (unique, Discord rules); signing up with a taken one links the account and asks for another', async () => {
+  const a = await login('rename');
+  const wanted = `picked.${run}`;
+  assert.equal((await call(a.token, 'PATCH', '/users/@me', { username: 'Bad Name' })).status, 400);
+  assert.equal((await call(a.token, 'PATCH', '/users/@me', { username: owner.username })).body.error, 'that username is taken');
+  assert.equal((await ok(a.token, 'PATCH', '/users/@me', { username: wanted })).username, wanted);
+  // Signing in again keeps the name you picked (it no longer follows the Discord one).
+  const again = await ok(null, 'POST', '/auth/dev', { username: `rename.${run}` });
+  assert.equal((await ok(again.token, 'GET', '/users/@me')).username, wanted);
+  // Someone new whose username is taken still gets an account, with a stand-in name, and is asked to pick one.
+  const { token } = await ok(null, 'POST', '/auth/dev', { username: wanted });
+  const fresh = await ok(token, 'GET', '/users/@me');
+  assert.notEqual(fresh.id, a.id);
+  assert.equal(fresh.needs_username, true);
+  assert.match(fresh.username, new RegExp(`^picked\\.${run}_\\d{4}$`));
+  // Only they see the flag.
+  assert.equal((await ok(owner.token, 'GET', `/users/${fresh.id}`)).needs_username, undefined);
+  const picked = await ok(token, 'PATCH', '/users/@me', { username: `other.${run}` });
+  assert.equal(picked.username, `other.${run}`);
+  assert.equal(picked.needs_username, false);
+});
+
 test('deleting an account leaves servers and friendships, keeps messages, unlinks the login', async () => {
   const leaver = await login('leaver');
   await ok(leaver.token, 'POST', `/invites/${invite.code}`);
@@ -890,6 +939,7 @@ test('Kass, the music bot: /play joins your voice channel and streams music; que
     assert.equal(first.embeds[0].site_name, 'Now playing');
     assert.equal(first.embeds[0].title, 'Mock Song one');
     const bot = first.author.id;
+    assert.equal((await call(owner.token, 'PUT', `/users/@me/relationships/${bot}`)).body.error, "bots can't be friends");
 
     // Kass becomes a member of the server, joins the member's channel (deafened) and his music arrives as kind 5.
     await until(() => watch.events.some((e) => e.t === 'GUILD_MEMBER_ADD' && e.d.member.user.id === bot));
@@ -1056,8 +1106,22 @@ test('notification levels are synced settings', async () => {
 
 test('logs: only admins can read them, clients can report errors', async () => {
   assert.equal((await call(owner.token, 'GET', '/admin/logs/days')).status, 403);
+  assert.equal((await call(owner.token, 'GET', '/admin/logs/live')).status, 403);
   assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'error', message: 'test error from api tests' })).status, 204);
   assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'shout', message: 'x' })).status, 400);
+
+  // An admin (LINKORD_ADMINS=logadmin in run-local.sh) follows new lines live, as server-sent events.
+  const { token: admin } = await ok(null, 'POST', '/auth/dev', { username: 'logadmin' });
+  const ctrl = new AbortController();
+  const res = await fetch(`${BASE}/api/admin/logs/live`, { headers: { authorization: `Bearer ${admin}` }, signal: ctrl.signal });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/event-stream/);
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  await ok(owner.token, 'POST', '/logs/client', { level: 'warn', message: `live check ${run}` });
+  let text = '';
+  while (!text.includes(`live check ${run}`)) text += (await reader.read()).value;
+  assert.match(text, /^data: \{/m);
+  ctrl.abort();
 });
 
 test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
@@ -1131,6 +1195,15 @@ test('watch together: only people in the call start or control it; it ends with 
     const again = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { position: 0, playing: true });
     assert.equal(again.ended, false);
     assert.equal(again.playing, true);
+    // A player finds out it's a live stream: it never ends.
+    await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { ended: true, position: 635 });
+    const live = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { live: true });
+    assert.equal(live.live, true);
+    assert.equal(live.ended, false);
+    assert.equal(live.playing, true);
+    const still = await ok(owner.token, 'PATCH', `/channels/${voice.id}/watch`, { ended: true, position: 10 });
+    assert.equal(still.ended, false);
+    assert.equal(still.playing, true);
   } finally {
     a.close();
   }
