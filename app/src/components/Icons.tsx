@@ -2,7 +2,8 @@
 // pushpin, controller, keyboard, picture-in-picture, signal bars or crossed-out mic, so those are drawn below on
 // the same 24px grid and stroke. The Linkord emblem is the app icon itself (a picture).
 import type { JSX } from 'solid-js';
-import { splitProps } from 'solid-js';
+import { Show, splitProps } from 'solid-js';
+import { brandOf } from '../lib/brand-icons';
 import emblemUrl from '../assets/emblem.png';
 import adjustmentsHorizontal from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
 import arrowDownTray from 'heroicons/24/outline/arrow-down-tray.svg?raw';
@@ -31,6 +32,9 @@ import documentDuplicate from 'heroicons/24/outline/document-duplicate.svg?raw';
 import exclamationTriangle from 'heroicons/24/outline/exclamation-triangle.svg?raw';
 import eye from 'heroicons/24/outline/eye.svg?raw';
 import eyeSlash from 'heroicons/24/outline/eye-slash.svg?raw';
+import swatch from 'heroicons/24/outline/swatch.svg?raw';
+import sun from 'heroicons/24/outline/sun.svg?raw';
+import moon from 'heroicons/24/outline/moon.svg?raw';
 import faceSmile from 'heroicons/24/outline/face-smile.svg?raw';
 import folder from 'heroicons/24/outline/folder.svg?raw';
 import folderOpen from 'heroicons/24/outline/folder-open.svg?raw';
@@ -195,6 +199,9 @@ export const Back = hero(chevronLeft);
 export const At = hero(atSymbol);
 export const Eye = hero(eye);
 export const EyeOff = hero(eyeSlash);
+export const Appearance = hero(swatch);
+export const Sun = hero(sun);
+export const Moon = hero(moon);
 export const Switch = hero(arrowsRightLeft);
 export const PopOut = icon(
   path(
@@ -260,3 +267,28 @@ export const Lock = hero(lockClosed);
 export const ChevronUpIcon = hero(chevronUp);
 export const Folder = hero(folder);
 export const FolderOpen = hero(folderOpen);
+
+/**
+ * A link's icon: the site's own mark for sites we know (lib/brand-icons.ts: Instagram, Twitter, Steam...), otherwise
+ * the chain link. Brand marks fill their whole grid, so they get Heroicons' 2px of air to match in size.
+ */
+export function SiteIcon(p: { url: string; size?: number; class?: string }) {
+  const brand = () => brandOf(p.url);
+  return (
+    <Show when={brand()} fallback={<Link size={p.size} class={p.class} />}>
+      {(b) => (
+        <svg
+          class={p.class}
+          width={p.size ?? 20}
+          height={p.size ?? 20}
+          viewBox="-2 -2 28 28"
+          fill="currentColor"
+          role="img"
+          aria-label={b().name}
+        >
+          <path d={b().path} />
+        </svg>
+      )}
+    </Show>
+  );
+}

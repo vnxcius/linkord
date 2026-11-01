@@ -6,6 +6,7 @@ import { memberRoles, nameColor, nameOf, presenceOf, state } from '../lib/store'
 import { openMenu, openProfile } from '../lib/ui';
 import { ActivityBadge, ActivityLine } from './Activity';
 import { Avatar } from './Avatar';
+import { BirthdayCake } from './Birthday';
 import { memberMenu } from './Profile';
 
 /** Member list: hoisted roles first (online only), then Online, then Offline. Shown in the margin, or as a
@@ -54,12 +55,13 @@ export function Members(p: { guildId: string; drawer?: boolean }) {
                   onContextMenu={(e) => openMenu(e, memberMenu(id, p.guildId))}
                 >
                   <Show when={media(state.users[id]?.nameplate)}>{(src) => <Nameplate src={src()} lazy />}</Show>
-                  <Avatar user={state.users[id]} size={32} presence />
+                  <Avatar user={state.users[id]} size={32} presence guildId={p.guildId} />
                   <span class="member-text">
                     <span class="member-name-row">
                       <span class="member-name" style={{ color: nameColor(p.guildId, id) }}>
                         {nameOf(id, p.guildId)}
                       </span>
+                      <BirthdayCake userId={id} />
                       <Show when={state.users[id]?.bot}>
                         <span class="bot-tag">{t('BOT')}</span>
                       </Show>

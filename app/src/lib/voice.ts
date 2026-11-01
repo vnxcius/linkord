@@ -9,7 +9,7 @@ import type { StreamAudioStats, WorkerIn, WorkerOut } from './voice-worker';
 import { api, getToken, serverUrl } from './api';
 import { prefs, setPrefs } from './prefs';
 import { sounds } from './sounds';
-import { state } from './store';
+import { nameOf, state } from './store';
 import type { VoiceState } from './types';
 import { toast } from './ui';
 import { report } from './report';
@@ -243,9 +243,17 @@ function onWorker(m: WorkerOut, channelId: string) {
       return onKeyframeRequest(m.source);
     case 'sound':
       return void playSoundboard(m.userId, m.sound);
-    case 'move':
+    case 'move': {
+      const by = m.by ? nameOf(m.by, state.channels[channelId]?.guild_id) : '';
+      if (!m.channelId) {
+        void leaveVoice();
+        return toast(by ? t('{name} disconnected you from the call', { name: by }) : t('You were disconnected'), 6000);
+      }
       if (m.reason === 'afk') toast(t('You were moved to the AFK channel after a while without talking'), 6000);
+      else if (by)
+        toast(t('{name} moved you to {channel}', { name: by, channel: state.channels[m.channelId]?.name ?? '' }), 6000);
       return void joinVoice(m.channelId);
+    }
     case 'video_dropped':
       return onVideoDropped(m.kind);
     case 'closed': {
@@ -358,7 +366,7 @@ export interface StreamAudioDiag {
   /** native = desktop capture; browser = getDisplayMedia (no echo canceller). */
   path: 'native' | 'browser';
   /** Native: what the audio contains (see CaptureInfo). Browser: whether a track was shared. */
-  mode: CaptureInfo['audio'] | 'browser' | 'none';
+  mode: CaptureInfo['audio'] | 'browser' | 'device' | 'none';
   /** Why native capture failed, when the browser path is a fallback. */
   fallback: string | null;
   stats: StreamAudioStats | null;
@@ -444,6 +452,8 @@ interface Publisher {
   stopped: boolean;
   stats: { frames: number; bytes: number; since: number };
   audio?: { source: MediaStreamAudioSourceNode; node: AudioWorkletNode };
+  /** Video device id, when this is a capture card instead of a shared screen. */
+  device?: string;
 }
 
 const publishers: Partial<Record<VideoSource, Publisher>> = {};
@@ -707,14 +717,14 @@ async function startNativeScreenShare(q: StreamQuality, source: string): Promise
   return true;
 }
 
-function stopNativeScreenShare() {
+function stopNativeScreenShare(keepViewers = false) {
   if (!native) return;
   native = null;
   void nativeCommand('stop_capture');
   send({ type: 'echo_cancel', on: false });
   send({ type: 'screen_audio_native', on: false });
   setVoiceUi({ streamAudio: null, captureTimings: null });
-  send({ type: 'video_stop', source: 'screen' });
+  if (!keepViewers) send({ type: 'video_stop', source: 'screen' });
   removeRemoteVideo(`${state.me?.id}-screen`);
   setVoiceUi('screen', false);
   setVoiceUi(
@@ -746,16 +756,15 @@ export async function startScreenShare(q: StreamQuality, source?: string) {
   setVoiceUi({ streamQuality: q, focus: `${state.me!.id}-screen` });
 }
 
+// Raw stream audio: voice processing would mangle music and game sound.
+const RAW_AUDIO = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 };
+
 function displayMediaOptions(q: StreamQuality): DisplayMediaStreamOptions {
   return {
     video: displayConstraints(q),
-    // Raw stream audio: voice processing would mangle music and game sound.
     audio: q.audio
       ? ({
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 2,
+          ...RAW_AUDIO,
           restrictOwnAudio: true,
           suppressLocalAudioPlayback: false,
         } as MediaTrackConstraints)
@@ -764,6 +773,117 @@ function displayMediaOptions(q: StreamQuality): DisplayMediaStreamOptions {
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
   } as DisplayMediaStreamOptions;
+}
+
+// ---------- capture cards ----------
+// Windows sees a capture card as a camera plus a separate audio input. Going live with one publishes both as a
+// stream (forwarded only to viewers, like a screen), unlike the camera button: no audio, 720p.
+
+export interface CaptureDevice {
+  video: string;
+  /** Audio input id; null shares no sound. */
+  audio: string | null;
+}
+
+/** The devices the Go Live dialog offers. Labels stay empty until the browser has been allowed to use that kind once. */
+export async function listCaptureDevices() {
+  let all = await navigator.mediaDevices.enumerateDevices();
+  const unnamed = (kind: MediaDeviceKind) => all.some((d) => d.kind === kind && !d.label);
+  if (unnamed('videoinput') || unnamed('audioinput')) {
+    const asked = await navigator.mediaDevices
+      .getUserMedia({ video: unnamed('videoinput'), audio: unnamed('audioinput') })
+      .catch(() => null);
+    asked?.getTracks().forEach((t) => t.stop());
+    all = await navigator.mediaDevices.enumerateDevices();
+  }
+  const list = (kind: MediaDeviceKind) =>
+    all.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  return { videos: list('videoinput'), inputs: list('audioinput') };
+}
+
+function deviceVideoConstraints(q: StreamQuality, deviceId: string): MediaTrackConstraints {
+  return {
+    deviceId: { exact: deviceId },
+    width: { ideal: q.height === 1080 ? 1920 : 1280 },
+    height: { ideal: q.height },
+    frameRate: { ideal: q.fps },
+  };
+}
+
+/** Opens a capture card; if its sound won't open, the picture still goes out. Null (after a toast) when it can't open. */
+async function openCaptureDevice(q: StreamQuality, d: CaptureDevice): Promise<MediaStream | null> {
+  const video = deviceVideoConstraints(q, d.video);
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video,
+      audio: d.audio ? { deviceId: { exact: d.audio }, ...RAW_AUDIO } : false,
+    });
+  } catch (e) {
+    console.warn('capture device', e);
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video });
+    if (d.audio) toast(t("Couldn't open its sound. Your stream has video only."), 8000);
+    return stream;
+  } catch (e) {
+    console.warn('capture device', e);
+    toast(t("Couldn't open this device. Another app may be using it."), 8000);
+    return null;
+  }
+}
+
+function attachDeviceAudio(pub: Publisher, stream: MediaStream) {
+  attachStreamAudio(pub, stream, false);
+  setStreamAudio('browser', stream.getAudioTracks()[0] ? 'device' : 'none');
+}
+
+/** The dialog's audio choice isn't the screen share's "Share audio" setting: keep that one out of the prefs. */
+function rememberDevice(q: StreamQuality, d: CaptureDevice) {
+  setPrefs({
+    screenQuality: { ...q, audio: prefs.screenQuality.audio },
+    captureAudio: { ...prefs.captureAudio, [d.video]: d.audio ?? '' },
+  });
+}
+
+async function publishDevice(q: StreamQuality, d: CaptureDevice, stream: MediaStream) {
+  nativeFailure = null;
+  rememberDevice(q, d);
+  const pub = await publish('screen', stream, q.fps, q.optimize);
+  pub.device = d.video;
+  attachDeviceAudio(pub, stream);
+  setVoiceUi({
+    streamQuality: { ...q, audio: !!stream.getAudioTracks()[0] },
+    focus: `${state.me!.id}-screen`,
+  });
+}
+
+/** Goes live with a capture card (called from the Go Live dialog). */
+export async function startDeviceShare(q: StreamQuality, d: CaptureDevice) {
+  if (!worker || voiceUi.connecting) return;
+  const stream = await openCaptureDevice(q, d);
+  if (!stream) return;
+  // Left the call while it was opening.
+  if (!voiceUi.channelId) return stream.getTracks().forEach((t) => t.stop());
+  stopPublish('screen');
+  await publishDevice(q, d, stream);
+}
+
+/** Moves a running stream onto a capture card; viewers keep watching. */
+export async function switchToDevice(d: CaptureDevice) {
+  const q = voiceUi.streamQuality ?? prefs.screenQuality;
+  const stream = await openCaptureDevice(q, d);
+  if (!stream) return;
+  if (!voiceUi.screen) return stream.getTracks().forEach((t) => t.stop());
+  const pub = publishers.screen;
+  if (!pub) {
+    stopNativeScreenShare(true);
+    return publishDevice(q, d, stream);
+  }
+  rememberDevice(q, d);
+  replacePublishedStream(pub, stream);
+  pub.device = d.video;
+  attachDeviceAudio(pub, stream);
+  setVoiceUi('streamQuality', { ...q, audio: !!stream.getAudioTracks()[0] });
 }
 
 // Last native capture error, shown in the stream-audio diagnostics when the browser capture took over.
@@ -822,6 +942,14 @@ function attachStreamAudio(pub: Publisher, stream: MediaStream, wanted: boolean)
  * `source` comes from the in-app picker (desktop); without it the browser's picker opens.
  */
 export async function switchScreenSource(source?: string) {
+  // From a capture card to an app or screen: native capture takes over the same stream.
+  if (source && publishers.screen?.device && nativeCaptureAvailable) {
+    const q = { ...(voiceUi.streamQuality ?? prefs.screenQuality), audio: prefs.screenQuality.audio };
+    stopPublish('screen', true);
+    nativeFailure = null;
+    if (!(await startNativeScreenShare(q, source))) send({ type: 'video_stop', source: 'screen' });
+    return;
+  }
   if (native && source) {
     try {
       const info = await switchNativeSource(source);
@@ -844,6 +972,12 @@ export async function switchScreenSource(source?: string) {
   } catch {
     return;
   }
+  replacePublishedStream(pub, stream);
+  pub.device = undefined;
+  attachStreamAudio(pub, stream, q.audio);
+}
+
+function replacePublishedStream(pub: Publisher, stream: MediaStream) {
   const old = pub.stream;
   pub.stream = stream;
   pub.track = stream.getVideoTracks()[0];
@@ -852,7 +986,6 @@ export async function switchScreenSource(source?: string) {
   pub.config = null; // new size: reconfigure and start with a keyframe
   old.getTracks().forEach((t) => t.stop());
   pump(pub);
-  attachStreamAudio(pub, stream, q.audio);
   setTiles((t) => t.map((x) => (x.key === 'me-screen' ? { ...x, stream } : x)));
 }
 
@@ -870,7 +1003,9 @@ export async function updateStreamQuality(q: StreamQuality) {
   }
   const pub = publishers.screen;
   if (!pub) return;
-  await pub.track.applyConstraints(displayConstraints(q)).catch(() => {});
+  await pub.track
+    .applyConstraints(pub.device ? deviceVideoConstraints(q, pub.device) : displayConstraints(q))
+    .catch(() => {});
   pub.track.contentHint = q.optimize === 'motion' ? 'motion' : 'detail';
   pub.fps = q.fps;
   pub.optimize = q.optimize;
@@ -879,8 +1014,9 @@ export async function updateStreamQuality(q: StreamQuality) {
   setVoiceUi('streamQuality', { ...q, audio: !!pub.audio });
 }
 
-export function stopPublish(source: VideoSource) {
-  if (source === 'screen') stopNativeScreenShare();
+/** With `keepViewers`, another source takes over the stream right after, so nobody stops watching. */
+export function stopPublish(source: VideoSource, keepViewers = false) {
+  if (source === 'screen') stopNativeScreenShare(keepViewers);
   const pub = publishers[source];
   if (!pub) return;
   delete publishers[source];
@@ -892,7 +1028,7 @@ export function stopPublish(source: VideoSource) {
     pub.audio.node.disconnect();
     send({ type: 'screen_audio', port: null });
   }
-  send({ type: 'video_stop', source });
+  if (!keepViewers) send({ type: 'video_stop', source });
   if (source === 'screen') setVoiceUi('streamAudio', null);
   setVoiceUi(source, false);
   setVoiceUi(

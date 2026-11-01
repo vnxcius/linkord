@@ -605,6 +605,70 @@ await step('profile modal: avatar on the user card opens it, with mutual servers
   await a.page.waitForSelector('.profile-modal', { state: 'detached' });
 });
 
+await step('profile extras: birthday and a link from Settings, the cake, a private note, an about me just for this server', async () => {
+  const now = new Date();
+  await b.page.click('[aria-label="Settings"]');
+  await b.page.click('.settings-nav button:has-text("Profile")');
+  // Picking the month alone keeps the picker as it is (no half dates go out).
+  await b.page.selectOption('.birthday-picker select >> nth=0', String(now.getMonth() + 1));
+  await b.page.selectOption('.birthday-picker select >> nth=1', String(now.getDate()));
+  await b.page.click('.links-editor button:has-text("Add link")');
+  // Typed key by key: each keystroke must keep the field (and its focus).
+  await b.page.locator('.link-row .link-url').pressSequentially('instagram.com/bram');
+  // Known sites get their own icon as soon as the address is recognised.
+  await b.page.waitForSelector('.link-row svg[aria-label="Instagram"]');
+  await b.page.click('.links-editor button:has-text("Add link")');
+  await b.page.locator('.link-row >> nth=1').locator('.link-url').pressSequentially('x.com/bram');
+  await b.page.waitForSelector('.link-row svg[aria-label="Twitter"]');
+  await b.page.click('.save-bar .btn.primary');
+  await b.page.waitForSelector('.save-bar', { state: 'detached' });
+  await b.page.waitForFunction(() => document.querySelector('.link-row .link-url')?.value === 'https://instagram.com/bram');
+  await b.page.click('.settings-close');
+
+  // Aria sees the cake, the link, and keeps a note only she can read.
+  await a.page.waitForSelector(`.members .member:has-text("${b.name}") .birthday-cake`);
+  await a.page.click(`.members .member:has-text("${b.name}")`);
+  await a.page.waitForSelector('.profile-card .birthday-cake');
+  await a.page.click('.profile-card .profile-avatar');
+  await a.page.waitForSelector('.profile-modal .profile-link[data-tip="instagram.com/bram"]:has-text("Instagram") svg[aria-label="Instagram"]');
+  await a.page.waitForSelector('.profile-modal .profile-link:has-text("Twitter") svg[aria-label="Twitter"]');
+  await a.page.fill('.note-field textarea', 'met at the ruins');
+  const saved = a.page.waitForResponse((r) => r.url().endsWith(`/note`) && r.request().method() === 'PUT');
+  await a.page.click('.profile-modal h2');
+  await saved;
+  await shot(a.page, 'e2e-profile-extras');
+  await a.page.keyboard.press('Escape');
+  await a.page.waitForSelector('.profile-modal', { state: 'detached' });
+  await a.page.click(`.members .member:has-text("${b.name}")`);
+  await a.page.click('.profile-card .profile-avatar');
+  await a.page.waitForFunction(() => document.querySelector('.note-field textarea')?.value === 'met at the ruins');
+  await a.page.keyboard.press('Escape');
+  await a.page.waitForSelector('.profile-modal', { state: 'detached' });
+
+  // Aria's about me for this server only, from her server profile.
+  await a.page.click(`.members .member:has-text("${a.name}")`, { button: 'right' });
+  await a.page.click('.context-menu button:has-text("Edit Server Profile")');
+  await a.page.fill('.ms-bio textarea', 'Keeper of the outpost');
+  await a.page.click('.modal-footer .btn.primary');
+  await a.page.waitForSelector('.member-studio', { state: 'detached' });
+  await a.page.click(`.members .member:has-text("${a.name}")`);
+  await a.page.waitForSelector('.profile-card .bio:has-text("Keeper of the outpost")');
+  // Your own full profile always has the side card (games, Kass songs, stats): one at a time behind tabs, exactly as
+  // tall as the profile card.
+  await a.page.click('.profile-card .profile-avatar');
+  await a.page.waitForSelector('.side-card-tabs button:has-text("Games")');
+  await a.page.click('.side-card-tabs button:has-text("Stats")');
+  await a.page.waitForSelector('.side-card .widget-card:has-text("Time in voice")');
+  await a.page.waitForTimeout(300); // the dialog's pop-in
+  const [side, card] = await a.page.evaluate(() =>
+    ['.side-card', '.profile-modal'].map((q) => document.querySelector(q).getBoundingClientRect().height),
+  );
+  assert.ok(Math.abs(side - card) <= 1, `side card ${side}px, profile card ${card}px`);
+  await shot(a.page, 'e2e-profile-widgets');
+  await a.page.keyboard.press('Escape');
+  await a.page.waitForSelector('.profile-modal', { state: 'detached' });
+});
+
 await step('voice settings show a live mic level', async () => {
   await a.page.click('[aria-label="Settings"]');
   await a.page.click('.settings-nav button:has-text("Voice & Video")');
@@ -847,6 +911,26 @@ await step('screen share: go live, LIVE badge, click name to watch, stats, hide 
     const live = await b.page.locator('.live-badge').count();
     throw new Error(`${e.message.split('\n')[0]} | card: ${html} | live badges: ${live}`);
   });
+  // A capture card: goes live as a stream with its own sound, not as a camera.
+  await a.page.click('[data-tip="Share your screen"]');
+  await a.page.click('.picker-tabs button:has-text("Capture devices")');
+  await a.page.click('.source-card');
+  assert.equal(await a.page.$eval('.go-live .field select', (s) => s.options.length > 1), true, 'no audio inputs listed');
+  // The fake devices aren't paired, so this is the "no match" default: choose the sound by hand.
+  assert.equal(await a.page.inputValue('.go-live .field select'), '');
+  await a.page.$eval('.go-live .field select', (s) => {
+    s.value = s.options[1].value;
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await a.page.click('.modal-footer button:has-text("Go Live")');
+  await a.page.waitForSelector('.video-card.large video', { timeout: 10000 });
+  await b.page.waitForSelector(`.voice-user:has-text("${a.name}") .live-badge`, { timeout: 10000 });
+  await b.page.click(`.voice-user:has-text("${a.name}")`);
+  await b.page.waitForFunction(() => /\d+p \d+fps/.test(document.querySelector('.video-card.large .video-stats')?.textContent ?? ''), null, { timeout: 15000 });
+  await a.page.waitForSelector('.video-card.large .audio-diag', { state: 'attached', timeout: 5000 });
+  assert.match(await a.page.textContent('.video-card.large .audio-diag'), /Stream audio: the capture device's own sound/);
+  await a.page.click('.pill-btn:has-text("Stop streaming")');
+  await b.page.waitForFunction(() => !document.querySelector('.video-card, .mini-player'), null, { timeout: 8000 });
   // Going live again doesn't silently send the new stream to last time's viewer.
   await a.page.click('[data-tip="Share your screen"]');
   await a.page.click('.modal-footer button:has-text("Go Live")');
@@ -1063,7 +1147,8 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await pg.tap('.channel-item:has-text("general")');
   await pg.fill('.composer textarea', 'swipe me');
   await pg.keyboard.press('Enter');
-  const msg = pg.locator('.message:has-text("swipe me")');
+  // Sent, not just shown: a message still sending can't be replied to.
+  const msg = pg.locator('.message:not(.pending):has-text("swipe me")');
   await msg.waitFor();
   const box = await msg.boundingBox();
   await pg.keyboard.press('Escape');

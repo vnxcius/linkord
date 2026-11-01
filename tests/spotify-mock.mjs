@@ -25,8 +25,10 @@ createServer(async (req, res) => {
   // Discord's detectable applications list (game detection), a few real-shaped entries.
   if (url.pathname === '/detectable') {
     return json(res, 200, [
-      { id: '1158877933042143272', name: 'Counter-Strike 2', icon_hash: '558f5a26ecb3b17c3dea3d15c1df537a', executables: [{ os: 'win32', name: 'win64/cs2.exe', is_launcher: false }] },
-      { id: '700136079562375258', name: 'VALORANT', icon_hash: '11f81959f4fdd76ca6c39c59eac256c1', executables: [{ os: 'win32', name: 'win64/valorant-win64-shipping.exe', is_launcher: false }] },
+      { id: '1158877933042143272', name: 'Counter-Strike 2', icon_hash: '558f5a26ecb3b17c3dea3d15c1df537a', cover_image_hash: '694f0b895f21566723671fa6219c1001', aliases: [], third_party_skus: [{ distributor: 'steam', id: '730' }], executables: [{ os: 'win32', name: 'win64/cs2.exe', is_launcher: false }] },
+      { id: '700136079562375258', name: 'VALORANT', icon_hash: '11f81959f4fdd76ca6c39c59eac256c1', cover_image_hash: '9c55c3dbef3b1621d17ee32dc7765dcc', aliases: ['Valorant'], third_party_skus: [{ distributor: 'epic', id: 'CBD5' }], executables: [{ os: 'win32', name: 'win64/valorant-win64-shipping.exe', is_launcher: false }] },
+      // Not detectable on Windows, but still pickable as a favorite game.
+      { id: '1402418491272986635', name: 'Minecraft', icon_hash: '166fbad351ecdd02d11a3b464748f66b', cover_image_hash: '2975c144dc7e00ecf57018a4af98b1eb', aliases: ['Minecraft Launcher'], third_party_skus: [], executables: [] },
       { id: '42', name: 'Launcher Only', icon_hash: null, executables: [{ os: 'win32', name: 'launcher.exe', is_launcher: true }] },
     ]);
   }

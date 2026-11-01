@@ -7,6 +7,7 @@ import {
   createResource,
   createSignal,
   For,
+  Index,
   Match,
   onCleanup,
   onMount,
@@ -59,6 +60,8 @@ import {
   voiceUi,
 } from '../lib/voice';
 import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
+import { systemTheme } from '../lib/theme';
+import { FavoriteGamesSettings } from './FavoriteGames';
 import { GameIcon, SpotifyIcon } from './Activity';
 import { Avatar } from './Avatar';
 import { ColorPicker } from './ColorPicker';
@@ -70,6 +73,10 @@ import { accentCss } from './Profile';
 import { StatsPage } from './StatsPage';
 import { KassPage } from './KassPage';
 import { showRelease, startTour } from './Onboarding';
+import { parseBirthday } from './Birthday';
+import { brandOf } from '../lib/brand-icons';
+import { linkHost, type ProfileLink, type ProfileSong, SongPlayer } from './ProfileWidgets';
+import { type Draft, SoundEditor } from './Soundboard';
 
 type Page =
   | 'account'
@@ -82,6 +89,8 @@ type Page =
   | 'games'
   | 'notifications'
   | 'language'
+  | 'appearance'
+  | 'favorite-games'
   | 'app';
 
 interface Connection {
@@ -106,6 +115,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
     pages: [
       ['account', msg('My Account'), I.Account],
       ['profile', msg('Profile'), I.EditProfile],
+      ['favorite-games', msg('Favorite Games'), I.Gamepad],
       ['stats', msg('Stats'), I.Chart],
       ['kass', msg('Kass'), I.Music],
       ...(SHOW_CONNECTIONS
@@ -122,6 +132,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
         ? [['games', msg('Registered Games'), I.Gamepad] as [Page, string, (p: { size?: number }) => JSX.Element]]
         : []),
       ['notifications', msg('Notifications'), I.Bell],
+      ['appearance', msg('Appearance'), I.Appearance],
       ['language', msg('Language'), I.Language],
       ...(isTauri
         ? [['app', msg('Desktop App'), I.AppIcon] as [Page, string, (p: { size?: number }) => JSX.Element]]
@@ -141,6 +152,8 @@ const TITLES: Record<Page, string> = {
   games: msg('Registered Games'),
   notifications: msg('Notifications'),
   language: msg('Language'),
+  appearance: msg('Appearance'),
+  'favorite-games': msg('Favorite Games'),
   app: msg('Desktop App'),
 };
 
@@ -154,6 +167,8 @@ export function Settings(p: { tab?: string }) {
     keybinds: 'keybinds',
     notifications: 'notifications',
     language: 'language',
+    appearance: 'appearance',
+    'favorite-games': 'favorite-games',
     app: 'app',
   };
   const [page, setPage] = createSignal<Page>(legacy[p.tab ?? ''] ?? 'account');
@@ -254,6 +269,12 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'games'}>
               <GamesPage />
+            </Match>
+            <Match when={page() === 'appearance'}>
+              <AppearancePage />
+            </Match>
+            <Match when={page() === 'favorite-games'}>
+              <FavoriteGamesSettings />
             </Match>
             <Match when={page() === 'language'}>
               <LanguagePage />
@@ -615,20 +636,51 @@ const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
 function ProfilePage() {
   const me = () => state.users[state.me!.id] ?? state.me!;
+  // Links, the profile song and the widget switches come with the full profile.
+  const [mine, { mutate: setMine }] = createResource(
+    () => state.me!.id,
+    (id) =>
+      api<{ links?: ProfileLink[]; song?: ProfileSong | null; show_stats?: boolean; show_top_songs?: boolean }>(
+        'GET',
+        `/users/${id}/profile`,
+      ).catch(() => null),
+  );
   const saved = () => ({
     name: me().display_name ?? '',
     bio: me().bio,
+    pronouns: me().pronouns ?? '',
     accent: accentCss(me().accent_color) ?? '#2b2d31',
+    birthday: me().birthday ?? '',
+    links: JSON.stringify(mine()?.links ?? []),
   });
   const [name, setName] = createSignal(saved().name);
   const [bio, setBio] = createSignal(saved().bio);
+  const [pronouns, setPronouns] = createSignal(saved().pronouns);
   const [accent, setAccent] = createSignal(saved().accent);
+  const [birthday, setBirthday] = createSignal(saved().birthday);
+  const [links, setLinks] = createSignal<ProfileLink[]>([]);
+  createEffect(
+    on(
+      () => mine()?.links,
+      (l) => l && setLinks(l.map((x) => ({ ...x }))),
+    ),
+  );
+  const linksDirty = () => JSON.stringify(links().filter((l) => l.url.trim() || l.label.trim())) !== saved().links;
   const [saving, setSaving] = createSignal(false);
-  const dirty = () => name() !== saved().name || bio() !== saved().bio || accent() !== saved().accent;
+  const dirty = () =>
+    name() !== saved().name ||
+    bio() !== saved().bio ||
+    pronouns() !== saved().pronouns ||
+    accent() !== saved().accent ||
+    birthday() !== saved().birthday ||
+    (!!mine() && linksDirty());
   const reset = () => {
     setName(saved().name);
     setBio(saved().bio);
+    setPronouns(saved().pronouns);
     setAccent(saved().accent);
+    setBirthday(saved().birthday);
+    setLinks((mine()?.links ?? []).map((x) => ({ ...x })));
   };
   const [editing, setEditing] = createSignal<{ kind: ImageKind; file: File } | null>(null);
   const pick = (kind: ImageKind, input: HTMLInputElement) => {
@@ -636,10 +688,19 @@ function ProfilePage() {
     input.value = ''; // so picking the same file again still fires
     if (file) setEditing({ kind, file });
   };
-  const [recent] = createResource(
+  const [recent, { mutate: setRecent }] = createResource(
     () => me().avatar ?? '',
-    () => api<string[]>('GET', '/users/@me/avatars').catch(() => []),
+    // The server keeps the last 5; slice too in case an older server sends more.
+    () =>
+      api<string[]>('GET', '/users/@me/avatars')
+        .then((l) => l.slice(0, 5))
+        .catch(() => []),
   );
+  const forget = (url: string) =>
+    attempt(async () => {
+      await api('DELETE', '/users/@me/avatars', { url });
+      setRecent((l) => (l ?? []).filter((x) => x !== url));
+    }, t('Picture removed'));
   const [plates] = createResource(() => api<string[]>('GET', '/nameplates').catch(() => []));
   const setPlate = (url: string) => attempt(() => api('PUT', '/users/@me/nameplate', { url }), t('Nameplate updated'));
   const restore = (url: string) => attempt(() => api('PUT', '/users/@me/avatar', { url }), t('Avatar updated'));
@@ -647,13 +708,30 @@ function ProfilePage() {
     attempt(() => api('DELETE', `/users/@me/${which}`), t(which === 'avatar' ? 'Avatar removed' : 'Banner removed'));
   const save = async () => {
     setSaving(true);
-    await attempt(
-      () =>
-        api('PATCH', '/users/@me', { display_name: name(), bio: bio(), accent_color: parseInt(accent().slice(1), 16) }),
-      t('Profile saved'),
-    );
+    const kept = links().filter((l) => l.url.trim() || l.label.trim());
+    await attempt(async () => {
+      await api('PATCH', '/users/@me', {
+        display_name: name(),
+        bio: bio(),
+        pronouns: pronouns().trim(),
+        accent_color: parseInt(accent().slice(1), 16),
+        birthday: birthday(),
+        ...(mine() && linksDirty() ? { links: kept } : {}),
+      });
+      if (mine() && linksDirty()) {
+        // The server tidies them (https:// added...): show what it kept.
+        const fresh = await api<{ links?: ProfileLink[] }>('GET', `/users/${state.me!.id}/profile`);
+        setMine((m) => (m ? { ...m, links: fresh.links ?? [] } : m));
+        setLinks((fresh.links ?? []).map((x) => ({ ...x })));
+      }
+    }, t('Profile saved'));
     setSaving(false);
   };
+  const setWidget = (key: 'show_stats' | 'show_top_songs', on: boolean) =>
+    attempt(async () => {
+      await api('PATCH', '/users/@me', { [key]: on });
+      setMine((m) => (m ? { ...m, [key]: on } : m));
+    });
   const preview = () => ({ ...me(), display_name: name() || null, bio: bio() });
 
   /** The bio box grows with its text instead of scrolling. */
@@ -719,6 +797,18 @@ function ProfilePage() {
             <I.Edit size={15} class="inline-pen" />
           </label>
           <div class="profile-username">{me().username}</div>
+          <label class="inline-field pronouns-field">
+            <span class="sr-only">{t('Pronouns')}</span>
+            <input
+              class="inline-edit inline-pronouns"
+              value={pronouns()}
+              onInput={(e) => setPronouns(e.currentTarget.value)}
+              placeholder={t('Add your pronouns')}
+              maxLength={40}
+              spellcheck={false}
+            />
+            <I.Edit size={13} class="inline-pen" />
+          </label>
           <div class="studio-section">
             <div class="label">
               {t('About me')} <em class="counter">{bio().length}/190</em>
@@ -761,21 +851,90 @@ function ProfilePage() {
             <div class="avatar-history" aria-label={t('Recent pictures')}>
               <For each={recent()}>
                 {(url) => (
-                  <button
-                    class="avatar-history-item"
-                    classList={{ current: url === me().avatar }}
-                    title={t('Use this picture')}
-                    aria-label={t('Use this picture')}
-                    disabled={url === me().avatar}
-                    onClick={() => void restore(url)}
-                  >
-                    <img src={media(url)} alt="" loading="lazy" />
-                  </button>
+                  <div class="avatar-history-slot">
+                    <button
+                      class="avatar-history-item"
+                      classList={{ current: url === me().avatar }}
+                      title={t('Use this picture')}
+                      aria-label={t('Use this picture')}
+                      disabled={url === me().avatar}
+                      onClick={() => void restore(url)}
+                    >
+                      <img src={media(url)} alt="" loading="lazy" />
+                    </button>
+                    <Show when={url !== me().avatar}>
+                      <button
+                        class="avatar-history-remove"
+                        aria-label={t('Remove from recent pictures')}
+                        data-tip={t('Remove from recent pictures')}
+                        onClick={() => void forget(url)}
+                      >
+                        <I.Close size={10} />
+                      </button>
+                    </Show>
+                  </div>
                 )}
               </For>
             </div>
           </div>
         </Show>
+      </div>
+
+      <div class="studio-options">
+        <div class="set-card studio-option">
+          <div class="field-label">
+            {t('Birthday')}{' '}
+            <InfoTip text={t('People see a cake next to your name on the day. The year is optional.')} />
+          </div>
+          <BirthdayPicker value={birthday()} onChange={setBirthday} />
+        </div>
+        <div class="set-card studio-option">
+          <div class="field-label">
+            {t('Profile widgets')} <InfoTip text={t('Cards next to your full profile.')} />
+          </div>
+          <div class="widget-switches">
+            <SwitchRow
+              label={t('Show my stats')}
+              hint={t('Time in voice, messages, longest call... (Settings → Stats)')}
+              checked={!!mine()?.show_stats}
+              disabled={!mine()}
+              onChange={(v) => void setWidget('show_stats', v)}
+            />
+            <SwitchRow
+              label={t('Show my top Kass songs')}
+              hint={t('The songs you play most with /play.')}
+              checked={mine()?.show_top_songs ?? true}
+              disabled={!mine()}
+              onChange={(v) => void setWidget('show_top_songs', v)}
+            />
+          </div>
+        </div>
+        <div class="set-card studio-option wide">
+          <div class="field-label">
+            {t('Links')} <em class="counter">{links().length}/5</em>
+          </div>
+          <LinksEditor links={links()} onChange={setLinks} />
+        </div>
+        <div class="set-card studio-option wide">
+          <div class="field-label">
+            {t('Profile song')}{' '}
+            <InfoTip
+              text={t(
+                'Up to 30 seconds people can play from your full profile. It plays quietly, and only when they press play (unless they turned on autoplay).',
+              )}
+            />
+          </div>
+          <ProfileSongEditor
+            song={mine()?.song ?? null}
+            onChange={(song) => setMine((m) => (m ? { ...m, song } : m))}
+          />
+          <SwitchRow
+            label={t("Play people's profile songs by themselves")}
+            hint={t('When you open a full profile. Off: they wait for you to press play.')}
+            checked={prefs.profileSongAutoplay}
+            onChange={(v) => setPrefs({ profileSongAutoplay: v })}
+          />
+        </div>
         <div class="set-card studio-option wide">
           <ImageSlot
             label={t('Nameplate')}
@@ -825,6 +984,274 @@ function ProfilePage() {
             {saving() ? t('Saving…') : t('Save changes')}
           </button>
         </div>
+      </Show>
+    </div>
+  );
+}
+
+// ---------- birthday, links, profile song ----------
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Month and day, and the year if you want people to see it. Value: 'MM-DD', 'YYYY-MM-DD' or ''. */
+function BirthdayPicker(p: { value: string; onChange: (v: string) => void }) {
+  const b = () => parseBirthday(p.value);
+  const months = () =>
+    Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(dateLocale(), { month: 'long' }));
+  const daysIn = (m: number) => (m ? new Date(2000, m, 0).getDate() : 31);
+  // Only whole dates go out (or none at all): half-picked ones stay here until the day is picked too.
+  const emit = (month: number, day: number, year?: number) => {
+    if (!month && !day) return p.onChange('');
+    if (!month || !day) return;
+    const d = Math.min(day, daysIn(month));
+    p.onChange(year ? `${year}-${pad2(month)}-${pad2(d)}` : `${pad2(month)}-${pad2(d)}`);
+  };
+  // Month first, so the day list fits it.
+  const [month, setMonth] = createSignal(b()?.month ?? 0);
+  const [day, setDay] = createSignal(b()?.day ?? 0);
+  const [year, setYear] = createSignal(b()?.year ? String(b()!.year) : '');
+  createEffect(
+    on(
+      () => p.value,
+      () => {
+        setMonth(b()?.month ?? 0);
+        setDay(b()?.day ?? 0);
+        setYear(b()?.year ? String(b()!.year) : '');
+      },
+    ),
+  );
+  const validYear = () => {
+    const y = parseInt(year(), 10);
+    return y >= 1900 && y <= new Date().getFullYear() ? y : undefined;
+  };
+  return (
+    <div class="birthday-picker">
+      <select
+        aria-label={t('Month')}
+        value={month()}
+        onChange={(e) => {
+          setMonth(+e.currentTarget.value);
+          emit(+e.currentTarget.value, day(), validYear());
+        }}
+      >
+        <option value={0}>{t('Month')}</option>
+        <For each={months()}>{(m, i) => <option value={i() + 1}>{m}</option>}</For>
+      </select>
+      <select
+        aria-label={t('Day')}
+        value={day()}
+        onChange={(e) => {
+          setDay(+e.currentTarget.value);
+          emit(month(), +e.currentTarget.value, validYear());
+        }}
+      >
+        <option value={0}>{t('Day')}</option>
+        <For each={Array.from({ length: daysIn(month()) }, (_, i) => i + 1)}>
+          {(d) => <option value={d}>{d}</option>}
+        </For>
+      </select>
+      <input
+        class="birthday-year"
+        inputMode="numeric"
+        maxLength={4}
+        placeholder={t('Year (optional)')}
+        aria-label={t('Year (optional)')}
+        value={year()}
+        onInput={(e) => {
+          setYear(e.currentTarget.value.replace(/\D/g, ''));
+          if (!year() || validYear()) emit(month(), day(), validYear());
+        }}
+      />
+      <Show when={p.value}>
+        <button class="link-btn" onClick={() => p.onChange('')}>
+          {t('Remove')}
+        </button>
+      </Show>
+    </div>
+  );
+}
+
+/** Up to 5 links: a name (optional: the site's name shows instead) and the address. */
+/** Rows by position (Index, not For): each keystroke makes a new link object, and For would rebuild its row. */
+function LinksEditor(p: { links: ProfileLink[]; onChange: (l: ProfileLink[]) => void }) {
+  const set = (i: number, patch: Partial<ProfileLink>) =>
+    p.onChange(p.links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  return (
+    <div class="links-editor">
+      <Index each={p.links} fallback={<p class="muted small">{t('Your website, Steam, Twitch, a playlist...')}</p>}>
+        {(l, i) => (
+          <div class="link-row">
+            {/* The site's icon as soon as the address is recognised. */}
+            <I.SiteIcon url={l().url} size={18} class="link-site" />
+            <input
+              class="link-label"
+              value={l().label}
+              maxLength={32}
+              placeholder={
+                l().url
+                  ? (brandOf(l().url)?.name ?? linkHost(l().url.includes('://') ? l().url : `https://${l().url}`))
+                  : t('Name')
+              }
+              aria-label={t('Name')}
+              onInput={(e) => set(i, { label: e.currentTarget.value })}
+            />
+            <input
+              class="link-url"
+              value={l().url}
+              maxLength={512}
+              placeholder="https://"
+              aria-label={t('Address')}
+              spellcheck={false}
+              onInput={(e) => set(i, { url: e.currentTarget.value })}
+            />
+            <button
+              class="icon-btn"
+              aria-label={t('Remove link')}
+              data-tip={t('Remove link')}
+              onClick={() => p.onChange(p.links.filter((_, j) => j !== i))}
+            >
+              <I.Close size={14} />
+            </button>
+          </div>
+        )}
+      </Index>
+      <Show when={p.links.length < 5}>
+        <button class="btn small-btn" onClick={() => p.onChange([...p.links, { label: '', url: '' }])}>
+          <I.Plus size={14} /> {t('Add link')}
+        </button>
+      </Show>
+    </div>
+  );
+}
+
+const MAX_SONG_SECONDS = 30;
+const MAX_SONG_SOURCE = 15 * 1024 * 1024;
+
+/** Pick an audio file and the part of it (up to 30 s) your profile plays; later trim it again or remove it. */
+function ProfileSongEditor(p: { song: ProfileSong | null; onChange: (s: ProfileSong | null) => void }) {
+  const [file, setFile] = createSignal<File | null>(null);
+  const [editing, setEditing] = createSignal(false);
+  let input!: HTMLInputElement;
+  const pick = (f?: File) => {
+    input.value = '';
+    if (!f) return;
+    if (f.size > MAX_SONG_SOURCE) return toast(t('Pick a file up to 15 MB; you choose the part that plays next'));
+    setEditing(false);
+    setFile(f);
+  };
+  const upload = (f: File, d: Draft) =>
+    attempt(async () => {
+      const fd = new FormData();
+      fd.append(
+        'payload_json',
+        JSON.stringify({ title: d.name.trim(), volume: d.volume, trim_start: d.start, trim_end: d.end }),
+      );
+      fd.append('file', f, f.name);
+      p.onChange(await api<ProfileSong>('POST', '/users/@me/profile-song', fd));
+      setFile(null);
+    }, t('Profile song saved'));
+  const update = (s: ProfileSong, d: Draft) =>
+    attempt(async () => {
+      const trimmed = Math.abs(d.start - (s.trim_start ?? 0)) > 0.005 || Math.abs(d.end - (s.trim_end ?? 0)) > 0.005;
+      p.onChange(
+        await api<ProfileSong>('PATCH', '/users/@me/profile-song', {
+          title: d.name.trim(),
+          volume: d.volume,
+          ...(trimmed ? { trim_start: d.start, trim_end: d.end } : {}),
+        }),
+      );
+      setEditing(false);
+    }, t('Profile song saved'));
+  const remove = () =>
+    attempt(async () => {
+      await api('DELETE', '/users/@me/profile-song');
+      p.onChange(null);
+      setEditing(false);
+    }, t('Profile song removed'));
+  return (
+    <div class="profile-song-editor">
+      <input
+        ref={input}
+        type="file"
+        accept="audio/*,.mp3,.ogg,.wav,.webm,.m4a"
+        hidden
+        onChange={(e) => pick(e.currentTarget.files?.[0])}
+      />
+      <Show
+        when={file()}
+        keyed
+        fallback={
+          <Show
+            when={p.song}
+            keyed
+            fallback={
+              <button class="btn small-btn" onClick={() => input.click()}>
+                <I.Music size={14} /> {t('Choose a song')}
+              </button>
+            }
+          >
+            {(s) => (
+              <>
+                <div class="profile-song-row">
+                  <SongPlayer song={s} autoplay={false} />
+                  <button
+                    class="icon-btn"
+                    aria-label={t('Edit')}
+                    data-tip={t('Edit')}
+                    onClick={() => setEditing(!editing())}
+                  >
+                    <I.Edit size={16} />
+                  </button>
+                  <button
+                    class="icon-btn"
+                    aria-label={t('Choose another song')}
+                    data-tip={t('Choose another song')}
+                    onClick={() => input.click()}
+                  >
+                    <I.Music size={16} />
+                  </button>
+                  <button
+                    class="icon-btn danger"
+                    aria-label={t('Remove')}
+                    data-tip={t('Remove')}
+                    onClick={() => void remove()}
+                  >
+                    <I.Trash size={16} />
+                  </button>
+                </div>
+                <Show when={editing() && s.source}>
+                  <SoundEditor
+                    song
+                    maxSeconds={MAX_SONG_SECONDS}
+                    source={s.source!}
+                    initial={{
+                      name: s.title,
+                      emoji: '',
+                      volume: s.volume,
+                      start: s.trim_start ?? 0,
+                      end: s.trim_end ?? 0,
+                    }}
+                    saveLabel={t('Save')}
+                    onSave={(d) => update(s, d)}
+                    onCancel={() => setEditing(false)}
+                  />
+                </Show>
+              </>
+            )}
+          </Show>
+        }
+      >
+        {(f) => (
+          <SoundEditor
+            song
+            maxSeconds={MAX_SONG_SECONDS}
+            source={f}
+            initial={{ name: f.name.replace(/\.[^.]+$/, '').slice(0, 80), emoji: '', volume: 1, start: 0, end: 0 }}
+            saveLabel={t('Upload')}
+            onSave={(d) => upload(f, d)}
+            onCancel={() => setFile(null)}
+          />
+        )}
       </Show>
     </div>
   );
@@ -1686,6 +2113,49 @@ function NotificationsPage() {
         )}
       </p>
     </>
+  );
+}
+
+// ---------- Appearance ----------
+
+function AppearancePage() {
+  const options = (): [typeof prefs.theme, string, string, (p: { size?: number }) => JSX.Element][] => [
+    [
+      'system',
+      t('System default'),
+      systemTheme() === 'light'
+        ? t('Follows your system, currently light.')
+        : t('Follows your system, currently dark.'),
+      I.Appearance,
+    ],
+    ['light', t('Light'), '', I.Sun],
+    ['dark', t('Dark'), '', I.Moon],
+  ];
+  return (
+    <Section title={t('Theme')} description={t('How Linkord looks on this device.')}>
+      <div class="theme-cards">
+        <For each={options()}>
+          {([id, name, sub, Icon]) => (
+            <label class="theme-card" classList={{ on: prefs.theme === id }}>
+              <input type="radio" name="theme" checked={prefs.theme === id} onChange={() => setPrefs({ theme: id })} />
+              <span class={`theme-swatch ${id}`} aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span class="theme-card-text">
+                <strong>
+                  <Icon size={15} /> {name}
+                </strong>
+                <Show when={sub}>
+                  <small>{sub}</small>
+                </Show>
+              </span>
+            </label>
+          )}
+        </For>
+      </div>
+    </Section>
   );
 }
 

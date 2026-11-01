@@ -18,7 +18,7 @@ use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::uploads;
 
-const AUDIO_EXT: &[&str] = &["mp3", "ogg", "opus", "wav", "webm", "m4a"];
+pub const AUDIO_EXT: &[&str] = &["mp3", "ogg", "opus", "wav", "webm", "m4a"];
 /// The uploaded file (the part that plays is cut from it).
 const MAX_SOURCE: usize = 8 * 1024 * 1024;
 /// Discord allows 5.2 seconds.
@@ -136,16 +136,21 @@ struct SoundFields {
     trim_end: Option<f64>,
 }
 
-fn upload_path(st: &AppState, url: &str) -> Option<std::path::PathBuf> {
+pub fn upload_path(st: &AppState, url: &str) -> Option<std::path::PathBuf> {
     let rel = url.strip_prefix("/uploads/")?;
     (!rel.contains("..")).then(|| st.cfg.uploads_dir().join(rel))
 }
 
 /// Cuts `start..end` seconds of `src` into an MP3 next to it; returns its URL.
 async fn cut(st: &AppState, src_url: &str, start: f64, end: f64) -> ApiResult<String> {
+    cut_clip(st, src_url, start, end, MAX_SECONDS, "sounds can be at most 5 seconds long").await
+}
+
+/// [`cut`] with another limit (profile songs, users.rs).
+pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f64, too_long: &'static str) -> ApiResult<String> {
     let src = upload_path(st, src_url).ok_or_else(|| bad("couldn't read that sound"))?;
-    if !(start >= 0.0 && end - start >= 0.1 && end - start <= MAX_SECONDS + 0.01) {
-        return Err(bad("sounds can be at most 5 seconds long"));
+    if !(start >= 0.0 && end - start >= 0.1 && end - start <= max + 0.01) {
+        return Err(bad(too_long));
     }
     let name = format!("sound-{}.mp3", crate::auth::random_token(6));
     let out_path = src.with_file_name(&name);
@@ -175,7 +180,7 @@ fn clean_emoji(e: Option<String>) -> Option<String> {
 }
 
 /// Length in seconds with ffprobe; None when ffprobe isn't there (the client checks too).
-async fn duration(path: &std::path::Path) -> Option<f64> {
+pub async fn duration(path: &std::path::Path) -> Option<f64> {
     let out = tokio::process::Command::new("ffprobe")
         .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
         .arg(path)

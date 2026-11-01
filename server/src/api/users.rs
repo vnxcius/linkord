@@ -2,7 +2,7 @@ use axum::extract::{Multipart, Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::auth::AuthUser;
@@ -26,15 +26,18 @@ pub fn routes() -> Router<AppState> {
                 .put(restore_avatar)
                 .delete(|st, me| clear_image(st, me, "avatar")),
         )
-        .route("/users/@me/avatars", get(avatar_history))
+        .route("/users/@me/avatars", get(avatar_history).delete(forget_avatar))
+        .route("/users/@me/favorite-games", axum::routing::put(set_favorite_games))
         .route(
             "/users/@me/nameplate",
             post(|st, me, mp| upload_image(st, me, mp, "nameplate")).put(choose_nameplate).delete(|st, me| clear_image(st, me, "nameplate")),
         )
         .route("/nameplates", get(default_nameplates))
         .route("/users/@me/banner", post(|st, me, mp| upload_image(st, me, mp, "banner")).delete(|st, me| clear_image(st, me, "banner")))
+        .route("/users/@me/profile-song", post(upload_song).patch(update_song).delete(remove_song))
         .route("/users/{id}", get(get_user))
         .route("/users/{id}/profile", get(profile))
+        .route("/users/{id}/note", axum::routing::put(set_note))
 }
 
 async fn me(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<Json<serde_json::Value>> {
@@ -72,7 +75,317 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
         friends.push(User::get(&st.db, f).await?);
     }
     let connections = crate::spotify::public(&st, id).await?;
-    Ok(Json(serde_json::json!({ "user": user, "mutual_friends": friends, "mutual_guilds": mutual_guilds, "created_at": created_at, "connections": connections })))
+    let favorite_games = favorite_games(&st, id).await?;
+    let (links, show_stats, show_top_songs): (sqlx::types::Json<Vec<Link>>, bool, bool) =
+        sqlx::query_as("SELECT links, show_stats, show_top_songs FROM users WHERE id = $1").bind(id).fetch_one(&st.db).await?;
+    let note: Option<String> =
+        sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
+    let own = me == id;
+    let mut out = serde_json::json!({
+        "user": user, "mutual_friends": friends, "mutual_guilds": mutual_guilds, "created_at": created_at, "connections": connections,
+        "favorite_games": favorite_games, "links": links.0, "note": note.unwrap_or_default(), "song": profile_song(&st, id, own).await?,
+    });
+    // Widgets: others see them when the person turned them on; you always see yours (with whether they're shown).
+    if show_top_songs || own {
+        out["top_songs"] = top_songs(&st, id).await?.into();
+    }
+    if show_stats || own {
+        out["stats"] = public_stats(&st, id).await?;
+    }
+    if own {
+        out["show_stats"] = show_stats.into();
+        out["show_top_songs"] = show_top_songs.into();
+    }
+    Ok(Json(out))
+}
+
+// ---------- notes ----------
+
+const MAX_NOTE: usize = 256;
+
+#[derive(Deserialize)]
+struct NoteBody {
+    note: String,
+}
+
+/// Your private note about someone (shown only to you, on their profile). Empty deletes it.
+async fn set_note(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<NoteBody>) -> ApiResult<Json<serde_json::Value>> {
+    if id == me {
+        return Err(bad("you can't write a note about yourself"));
+    }
+    User::get(&st.db, id).await?;
+    let note = body.note.trim();
+    if note.chars().count() > MAX_NOTE {
+        return Err(bad("notes can be at most 256 characters"));
+    }
+    if note.is_empty() {
+        sqlx::query("DELETE FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).execute(&st.db).await?;
+    } else {
+        sqlx::query(
+            "INSERT INTO user_notes (user_id, target_id, note) VALUES ($1, $2, $3)
+             ON CONFLICT (user_id, target_id) DO UPDATE SET note = EXCLUDED.note, updated_at = now()",
+        )
+        .bind(me)
+        .bind(id)
+        .bind(note)
+        .execute(&st.db)
+        .await?;
+    }
+    // Your other sessions update their copy.
+    st.hub.send(&[me], "USER_NOTE_UPDATE", &json!({ "id": id, "note": note }));
+    Ok(Json(json!({ "note": note })))
+}
+
+// ---------- links and birthday ----------
+
+const MAX_LINKS: usize = 5;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Link {
+    #[serde(default)]
+    label: String,
+    url: String,
+}
+
+/// Tidies profile links: http(s) only, labels up to 32 characters (empty = the site's name, chosen by the client).
+fn clean_links(links: Vec<Link>) -> ApiResult<Vec<Link>> {
+    if links.len() > MAX_LINKS {
+        return Err(bad("you can add up to 5 links"));
+    }
+    let mut out = Vec::with_capacity(links.len());
+    for l in links {
+        let raw = l.url.trim();
+        let with_scheme = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
+        let parsed = reqwest::Url::parse(&with_scheme).map_err(|_| bad("that link doesn't look right"))?;
+        let host_ok = parsed.host_str().is_some_and(|h| h.contains('.'));
+        if !matches!(parsed.scheme(), "http" | "https") || !host_ok || with_scheme.len() > 512 {
+            return Err(bad("that link doesn't look right"));
+        }
+        let label = l.label.split_whitespace().collect::<Vec<_>>().join(" ");
+        if label.chars().count() > 32 {
+            return Err(bad("link names can be at most 32 characters"));
+        }
+        out.push(Link { label, url: parsed.to_string() });
+    }
+    Ok(out)
+}
+
+/// 'MM-DD' or 'YYYY-MM-DD' (a real date; 29 February is fine without a year). Empty clears it.
+fn clean_birthday(b: &str) -> ApiResult<Option<String>> {
+    let b = b.trim();
+    if b.is_empty() {
+        return Ok(None);
+    }
+    let invalid = || bad("that birthday isn't a real date");
+    let (year, md) = match b.len() {
+        5 => (None, b),
+        10 if b.as_bytes()[4] == b'-' => (Some(b[..4].parse::<i32>().map_err(|_| invalid())?), &b[5..]),
+        _ => return Err(invalid()),
+    };
+    let (m, d) = md.split_once('-').ok_or_else(invalid)?;
+    let (m, d): (u32, u32) = (m.parse().map_err(|_| invalid())?, d.parse().map_err(|_| invalid())?);
+    let this_year = chrono::Datelike::year(&Utc::now());
+    if year.is_some_and(|y| y < 1900 || y > this_year) {
+        return Err(invalid());
+    }
+    // A leap year stands in for "any year".
+    chrono::NaiveDate::from_ymd_opt(year.unwrap_or(2000), m, d).ok_or_else(invalid)?;
+    Ok(Some(match year {
+        Some(y) => format!("{y:04}-{m:02}-{d:02}"),
+        None => format!("{m:02}-{d:02}"),
+    }))
+}
+
+// ---------- widgets: Kass's top songs and the stats card ----------
+
+/// The songs Kass played most for someone (music.rs counts them).
+async fn top_songs(st: &AppState, user: Id) -> ApiResult<Vec<serde_json::Value>> {
+    let rows: Vec<(String, String, Option<String>, Option<String>, i32)> = sqlx::query_as(
+        "SELECT title, url, uploader, thumbnail, plays FROM kass_plays WHERE user_id = $1 ORDER BY plays DESC, last_played DESC LIMIT 5",
+    )
+    .bind(user)
+    .fetch_all(&st.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(title, url, uploader, thumbnail, plays)| json!({ "title": title, "url": url, "uploader": uploader, "thumbnail": thumbnail, "plays": plays }))
+        .collect())
+}
+
+/// A few of the numbers from Settings -> Stats, for the profile (no channels: the viewer may not see them).
+async fn public_stats(st: &AppState, user: Id) -> ApiResult<serde_json::Value> {
+    let db = &st.db;
+    let voice_seconds: i64 = sqlx::query_scalar("SELECT voice_seconds FROM users WHERE id = $1").bind(user).fetch_one(db).await?;
+    let (messages, active_days): (i64, i64) =
+        sqlx::query_as("SELECT COUNT(*), COUNT(DISTINCT created_at::date) FROM messages WHERE author_id = $1 AND type = 0")
+            .bind(user)
+            .fetch_one(db)
+            .await?;
+    let top_emoji: Vec<(String, i64)> =
+        sqlx::query_as("SELECT emoji, COUNT(*) FROM reactions WHERE user_id = $1 GROUP BY emoji ORDER BY 2 DESC, 1 LIMIT 3")
+            .bind(user)
+            .fetch_all(db)
+            .await?;
+    let keys: Vec<String> = ["stream_seconds", "longest_voice_seconds", "sounds_played", "songs_queued", "game_seconds"].map(String::from).to_vec();
+    let counters: std::collections::HashMap<String, i64> =
+        sqlx::query_as::<_, (String, i64)>("SELECT key, value FROM user_stats WHERE user_id = $1 AND key = ANY($2)")
+            .bind(user)
+            .bind(keys)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .collect();
+    let top_game: Option<(String, Option<String>, i64)> =
+        sqlx::query_as("SELECT name, icon, seconds FROM user_games WHERE user_id = $1 ORDER BY seconds DESC LIMIT 1")
+            .bind(user)
+            .fetch_optional(db)
+            .await?;
+    Ok(json!({
+        "voice_seconds": voice_seconds,
+        "messages": messages,
+        "active_days": active_days,
+        "counters": counters,
+        "top_emoji": top_emoji.into_iter().map(|(emoji, n)| json!({ "emoji": emoji, "count": n })).collect::<Vec<_>>(),
+        "top_game": top_game.map(|(name, icon, seconds)| json!({ "name": name, "icon": icon, "seconds": seconds })),
+    }))
+}
+
+// ---------- profile song ----------
+
+const MAX_SONG_SECONDS: f64 = 30.0;
+const MAX_SONG_SOURCE: usize = 15 * 1024 * 1024;
+const SONG_TOO_LONG: &str = "profile songs can be at most 30 seconds long";
+
+#[derive(Deserialize, Default)]
+struct SongFields {
+    title: Option<String>,
+    volume: Option<f32>,
+    trim_start: Option<f64>,
+    trim_end: Option<f64>,
+}
+
+/// The profile song as clients see it; the original file it was cut from only for its owner (to trim it again).
+async fn profile_song(st: &AppState, user: Id, own: bool) -> ApiResult<Option<serde_json::Value>> {
+    let row: Option<(String, String, String, f32, f32, f32)> =
+        sqlx::query_as("SELECT url, source, title, volume, trim_start, trim_end FROM profile_songs WHERE user_id = $1")
+            .bind(user)
+            .fetch_optional(&st.db)
+            .await?;
+    Ok(row.map(|(url, source, title, volume, start, end)| {
+        let mut v = json!({ "url": url, "title": title, "volume": volume, "duration": end - start });
+        if own {
+            v["source"] = source.into();
+            v["trim_start"] = start.into();
+            v["trim_end"] = end.into();
+        }
+        v
+    }))
+}
+
+fn clean_song_title(t: Option<&str>) -> ApiResult<String> {
+    let t = t.unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ");
+    if t.chars().count() > 80 {
+        return Err(bad("song titles can be at most 80 characters"));
+    }
+    Ok(t)
+}
+
+/// Multipart: `file` (audio, up to 15 MB) and `payload_json` {title, volume, trim_start, trim_end}; up to 30 s of it
+/// is cut to MP3 (soundboard.rs).
+async fn upload_song(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp: Multipart) -> ApiResult<Json<serde_json::Value>> {
+    let mut fields = SongFields::default();
+    let mut file: Option<(String, Vec<u8>)> = None;
+    while let Some(field) = mp.next_field().await.map_err(|e| bad(e.body_text()))? {
+        match field.name() {
+            Some("payload_json") => {
+                let text = field.text().await.map_err(|e| bad(e.body_text()))?;
+                fields = serde_json::from_str(&text).map_err(|_| bad("invalid payload_json"))?;
+            }
+            Some("file") => {
+                let name = field.file_name().unwrap_or("song.mp3").to_string();
+                let ext = name.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+                if !crate::soundboard::AUDIO_EXT.contains(&ext.as_str()) {
+                    return Err(bad("songs must be mp3, ogg, wav, webm or m4a files"));
+                }
+                file = Some((name, uploads::read_field(field, MAX_SONG_SOURCE).await?));
+            }
+            _ => {}
+        }
+    }
+    let (filename, bytes) = file.ok_or_else(|| bad("missing file"))?;
+    let title = clean_song_title(fields.title.as_deref())?;
+    uploads::reserve(&st, me, bytes.len()).await?;
+    // One song per person: the previous one's files go.
+    let dir = format!("profile-songs/{me}");
+    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(&dir)).await;
+    let source = uploads::save(&st, &dir, &filename, &bytes).await?;
+    let path = crate::soundboard::upload_path(&st, &source).ok_or_else(|| bad("couldn't read that song"))?;
+    let length = crate::soundboard::duration(&path).await.unwrap_or(MAX_SONG_SECONDS);
+    let start = fields.trim_start.unwrap_or(0.0).max(0.0);
+    let end = fields.trim_end.unwrap_or(start + MAX_SONG_SECONDS).min(length).max(start);
+    let url = match crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG).await {
+        Ok(url) => url,
+        Err(e) => {
+            let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(&dir)).await;
+            uploads::release(&st, me, bytes.len() as u64).await;
+            return Err(e);
+        }
+    };
+    sqlx::query(
+        "INSERT INTO profile_songs (user_id, url, source, title, volume, trim_start, trim_end) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (user_id) DO UPDATE SET url = EXCLUDED.url, source = EXCLUDED.source, title = EXCLUDED.title,
+             volume = EXCLUDED.volume, trim_start = EXCLUDED.trim_start, trim_end = EXCLUDED.trim_end",
+    )
+    .bind(me)
+    .bind(&url)
+    .bind(&source)
+    .bind(title)
+    .bind(fields.volume.unwrap_or(1.0).clamp(0.05, 1.0))
+    .bind(start as f32)
+    .bind(end as f32)
+    .execute(&st.db)
+    .await?;
+    tracing::info!(user = %me, "profile song set");
+    Ok(Json(profile_song(&st, me, true).await?.unwrap_or_default()))
+}
+
+/// Title and volume, and a new trim (cut again from the original).
+async fn update_song(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<SongFields>) -> ApiResult<Json<serde_json::Value>> {
+    let (url, source, start, end): (String, String, f32, f32) =
+        sqlx::query_as("SELECT url, source, trim_start, trim_end FROM profile_songs WHERE user_id = $1")
+            .bind(me)
+            .fetch_optional(&st.db)
+            .await?
+            .ok_or(crate::error::ApiError::NotFound)?;
+    let (mut new_url, mut start, mut end) = (url.clone(), start as f64, end as f64);
+    if body.trim_start.is_some() || body.trim_end.is_some() {
+        start = body.trim_start.unwrap_or(start).max(0.0);
+        end = body.trim_end.unwrap_or(end).max(start);
+        new_url = crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG).await?;
+        if let Some(old) = crate::soundboard::upload_path(&st, &url) {
+            let _ = tokio::fs::remove_file(old).await;
+        }
+    }
+    let title = body.title.as_deref().map(|t| clean_song_title(Some(t))).transpose()?;
+    sqlx::query(
+        "UPDATE profile_songs SET url = $2, title = COALESCE($3, title), volume = COALESCE($4, volume), trim_start = $5, trim_end = $6
+         WHERE user_id = $1",
+    )
+    .bind(me)
+    .bind(&new_url)
+    .bind(title)
+    .bind(body.volume.map(|v| v.clamp(0.05, 1.0)))
+    .bind(start as f32)
+    .bind(end as f32)
+    .execute(&st.db)
+    .await?;
+    Ok(Json(profile_song(&st, me, true).await?.unwrap_or_default()))
+}
+
+async fn remove_song(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<()> {
+    sqlx::query("DELETE FROM profile_songs WHERE user_id = $1").bind(me).execute(&st.db).await?;
+    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(format!("profile-songs/{me}"))).await;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -80,8 +393,14 @@ struct ProfileUpdate {
     username: Option<String>,
     display_name: Option<String>,
     bio: Option<String>,
+    pronouns: Option<String>,
     status: Option<String>,
     accent_color: Option<i32>,
+    links: Option<Vec<Link>>,
+    /// 'MM-DD' or 'YYYY-MM-DD'; empty clears it.
+    birthday: Option<String>,
+    show_stats: Option<bool>,
+    show_top_songs: Option<bool>,
 }
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<ProfileUpdate>) -> ApiResult<Json<serde_json::Value>> {
@@ -113,26 +432,141 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     if body.bio.as_ref().is_some_and(|b| b.chars().count() > 190) {
         return Err(bad("bio must be at most 190 characters"));
     }
+    let pronouns = body.pronouns.map(|p| p.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or(before.pronouns.clone());
+    if pronouns.chars().count() > 40 {
+        return Err(bad("pronouns must be at most 40 characters"));
+    }
     // An empty display name clears it (falls back to the username).
     let display_name = match body.display_name {
         Some(n) if n.trim().is_empty() => None,
         Some(n) => Some(n.trim().to_string()),
         None => before.display_name.clone(),
     };
-    sqlx::query("UPDATE users SET display_name = $2, bio = $3, status = $4, accent_color = $5 WHERE id = $1")
-        .bind(me)
-        .bind(display_name)
-        .bind(body.bio.unwrap_or(before.bio.clone()))
-        .bind(body.status.unwrap_or(before.status.clone()))
-        .bind(body.accent_color.or(before.accent_color))
-        .execute(&st.db)
-        .await?;
+    let birthday = match body.birthday.as_deref() {
+        Some(b) => clean_birthday(b)?,
+        None => before.birthday.clone(),
+    };
+    let links = body.links.map(clean_links).transpose()?.map(sqlx::types::Json);
+    sqlx::query(
+        "UPDATE users SET display_name = $2, bio = $3, status = $4, accent_color = $5, pronouns = $6, birthday = $7,
+             links = COALESCE($8, links), show_stats = COALESCE($9, show_stats), show_top_songs = COALESCE($10, show_top_songs)
+         WHERE id = $1",
+    )
+    .bind(me)
+    .bind(display_name)
+    .bind(body.bio.unwrap_or(before.bio.clone()))
+    .bind(body.status.unwrap_or(before.status.clone()))
+    .bind(body.accent_color.or(before.accent_color))
+    .bind(pronouns)
+    .bind(birthday)
+    .bind(links)
+    .bind(body.show_stats)
+    .bind(body.show_top_songs)
+    .execute(&st.db)
+    .await?;
     let after = User::get(&st.db, me).await?;
     notify_update(&st, &after).await?;
     if after.status != before.status {
         broadcast_presence(&st, &after).await?;
     }
     Ok(Json(serde_json::to_value(after.me()).unwrap()))
+}
+
+// ---------- favorite games (profile widget) ----------
+
+const MAX_FAVORITE_GAMES: usize = 20;
+
+/// A user's favorite games, in their order, with art from the game catalog and the time Linkord saw them play it.
+pub async fn favorite_games(st: &AppState, user: Id) -> ApiResult<Vec<serde_json::Value>> {
+    let rows: Vec<(Option<String>, String, Option<String>, Option<i64>)> = sqlx::query_as(
+        "SELECT f.game_id, f.name, f.art, g.seconds FROM favorite_games f
+         LEFT JOIN user_games g ON g.user_id = f.user_id AND lower(g.name) = lower(f.name)
+         WHERE f.user_id = $1 ORDER BY f.position",
+    )
+    .bind(user)
+    .fetch_all(&st.db)
+    .await?;
+    let catalog = st.games.catalog.read().unwrap().clone();
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, art, seconds)| {
+            let mut v = id.as_deref().and_then(|id| catalog.as_ref()?.get(id)).map(|g| g.json()).unwrap_or_else(|| serde_json::json!({ "id": id }));
+            if art.is_some() {
+                v["cover"] = art.into();
+            }
+            v["name"] = name.into();
+            v["seconds"] = seconds.unwrap_or(0).into();
+            v
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+struct FavoriteGame {
+    /// A game from the catalog (GET /games/search), or null with a name for one typed by hand.
+    id: Option<String>,
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct FavoriteGames {
+    games: Vec<FavoriteGame>,
+}
+
+async fn set_favorite_games(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<FavoriteGames>) -> ApiResult<Json<Vec<serde_json::Value>>> {
+    if body.games.len() > MAX_FAVORITE_GAMES {
+        return Err(bad("you can pick up to 20 favorite games"));
+    }
+    let catalog = st.games.catalog.read().unwrap().clone();
+    let mut list: Vec<(Option<String>, String, Option<String>)> = Vec::with_capacity(body.games.len());
+    // Games already saved keep what was checked then (no Wikipedia lookups for a reorder).
+    let saved: Vec<(Option<String>, String, Option<String>)> =
+        sqlx::query_as("SELECT game_id, name, art FROM favorite_games WHERE user_id = $1").bind(me).fetch_all(&st.db).await?;
+    for g in body.games {
+        let (id, name, art) = match g.id.filter(|i| !i.is_empty()) {
+            // Found on Wikipedia: the server checks the page is a game and takes its name and box art from it.
+            Some(id) if id.starts_with(crate::activities::WIKI_PREFIX) => match saved.iter().find(|s| s.0.as_deref() == Some(&id)) {
+                Some(s) => s.clone(),
+                None => {
+                    let title = id[crate::activities::WIKI_PREFIX.len()..].to_string();
+                    let page = if st.cfg.game_info { crate::activities::wiki_page(&st, &title).await } else { None };
+                    let page = page.ok_or_else(|| bad("unknown game"))?;
+                    let v = crate::activities::wiki_game_json(&title, &page);
+                    let name = v["name"].as_str().unwrap_or(&title).to_string();
+                    (Some(id), name, v["cover"].as_str().map(str::to_string))
+                }
+            },
+            Some(id) => match catalog.as_ref().and_then(|c| c.get(&id)) {
+                Some(known) => (Some(id), known.name.clone(), None),
+                // The catalog isn't loaded yet (right after a first start): keep what the client sent.
+                None if catalog.is_none() && !g.name.trim().is_empty() => (Some(id), g.name.trim().to_string(), None),
+                None => return Err(bad("unknown game")),
+            },
+            None => (None, g.name.split_whitespace().collect::<Vec<_>>().join(" "), None),
+        };
+        if name.is_empty() || name.chars().count() > 128 {
+            return Err(bad("Game name must be 1-128 characters"));
+        }
+        if list.iter().any(|(i, n, _)| (id.is_some() && *i == id) || n.eq_ignore_ascii_case(&name)) {
+            continue;
+        }
+        list.push((id, name, art));
+    }
+    let mut tx = st.db.begin().await?;
+    sqlx::query("DELETE FROM favorite_games WHERE user_id = $1").bind(me).execute(&mut *tx).await?;
+    for (pos, (id, name, art)) in list.iter().enumerate() {
+        sqlx::query("INSERT INTO favorite_games (user_id, position, game_id, name, art) VALUES ($1, $2, $3, $4, $5)")
+            .bind(me)
+            .bind(pos as i16)
+            .bind(id)
+            .bind(name)
+            .bind(art)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(Json(favorite_games(&st, me).await?))
 }
 
 async fn notify_update(st: &AppState, user: &User) -> ApiResult<()> {
@@ -142,7 +576,8 @@ async fn notify_update(st: &AppState, user: &User) -> ApiResult<()> {
 }
 
 /// Avatars kept per user. The client sends them already cropped and compressed (512 px WebP), so these are small.
-const AVATAR_HISTORY: i64 = 8;
+/// Recent pictures kept (owner: the last 5), the one in use included.
+const AVATAR_HISTORY: i64 = 5;
 const MAX_AVATAR: usize = 2 * 1024 * 1024;
 const MAX_BANNER: usize = 4 * 1024 * 1024;
 const MAX_NAMEPLATE: usize = 1024 * 1024;
@@ -165,7 +600,28 @@ struct Crop {
     rotate: i32,
 }
 
-async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp: Multipart, which: &'static str) -> ApiResult<Json<serde_json::Value>> {
+async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mp: Multipart, which: &'static str) -> ApiResult<Json<serde_json::Value>> {
+    let (name, bytes) = read_image(&st, mp, which).await?;
+    uploads::reserve(&st, me, bytes.len()).await?;
+    let url = uploads::save(&st, &format!("{which}s/{me}"), &name, &bytes).await?;
+    sqlx::query(&format!("UPDATE users SET {which} = $2 WHERE id = $1")).bind(me).bind(&url).execute(&st.db).await?;
+    if which == "avatar" {
+        sqlx::query("INSERT INTO avatar_history (user_id, url, size) VALUES ($1, $2, $3)")
+            .bind(me)
+            .bind(&url)
+            .bind(bytes.len() as i64)
+            .execute(&st.db)
+            .await?;
+        prune_avatars(&st, me).await?;
+    }
+    let after = User::get(&st.db, me).await?;
+    notify_update(&st, &after).await?;
+    Ok(Json(serde_json::to_value(after.me()).unwrap()))
+}
+
+/// Reads an uploaded picture, banner or nameplate (`which`) and checks it: the file name to keep and its bytes (GIF
+/// pictures and banners already cropped into animated WebP). Server profiles (guilds.rs) use it too.
+pub async fn read_image(st: &AppState, mut mp: Multipart, which: &'static str) -> ApiResult<(String, Vec<u8>)> {
     // A "crop" field (GIF pictures and banners) may come before the file.
     let mut crop: Option<Crop> = None;
     let field = loop {
@@ -204,23 +660,9 @@ async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp
         return Err(bad("that file isn't a WebM video"));
     }
     if gif {
-        bytes = crop_gif(&st, &bytes, crop, which == "avatar").await?;
+        bytes = crop_gif(st, &bytes, crop, which == "avatar").await?;
     }
-    uploads::reserve(&st, me, bytes.len()).await?;
-    let url = uploads::save(&st, &format!("{which}s/{me}"), &name, &bytes).await?;
-    sqlx::query(&format!("UPDATE users SET {which} = $2 WHERE id = $1")).bind(me).bind(&url).execute(&st.db).await?;
-    if which == "avatar" {
-        sqlx::query("INSERT INTO avatar_history (user_id, url, size) VALUES ($1, $2, $3)")
-            .bind(me)
-            .bind(&url)
-            .bind(bytes.len() as i64)
-            .execute(&st.db)
-            .await?;
-        prune_avatars(&st, me).await?;
-    }
-    let after = User::get(&st.db, me).await?;
-    notify_update(&st, &after).await?;
-    Ok(Json(serde_json::to_value(after.me()).unwrap()))
+    Ok((name, bytes))
 }
 
 /// Crops and resizes an animated GIF (avatar 1:1 up to 320 px, banner 3:1 up to 960 px) into an animated WebP,
@@ -302,14 +744,35 @@ async fn prune_avatars(st: &AppState, me: Id) -> ApiResult<()> {
     .fetch_all(&st.db)
     .await?;
     for (_, url, size) in old {
-        if let Some(dir) = url.strip_prefix("/uploads/").map(|r| st.cfg.uploads_dir().join(r)).and_then(|p| p.parent().map(|d| d.to_path_buf())) {
-            // Only ever remove the random per-upload directory under this user's avatars.
-            if dir.starts_with(st.cfg.uploads_dir().join("avatars").join(me.to_string())) {
-                let _ = tokio::fs::remove_dir_all(dir).await;
-            }
-        }
-        uploads::release(st, me, size as u64).await;
+        remove_avatar_file(st, me, &url, size).await;
     }
+    Ok(())
+}
+
+/// Deletes an old avatar's file and gives its bytes back to the quota.
+async fn remove_avatar_file(st: &AppState, me: Id, url: &str, size: i64) {
+    if let Some(dir) = url.strip_prefix("/uploads/").map(|r| st.cfg.uploads_dir().join(r)).and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        // Only ever remove the random per-upload directory under this user's avatars.
+        if dir.starts_with(st.cfg.uploads_dir().join("avatars").join(me.to_string())) {
+            let _ = tokio::fs::remove_dir_all(dir).await;
+        }
+    }
+    uploads::release(st, me, size as u64).await;
+}
+
+/// Removes a picture from your recent pictures (not the one in use).
+async fn forget_avatar(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<RestoreAvatar>) -> ApiResult<()> {
+    let gone: Option<i64> = sqlx::query_scalar(
+        "DELETE FROM avatar_history h USING users u
+         WHERE h.user_id = $1 AND h.url = $2 AND u.id = h.user_id AND h.url IS DISTINCT FROM u.avatar
+         RETURNING h.size",
+    )
+    .bind(me)
+    .bind(&body.url)
+    .fetch_optional(&st.db)
+    .await?;
+    let size = gone.ok_or_else(|| bad("that picture can't be removed"))?;
+    remove_avatar_file(&st, me, &body.url, size).await;
     Ok(())
 }
 
@@ -543,16 +1006,18 @@ async fn delete_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     let short = &me.to_string()[me.to_string().len().saturating_sub(6)..];
     sqlx::query(
         "UPDATE users SET discord_id = 'deleted:' || id, discord_username = NULL, username = $2, display_name = 'Deleted User',
-         avatar = NULL, banner = NULL, nameplate = NULL, accent_color = NULL, bio = '', status = 'invisible', deleted_at = now() WHERE id = $1",
+         avatar = NULL, banner = NULL, nameplate = NULL, accent_color = NULL, bio = '', pronouns = '', birthday = NULL, links = '[]',
+         status = 'invisible', deleted_at = now() WHERE id = $1",
     )
     .bind(me)
     .bind(format!("deleted_user_{short}"))
     .execute(&st.db)
     .await?;
-    for table in ["sessions", "read_states", "user_settings", "custom_statuses"] {
+    sqlx::query("DELETE FROM user_notes WHERE user_id = $1 OR target_id = $1").bind(me).execute(&st.db).await?;
+    for table in ["sessions", "read_states", "user_settings", "custom_statuses", "favorite_games", "kass_plays", "profile_songs"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1")).bind(me).execute(&st.db).await?;
     }
-    for dir in ["avatars", "banners", "nameplates"] {
+    for dir in ["avatars", "banners", "nameplates", "profile-songs"] {
         let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(dir).join(me.to_string())).await;
     }
     sqlx::query("DELETE FROM avatar_history WHERE user_id = $1").bind(me).execute(&st.db).await?;
@@ -596,4 +1061,32 @@ async fn choose_nameplate(State(st): State<AppState>, AuthUser(me): AuthUser, Js
     let after = User::get(&st.db, me).await?;
     notify_update(&st, &after).await?;
     Ok(Json(serde_json::to_value(after.me()).unwrap()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn birthdays() {
+        assert_eq!(clean_birthday("03-14").unwrap().as_deref(), Some("03-14"));
+        assert_eq!(clean_birthday(" 1999-03-14 ").unwrap().as_deref(), Some("1999-03-14"));
+        assert_eq!(clean_birthday("02-29").unwrap().as_deref(), Some("02-29"), "leap day without a year");
+        assert_eq!(clean_birthday("").unwrap(), None);
+        for bad in ["2001-02-29", "13-01", "04-31", "1850-01-01", "3000-01-01", "3-14", "1999/03/14", "ab-cd"] {
+            assert!(clean_birthday(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn links() {
+        let l = |url: &str| Link { label: String::new(), url: url.into() };
+        let out = clean_links(vec![l("github.com/someone"), Link { label: "  My   blog ".into(), url: "http://blog.example.org/x".into() }]).unwrap();
+        assert_eq!(out[0].url, "https://github.com/someone");
+        assert_eq!(out[1].label, "My blog");
+        for bad in ["javascript:alert(1)", "ftp://example.com", "https://localhost", "not a link"] {
+            assert!(clean_links(vec![l(bad)]).is_err(), "{bad}");
+        }
+        assert!(clean_links((0..6).map(|i| l(&format!("example{i}.com"))).collect()).is_err());
+    }
 }

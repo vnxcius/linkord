@@ -55,7 +55,13 @@ export function EmojiPicker(p: {
       class={`emoji-picker ${p.class ?? ''}`}
       style={p.style}
       ref={root}
-      onKeyDown={(e) => e.key === 'Escape' && p.onClose()}
+      onKeyDown={(e) => {
+        // Only the picker closes, not the settings screen or dialog under it.
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          p.onClose();
+        }
+      }}
     >
       <input
         class="emoji-search"

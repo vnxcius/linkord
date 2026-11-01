@@ -53,8 +53,9 @@ export type WorkerOut =
   | { type: 'ping'; ms: number }
   | { type: 'denoiser'; kind: DenoiseKind | null }
   | { type: 'stream_audio'; stats: StreamAudioStats }
-  /** The server moves us to another channel (the AFK channel after a while without talking). */
-  | { type: 'move'; channelId: string; reason?: string }
+  /** The server moves us to another channel (the AFK channel after a while without talking, or someone with
+   * Move Members dragged us), or disconnects us (channelId null). `by` = who did it. */
+  | { type: 'move'; channelId: string | null; reason?: string; by?: string }
   /** Someone in the channel (maybe us) played a soundboard sound. */
   | { type: 'sound'; userId: string; sound: import('./soundboard').Sound };
 
@@ -378,7 +379,7 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
       if (m.source === 'screen') playback?.postMessage({ id: `${m.user_id}:screen`, remove: true });
       post({ type: 'video_stop', id: m.user_id, source: m.source });
     } else if (m.op === 'keyframe') post({ type: 'keyframe', source: m.source });
-    else if (m.op === 'move') post({ type: 'move', channelId: m.channel_id, reason: m.reason });
+    else if (m.op === 'move') post({ type: 'move', channelId: m.channel_id, reason: m.reason, by: m.by });
     else if (m.op === 'sound') post({ type: 'sound', userId: m.user_id, sound: m.sound });
   };
   sock.onclose = (e) => {

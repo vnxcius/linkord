@@ -162,12 +162,51 @@ pub async fn guild_members(db: &PgPool, guild: Id) -> ApiResult<Vec<Id>> {
     Ok(sqlx::query_scalar("SELECT user_id FROM members WHERE guild_id = $1").bind(guild).fetch_all(db).await?)
 }
 
-/// Everyone who can see this channel.
+/// Everyone who can see this channel (server channels: members with View Channel there).
 pub async fn channel_audience(db: &PgPool, ch: &Channel) -> ApiResult<Vec<Id>> {
     match ch.guild_id {
-        Some(g) => guild_members(db, g).await,
+        Some(g) => crate::perms::channel_viewers(db, g, ch.id).await,
         None => dms::recipients(db, ch.id).await,
     }
+}
+
+/// Who sees which channels of a server, taken before a change to roles or overwrites.
+pub async fn visibility(db: &PgPool, guild: Id) -> ApiResult<HashMap<Id, HashSet<Id>>> {
+    Ok(crate::perms::GuildCtx::load(db, guild).await?.visibility())
+}
+
+/// After a permission change: people who can now see a channel get CHANNEL_CREATE (plus who is in it, for voice
+/// channels), people who no longer can get CHANNEL_DELETE (with `hidden`, so clients know it still exists).
+pub async fn announce_visibility(st: &AppState, guild: Id, before: HashMap<Id, HashSet<Id>>) -> ApiResult<()> {
+    let ctx = crate::perms::GuildCtx::load(&st.db, guild).await?;
+    let empty = HashSet::new();
+    let mut loaded: HashMap<Id, Channel> = HashMap::new();
+    for user in ctx.members().collect::<Vec<_>>() {
+        let now = ctx.visible_channels(user);
+        let was = before.get(&user).unwrap_or(&empty);
+        let mut gained: Vec<Id> = now.difference(was).copied().collect();
+        // Categories first, so channels land in them.
+        gained.sort_by_key(|id| ctx.kind_of(*id) != Some(crate::models::kind::CATEGORY));
+        for id in gained {
+            let ch = match loaded.get(&id) {
+                Some(c) => c.clone(),
+                None => {
+                    let Ok(c) = Channel::get(&st.db, id).await else { continue };
+                    let c = c.with_overwrites(&st.db).await?;
+                    loaded.insert(id, c.clone());
+                    c
+                }
+            };
+            st.hub.send(&[user], "CHANNEL_CREATE", &ch);
+            for vs in st.voice.for_channels(&[id]) {
+                st.hub.send(&[user], "VOICE_STATE_UPDATE", &vs);
+            }
+        }
+        for id in was.difference(&now) {
+            st.hub.send(&[user], "CHANNEL_DELETE", &serde_json::json!({ "id": id, "guild_id": guild, "hidden": true }));
+        }
+    }
+    Ok(())
 }
 
 /// Everyone who shares a guild or DM with the user, or is their friend (including the user).
@@ -263,7 +302,7 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         sqlx::query_scalar("SELECT guild_id FROM members WHERE user_id = $1 ORDER BY joined_at").bind(user_id).fetch_all(&st.db).await?;
     let mut guild_list = Vec::with_capacity(guild_ids.len());
     for g in &guild_ids {
-        guild_list.push(guilds::load_guild(&st.db, *g).await?);
+        guild_list.push(guilds::load_guild(&st.db, *g, user_id).await?);
     }
     let related = related_users(&st.db, user_id).await?;
     let related_users = User::get_many(&st.db, &related).await?;
@@ -289,8 +328,8 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         activities,
         custom_status: crate::activities::own_custom_status(st, user_id),
         read_states,
-        voice_states: [st.voice.for_guilds(&guild_ids), st.voice.for_channels(&dm_ids)].concat(),
-        voice_channel_statuses: st.voice.statuses_for(&guild_ids),
+        voice_states: st.voice.for_channels(&[voice_channels.clone(), dm_ids.clone()].concat()),
+        voice_channel_statuses: st.voice.statuses_for(&guild_ids).into_iter().filter(|s| voice_channels.contains(&s.channel_id)).collect(),
         calls: st.voice.calls_for(&dm_ids),
         watches: crate::watch::for_channels(st, &[voice_channels, dm_ids.clone()].concat()),
         server_now: chrono::Utc::now().timestamp_millis(),

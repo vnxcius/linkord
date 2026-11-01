@@ -21,7 +21,8 @@
         "center": true,
         "decorations": false,
         "visible": false,
-        "backgroundThrottling": "disabled"
+        "backgroundThrottling": "disabled",
+        "dragDropEnabled": false
       }
     ],
     "security": {

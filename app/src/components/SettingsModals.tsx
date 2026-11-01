@@ -28,7 +28,7 @@ import { useSubmit } from './Modals';
 import { SoundboardSettings } from './Soundboard';
 import { accentCss, canAssign, MemberRoles } from './Profile';
 
-function Toggle(p: {
+export function Toggle(p: {
   label: string;
   hint?: string;
   checked: boolean;
@@ -55,7 +55,7 @@ function Toggle(p: {
 }
 
 /** Discord's "Careful — you have unsaved changes!" bar at the bottom of a settings page. */
-function SaveBar(p: { show: boolean; busy?: boolean; onReset: () => void; onSave: () => void }) {
+export function SaveBar(p: { show: boolean; busy?: boolean; onReset: () => void; onSave: () => void }) {
   return (
     <Show when={p.show}>
       <div class="save-bar">
@@ -369,14 +369,18 @@ function RolesPage(p: { guildId: string }) {
   const role = () => (selected() ? state.roles[p.guildId]?.[selected()!] : undefined);
   const memberCount = (rid: string) =>
     Object.values(state.members[p.guildId] ?? {}).filter((m) => m.roles.includes(rid)).length;
-  const canReorder = () => can(p.guildId, P.ADMINISTRATOR);
+  // Manage Roles moves roles below your highest role (the order sets name colors and member list groups).
+  const canReorder = () => can(p.guildId, P.MANAGE_ROLES);
+  const movable = (r: Role) => canReorder() && (can(p.guildId, P.ADMINISTRATOR) || r.position < topPosition(p.guildId));
+  /** How many roles at the top you can't move or drop above. */
+  const fixedCount = () => roles().filter((r) => !movable(r)).length;
 
   const create = () =>
     attempt(async () =>
       setSelected((await api<Role>('POST', `/guilds/${p.guildId}/roles`, { name: t('new role') })).id),
     );
 
-  // Drag roles to reorder them (Administrator).
+  // Drag roles to reorder them.
   const [dragging, setDragging] = createSignal<string | null>(null);
   const [over, setOver] = createSignal<{ id: string; before: boolean } | null>(null);
   const dropRole = () => {
@@ -388,7 +392,9 @@ function RolesPage(p: { guildId: string }) {
     const ids = roles()
       .map((r) => r.id)
       .filter((id) => id !== from);
-    ids.splice(ids.indexOf(to.id) + (to.before ? 0 : 1), 0, from);
+    const at = ids.indexOf(to.id) + (to.before ? 0 : 1);
+    if (at < fixedCount()) return toast(t('You can only move roles below your highest role.'));
+    ids.splice(at, 0, from);
     void attempt(() => api('PUT', `/guilds/${p.guildId}/roles`, { ids }));
   };
 
@@ -426,7 +432,11 @@ function RolesPage(p: { guildId: string }) {
             </button>
           </div>
           <Show when={canReorder() && roles().length > 1}>
-            <p class="muted small">{t('Members use the color of their highest role. Drag roles to reorder them.')}</p>
+            <p class="muted small">
+              {t(
+                'Members use the color of their highest role, and the member list shows separately displayed roles in this order. Drag roles to reorder them.',
+              )}
+            </p>
           </Show>
           <div class="role-table">
             <div class="role-table-head">
@@ -437,7 +447,7 @@ function RolesPage(p: { guildId: string }) {
               {(r) => (
                 <button
                   class="role-table-row"
-                  draggable={canReorder() && !filter()}
+                  draggable={movable(r) && !filter()}
                   classList={{
                     dragging: dragging() === r.id,
                     'drop-before': over()?.id === r.id && over()!.before,
@@ -457,7 +467,7 @@ function RolesPage(p: { guildId: string }) {
                   onDragEnd={() => (setDragging(null), setOver(null))}
                   onClick={() => setSelected(r.id)}
                 >
-                  <Show when={canReorder()}>
+                  <Show when={movable(r)}>
                     <span class="drag-handle">⋮⋮</span>
                   </Show>
                   <i class="role-dot big" style={{ background: accentCss(r.color) ?? 'var(--text-3)' }} />

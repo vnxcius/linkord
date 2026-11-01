@@ -107,7 +107,7 @@ pub fn routes() -> Router<AppState> {
 /// The call's audience hears about changes (sidebars show what a call is watching).
 async fn announce(st: &AppState, channel: Id, guild: Option<Id>) {
     let to = match guild {
-        Some(g) => crate::gateway::guild_members(&st.db, g).await,
+        Some(g) => crate::perms::channel_viewers(&st.db, g, channel).await,
         None => crate::api::dms::recipients(&st.db, channel).await,
     }
     .unwrap_or_default();

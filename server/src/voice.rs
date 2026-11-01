@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use axum::extract::ws::{CloseFrame, Message as WsMsg, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::Response;
-use axum::routing::{get, put};
+use axum::routing::{get, patch, put};
 use axum::{Json, Router};
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
@@ -35,8 +35,7 @@ use tokio::sync::mpsc;
 
 use crate::api::channels::channel_for;
 use crate::auth::{user_from_token, AuthUser};
-use crate::error::{bad, ApiResult};
-use crate::gateway::guild_members;
+use crate::error::{bad, ApiError, ApiResult};
 use crate::id::Id;
 use crate::models::kind;
 use crate::perms;
@@ -275,10 +274,10 @@ impl VoiceStates {
     }
 }
 
-/// Who hears about a voice session: the server's members, or the people in the DM.
+/// Who hears about a voice session: the server members who can see the channel, or the people in the DM.
 async fn audience(st: &AppState, guild: Option<Id>, channel: Id) -> Vec<Id> {
     let r = match guild {
-        Some(g) => guild_members(&st.db, g).await,
+        Some(g) => perms::channel_viewers(&st.db, g, channel).await,
         None => crate::api::dms::recipients(&st.db, channel).await,
     };
     r.unwrap_or_default()
@@ -490,6 +489,51 @@ pub fn routes() -> Router<AppState> {
         .route("/channels/{id}/voice-status", put(set_status))
         .route("/channels/{id}/call/decline", axum::routing::post(decline_call))
         .route("/channels/{id}/call/ring", axum::routing::post(ring_again))
+        .route("/guilds/{id}/members/{user}/voice", patch(move_member))
+}
+
+#[derive(Deserialize)]
+struct MoveMember {
+    /// Where to move them; null disconnects them.
+    channel_id: Option<Id>,
+}
+
+/// Drags someone to another voice channel of the server, or disconnects them (`channel_id: null`). Needs Move
+/// Members in the channel they're in (and in the one they go to, which they must be able to join), like Discord.
+/// Their client gets a `move` and rejoins there (or leaves).
+async fn move_member(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, user)): Path<(Id, Id)>, Json(body): Json<MoveMember>) -> ApiResult<()> {
+    let ctx = perms::GuildCtx::load(&st.db, gid).await?;
+    let from = st.voice.by_user.get(&user).filter(|v| v.guild_id == Some(gid)).and_then(|v| v.channel_id);
+    let Some(from) = from else { return Err(bad("they aren't in a voice channel of this server")) };
+    if !ctx.can(me, from, perms::MOVE_MEMBERS) {
+        return Err(ApiError::Forbidden);
+    }
+    let Some(to) = body.channel_id else {
+        tracing::info!(user = %user, by = %me, channel = %from, "voice: disconnected by someone");
+        let msg = json!({ "op": "move", "channel_id": null, "reason": "disconnect", "by": me }).to_string();
+        st.voice.send_to(from, user, WsMsg::Text(msg.into()));
+        leave(&st, user).await;
+        return Ok(());
+    };
+    if to == from {
+        return Ok(());
+    }
+    if ctx.kind_of(to) != Some(kind::VOICE) {
+        return Err(bad("not a voice channel"));
+    }
+    if !ctx.can(me, to, perms::MOVE_MEMBERS | perms::CONNECT) {
+        return Err(ApiError::Forbidden);
+    }
+    if crate::music::bot_id(&st) == Some(user) {
+        return Err(bad("Kass can't be moved; use /play in the other channel"));
+    }
+    if !ctx.can(user, to, perms::CONNECT) {
+        return Err(bad("they can't join that channel"));
+    }
+    tracing::info!(user = %user, by = %me, channel = %to, "voice: moved by someone");
+    let msg = json!({ "op": "move", "channel_id": to, "reason": "moved", "by": me }).to_string();
+    st.voice.send_to(from, user, WsMsg::Text(msg.into()));
+    Ok(())
 }
 
 async fn announce_status(st: &AppState, status: &ChannelStatus) {
@@ -580,20 +624,31 @@ enum ClientOp {
     Sound { sound_id: String },
 }
 
+/// What someone may do in a call.
+struct CallAccess {
+    guild: Option<Id>,
+    /// Send voice: Speak in servers, always in DMs, never in the server's AFK channel (everyone there is muted,
+    /// like Discord).
+    speak: bool,
+    /// Camera and screen share (Video).
+    stream: bool,
+    soundboard: bool,
+}
+
 /// Whether `me` may join the call in `channel` (a server voice channel with Connect, or a DM / group DM they're
-/// in), and then its server and whether they may send audio and video: Speak in servers, always in DMs, never in
-/// the server's AFK channel (everyone there is muted, like Discord).
-async fn call_access(st: &AppState, channel: Id, me: Id) -> Option<(Option<Id>, bool)> {
+/// in), and what they may do there.
+async fn call_access(st: &AppState, channel: Id, me: Id) -> Option<CallAccess> {
     let a = channel_for(st, channel, me).await.ok()?;
     if kind::is_private(a.ch.kind) {
-        return Some((None, true));
+        return Some(CallAccess { guild: None, speak: true, stream: true, soundboard: true });
     }
     if a.ch.kind != kind::VOICE || !a.has(perms::CONNECT) {
         return None;
     }
     let guild = a.ch.guild_id?;
     let afk: Option<Id> = sqlx::query_scalar("SELECT afk_channel_id FROM guilds WHERE id = $1").bind(guild).fetch_optional(&st.db).await.ok().flatten().flatten();
-    Some((Some(guild), a.has(perms::SPEAK) && afk != Some(channel)))
+    let speak = a.has(perms::SPEAK) && afk != Some(channel);
+    Some(CallAccess { guild: Some(guild), speak, stream: speak && a.has(perms::STREAM), soundboard: speak && a.has(perms::USE_SOUNDBOARD) })
 }
 
 async fn close(mut socket: WebSocket, code: u16, reason: &'static str) {
@@ -637,10 +692,10 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         return close(socket, 4001, "invalid token").await;
     };
     let channel = ident.channel_id;
-    let (guild_id, can_speak) = match call_access(&st, channel, me).await {
-        Some(x) => x,
-        None => return close(socket, 4004, "not a voice channel").await,
+    let Some(access) = call_access(&st, channel, me).await else {
+        return close(socket, 4004, "not a voice channel").await;
     };
+    let (guild_id, can_speak, can_stream) = (access.guild, access.speak, access.stream);
     let (conn, mut rx) = join(&st, me, guild_id, channel, !can_speak, false).await;
     let Some(tx) = st.voice.with_peer(channel, conn, |p| p.tx.clone()) else { return };
 
@@ -668,8 +723,8 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                 match inc {
                     Some(Ok(WsMsg::Binary(data))) => {
                         let kind = data.first().copied().unwrap_or(0);
-                        // Without the Speak permission the server drops this peer's media.
-                        if data.len() < 2 || !(KIND_VOICE..=KIND_SCREEN_AUDIO).contains(&kind) || !can_speak {
+                        // Without the Speak permission the server drops this peer's media; video also needs Video.
+                        if data.len() < 2 || !(KIND_VOICE..=KIND_SCREEN_AUDIO).contains(&kind) || !can_speak || (kind != KIND_VOICE && !can_stream) {
                             continue;
                         }
                         if kind == KIND_VOICE {
@@ -731,7 +786,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                         }
                         Ok(ClientOp::Sound { sound_id }) => {
                             // Spamming is part of the fun: 100 in a row, refilling at 100 a minute.
-                            if !can_speak || st.limits.check(format!("sound:{me}"), 100.0, 100.0 / 60.0).is_err() {
+                            if !access.soundboard || st.limits.check(format!("sound:{me}"), 100.0, 100.0 / 60.0).is_err() {
                                 continue;
                             }
                             if let Ok(sound) = crate::soundboard::find(&st, &sound_id, me).await {
@@ -844,7 +899,7 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
         return close(socket, 4004, "not in this voice channel").await;
     };
     let conn = vs.conn;
-    let can_speak = call_access(&st, channel, me).await.is_some_and(|(_, speak)| speak);
+    let can_stream = call_access(&st, channel, me).await.is_some_and(|a| a.stream);
     let (tx, mut rx) = mpsc::channel::<(Instant, WsMsg)>(MEDIA_QUEUE);
     if st.voice.with_peer(channel, conn, |p| *p.media.lock().unwrap() = Some(tx)).is_none() {
         return close(socket, 4004, "not in this voice channel").await;
@@ -868,7 +923,7 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
                 match inc {
                     Some(Ok(WsMsg::Binary(data))) => {
                         let kind = data.first().copied().unwrap_or(0);
-                        if data.len() >= 2 && (KIND_CAMERA..=KIND_SCREEN_AUDIO).contains(&kind) && can_speak {
+                        if data.len() >= 2 && (KIND_CAMERA..=KIND_SCREEN_AUDIO).contains(&kind) && can_stream {
                             on_media(&st, me, conn, channel, &prefix, &data).await;
                         }
                     }

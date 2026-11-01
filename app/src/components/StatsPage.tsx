@@ -51,7 +51,7 @@ interface Stats {
   games?: { name: string; icon: string | null; seconds: number; last_played: string }[];
 }
 
-const num = (n: number | undefined) => (n ?? 0).toLocaleString(dateLocale());
+export const num = (n: number | undefined) => (n ?? 0).toLocaleString(dateLocale());
 const shortDate = (d: string) =>
   new Date(d).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' });
 const longDate = (d: string) =>
@@ -143,7 +143,7 @@ function Heatmap(p: { cells: [number, number, number][] }) {
 }
 
 /** A reaction as stored: a character, or "name:id" for server emoji. */
-function ReactionEmoji(p: { emoji: string }) {
+export function ReactionEmoji(p: { emoji: string }) {
   const custom = () => p.emoji.match(/^(\w+):(\d+)$/);
   return (
     <Show when={custom()} fallback={<span class="stats-emoji">{p.emoji}</span>}>

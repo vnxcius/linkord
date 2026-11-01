@@ -133,7 +133,10 @@ struct Page {
 
 /// Messages oldest-first: the latest page, or a page before/after/around a message.
 async fn list_messages(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Query(p): Query<Page>) -> ApiResult<Json<Vec<Message>>> {
-    channel_for(&st, id, me).await?;
+    // Without Read Message History the channel shows no past messages (only new ones as they arrive).
+    if !channel_for(&st, id, me).await?.has(perms::READ_MESSAGE_HISTORY) {
+        return Ok(Json(vec![]));
+    }
     let limit = p.limit.unwrap_or(50).clamp(1, 100);
     let page = |cmp: &str, order: &str, anchor: Option<Id>, limit: i64| {
         let sql = format!(
@@ -579,7 +582,9 @@ fn can_pin(a: &Access) -> ApiResult<()> {
 }
 
 async fn list_pins(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<Vec<Message>>> {
-    channel_for(&st, id, me).await?;
+    if !channel_for(&st, id, me).await?.has(perms::READ_MESSAGE_HISTORY) {
+        return Ok(Json(vec![]));
+    }
     let rows = sqlx::query_as::<_, MessageRow>(&format!(
         "SELECT {MESSAGE_COLS} FROM messages WHERE channel_id = $1 AND pinned_at IS NOT NULL ORDER BY pinned_at DESC"
     ))
@@ -771,7 +776,7 @@ async fn run_search(st: &AppState, channels: Vec<Id>, q: SearchQuery) -> ApiResu
 async fn search_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(gid): Path<Id>, Query(q): Query<SearchQuery>) -> ApiResult<Json<SearchResults>> {
     st.limits.check(format!("search:{me}"), 5.0, 1.0)?;
     guild_perms(&st.db, gid, me).await?;
-    let mut channels: Vec<Id> = sqlx::query_scalar("SELECT id FROM channels WHERE guild_id = $1").bind(gid).fetch_all(&st.db).await?;
+    let mut channels = crate::perms::GuildCtx::load(&st.db, gid).await?.readable_channels(me);
     if let Some(c) = q.channel_id {
         channels.retain(|x| *x == c);
     }
@@ -781,18 +786,16 @@ async fn search_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(g
 /// Search everywhere you are: every server's channels and your DMs (the Ctrl+K switcher).
 async fn search_all(State(st): State<AppState>, AuthUser(me): AuthUser, Query(q): Query<SearchQuery>) -> ApiResult<Json<SearchResults>> {
     st.limits.check(format!("search:{me}"), 5.0, 1.0)?;
-    let channels: Vec<Id> = sqlx::query_scalar(
-        "SELECT c.id FROM channels c JOIN members m ON m.guild_id = c.guild_id WHERE m.user_id = $1
-         UNION SELECT channel_id FROM dm_recipients WHERE user_id = $1",
-    )
-    .bind(me)
-    .fetch_all(&st.db)
-    .await?;
+    let mut channels: Vec<Id> = sqlx::query_scalar("SELECT channel_id FROM dm_recipients WHERE user_id = $1").bind(me).fetch_all(&st.db).await?;
+    let guilds: Vec<Id> = sqlx::query_scalar("SELECT guild_id FROM members WHERE user_id = $1").bind(me).fetch_all(&st.db).await?;
+    for g in guilds {
+        channels.extend(crate::perms::GuildCtx::load(&st.db, g).await?.readable_channels(me));
+    }
     run_search(&st, channels, q).await
 }
 
 async fn search_channel(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Query(q): Query<SearchQuery>) -> ApiResult<Json<SearchResults>> {
     st.limits.check(format!("search:{me}"), 5.0, 1.0)?;
-    channel_for(&st, id, me).await?;
+    channel_for(&st, id, me).await?.require(perms::READ_MESSAGE_HISTORY)?;
     run_search(&st, vec![id], q).await
 }

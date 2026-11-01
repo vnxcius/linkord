@@ -19,6 +19,8 @@ export interface Prefs {
   pttReleaseDelay: number;
   /** Camera for video calls. */
   videoDevice: string;
+  /** Sound chosen per capture card: video device id -> audio input id ('' = none). */
+  captureAudio: Record<string, string>;
   userVolumes: Record<string, number>;
   closeToTray: boolean;
   /** Starting with the computer keeps Linkord in the tray (off: opens the window). */
@@ -41,6 +43,8 @@ export interface Prefs {
   hiddenGames: string[];
   /** UI language; 'system' follows the Windows (or browser) language. */
   language: 'system' | 'en' | 'pt-BR';
+  /** Light or dark; 'system' follows Windows (or the browser). */
+  theme: 'system' | 'light' | 'dark';
   /** Desktop app zoom (Ctrl + / Ctrl -), 1 = 100%. */
   zoom: number;
   /** Skin tone for emoji picked in the picker: 0 = default yellow, 1-5 light to dark. */
@@ -56,6 +60,8 @@ export interface Prefs {
   /** Soundboard volume (0-1) for everyone's sounds, and per person (0 = muted). */
   soundboardVolume: number;
   soundboardUserVolumes: Record<string, number>;
+  /** Profile songs start by themselves (quietly) when you open someone's full profile. Off: they wait for a click. */
+  profileSongAutoplay: boolean;
   /** Spellcheck in the message box, its language ('auto' = the app's language) and words you added. */
   spellcheck: boolean;
   spellLanguage: 'auto' | 'en' | 'pt' | 'es';
@@ -79,6 +85,7 @@ const DEFAULTS: Prefs = {
   keybinds: DEFAULT_KEYBINDS,
   pttReleaseDelay: 150,
   videoDevice: 'default',
+  captureAudio: {},
   userVolumes: {},
   closeToTray: true,
   startMinimized: true,
@@ -92,6 +99,7 @@ const DEFAULTS: Prefs = {
   customGames: [],
   hiddenGames: [],
   language: 'system',
+  theme: 'system',
   zoom: 1,
   emojiTone: 0,
   downloadBannerDismissed: false,
@@ -100,6 +108,7 @@ const DEFAULTS: Prefs = {
   streamDebug: false,
   soundboardVolume: 0.8,
   soundboardUserVolumes: {},
+  profileSongAutoplay: false,
   spellcheck: true,
   spellLanguage: 'auto',
   spellWords: [],

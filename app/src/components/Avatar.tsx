@@ -1,16 +1,24 @@
 import { Show } from 'solid-js';
 import { media } from '../lib/api';
-import { presenceOf } from '../lib/store';
+import { presenceOf, state } from '../lib/store';
 import type { User } from '../lib/types';
 import { displayName } from '../lib/types';
 
-export function Avatar(p: { user?: User | null; size?: number; presence?: boolean; speaking?: boolean }) {
+/** `guildId`: show their server profile picture there, if they set one. */
+export function Avatar(p: {
+  user?: User | null;
+  size?: number;
+  presence?: boolean;
+  speaking?: boolean;
+  guildId?: string | null;
+}) {
   const size = () => p.size ?? 40;
+  const src = () => (p.guildId && p.user && state.members[p.guildId]?.[p.user.id]?.avatar) || p.user?.avatar;
   const initials = () => displayName(p.user).slice(0, 2).toUpperCase();
   return (
     <div class="avatar" classList={{ speaking: p.speaking }} style={{ width: `${size()}px`, height: `${size()}px` }}>
       <Show
-        when={media(p.user?.avatar)}
+        when={media(src())}
         fallback={
           <div class="avatar-fallback" style={{ 'font-size': `${size() * 0.38}px` }}>
             {initials()}

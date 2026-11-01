@@ -54,6 +54,8 @@ export interface State {
   customStatus: Activity | null;
   /** Bumped when your linked accounts change (Spotify connected elsewhere, token revoked...). */
   connectionsVersion: number;
+  /** Your private notes about people (user id -> note), filled in as profiles are opened. */
+  notes: Record<string, string>;
   readStates: Record<string, string>;
   messages: Record<string, ChannelMessages>;
   /** channel id -> user id -> expiry timestamp */
@@ -93,6 +95,7 @@ export const [state, setState] = createStore<State>({
   activities: {},
   customStatus: null,
   connectionsVersion: 0,
+  notes: {},
   readStates: {},
   messages: {},
   typing: {},
@@ -114,7 +117,14 @@ export function putUser(u: User) {
 
 export function putMember(guildId: string, m: Member) {
   putUser(m.user);
-  setState('members', guildId, m.user.id, { nickname: m.nickname, joined_at: m.joined_at, roles: m.roles });
+  setState('members', guildId, m.user.id, {
+    nickname: m.nickname,
+    avatar: m.avatar ?? null,
+    banner: m.banner ?? null,
+    bio: m.bio ?? null,
+    joined_at: m.joined_at,
+    roles: m.roles,
+  });
 }
 
 export function setRoles(guildId: string, roles: Role[]) {
@@ -344,6 +354,17 @@ export function nameColor(guildId: string | null | undefined, userId: string): s
   if (!guildId) return undefined;
   const c = memberRoles(guildId, userId).find((r) => r.color)?.color;
   return c ? `#${c.toString(16).padStart(6, '0')}` : undefined;
+}
+
+/**
+ * The user as they show up in a server: their server profile's picture, banner and about me over the account's own.
+ * Without a server (or a server profile) it's the user as is.
+ */
+export function profileOf(userId: string, guildId?: string | null): User | undefined {
+  const u = state.users[userId];
+  const m = guildId ? state.members[guildId]?.[userId] : undefined;
+  if (!u || !m || (!m.avatar && !m.banner && !m.bio)) return u;
+  return { ...u, avatar: m.avatar || u.avatar, banner: m.banner || u.banner, bio: m.bio || u.bio };
 }
 
 /** Nickname in the guild, else display name, else username. */

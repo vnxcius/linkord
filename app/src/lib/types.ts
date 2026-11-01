@@ -11,6 +11,10 @@ export interface User {
   nameplate?: string | null;
   accent_color?: number | null;
   bio: string;
+  /** Free text like "she/her" ('' = none). */
+  pronouns?: string;
+  /** 'MM-DD', or 'YYYY-MM-DD' when they show the year (lib/birthday.ts). */
+  birthday?: string | null;
   status?: Status;
   /** Bot account (Kass, the music bot): BOT tag, answers slash commands. */
   bot?: boolean;
@@ -43,6 +47,16 @@ export interface Channel {
   archived?: boolean;
   message_count?: number;
   recipients?: User[];
+  /** Server channels and categories (not threads, which follow their parent). */
+  permission_overwrites?: Overwrite[];
+}
+
+/** A channel's permission overwrite for a role (type 0; @everyone's id is the server's) or a member (type 1). */
+export interface Overwrite {
+  id: string;
+  type: 0 | 1;
+  allow: number;
+  deny: number;
 }
 
 export interface GuildInfo {
@@ -81,6 +95,10 @@ export interface Emoji {
 export interface Member {
   user: User;
   nickname?: string | null;
+  /** Server profile: picture, banner and about me used only in this server (absent = the account's own). */
+  avatar?: string | null;
+  banner?: string | null;
+  bio?: string | null;
   joined_at: string;
   roles: string[];
 }

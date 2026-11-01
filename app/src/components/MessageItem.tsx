@@ -26,6 +26,7 @@ import {
   type MenuEntry,
 } from '../lib/ui';
 import { Avatar } from './Avatar';
+import { BirthdayCake } from './Birthday';
 import { EmojiPicker, QUICK_REACTIONS } from './EmojiPicker';
 import * as I from './Icons';
 import { pauseChatVideo, VideoPlayer } from './VideoPlayer';
@@ -121,7 +122,7 @@ function SystemMessage(p: { message: Message; guildId?: string | null }) {
         run: () => navigator.clipboard.writeText(m().id),
       },
     ];
-    if (p.guildId && can(p.guildId, P.MANAGE_MESSAGES))
+    if (p.guildId && can(p.guildId, P.MANAGE_MESSAGES, m().channel_id))
       items.push({
         label: t('Delete Message'),
         danger: true,
@@ -206,10 +207,11 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
     !!m().mention_everyone ||
     m().referenced_message?.author.id === me() ||
     myRoles().some((r) => m().content.includes(`<@&${r}>`));
-  const canManage = () => (p.guildId ? can(p.guildId, P.MANAGE_MESSAGES) : false);
+  const canManage = () => (p.guildId ? can(p.guildId, P.MANAGE_MESSAGES, m().channel_id) : false);
   const canPin = () => isPrivate(channel()?.kind ?? Kind.Text) || canManage();
-  const canThread = () => channel()?.kind === Kind.Text && !m().thread_id && can(p.guildId, P.CREATE_THREADS);
-  const canReact = () => can(p.guildId, P.ADD_REACTIONS);
+  const canThread = () =>
+    channel()?.kind === Kind.Text && !m().thread_id && can(p.guildId, P.CREATE_THREADS, m().channel_id);
+  const canReact = () => can(p.guildId, P.ADD_REACTIONS, m().channel_id);
 
   // The reaction picker floats above the message list so neither neighbouring messages nor the
   // list's edges can clip it; it flips above the toolbar when there's no room below.
@@ -433,7 +435,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
           <div class="message-gutter">
             <Show when={!p.grouped} fallback={<span class="hover-time">{formatTime(m().created_at, false)}</span>}>
               <button class="avatar-btn" onClick={(e) => openProfile(author().id, e, p.guildId ?? undefined)}>
-                <Avatar user={author()} size={40} />
+                <Avatar user={author()} size={40} guildId={p.guildId} />
               </button>
             </Show>
           </div>
@@ -447,6 +449,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                 >
                   {nameOf(author().id, p.guildId)}
                 </button>
+                <BirthdayCake userId={author().id} />
                 <Show when={author().bot}>
                   <span class="bot-tag">{t('BOT')}</span>
                 </Show>

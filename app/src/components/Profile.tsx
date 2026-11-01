@@ -1,18 +1,43 @@
-import { createEffect, createResource, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from 'solid-js';
 import { api, media } from '../lib/api';
 import { blockUser, friendRequest, openDm, removeRelationship, selectView } from '../lib/actions';
 import { dateLocale, plural, t } from '../lib/i18n';
 import { can, P, topPosition } from '../lib/perms';
-import { gameOf, memberRoles, nameOf, spotifyOf, state } from '../lib/store';
+import { gameOf, memberRoles, nameOf, profileOf, spotifyOf, state } from '../lib/store';
 import { openExternal } from '../lib/platform';
-import { displayName, Rel, type User } from '../lib/types';
+import { displayName, Kind, Rel, type User } from '../lib/types';
 import { attempt, isMobile, setUi, ui, type MenuEntry } from '../lib/ui';
 import { GameCard, SpotifyCard, SpotifyIcon, StatusBubble } from './Activity';
 import { Avatar, GuildIcon } from './Avatar';
 import { MyStatusBubble } from './CustomStatus';
 import * as I from './Icons';
 import { volumeMenu } from './Sidebar';
+import { type FavoriteGame, FavoriteGamesCard } from './FavoriteGames';
 import { voiceUi } from '../lib/voice';
+import { confetti } from '../lib/confetti';
+import { BirthdayCake, formatBirthday, isBirthdayToday } from './Birthday';
+import {
+  NoteField,
+  ProfileLinks,
+  type ProfileLink,
+  type ProfileSong,
+  type PublicStats,
+  SongPlayer,
+  StatsCard,
+  type TopSong,
+  TopSongsCard,
+} from './ProfileWidgets';
 
 export function accentCss(color?: number | null) {
   return color != null ? `#${color.toString(16).padStart(6, '0')}` : undefined;
@@ -67,12 +92,15 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   if (voiceUi.channelId && userId !== me && state.voice[userId]?.channel_id === voiceUi.channelId) {
     items.push('separator', ...volumeMenu(userId));
   }
+  if (guildId) items.push(...voiceModItems(userId, guildId));
   if (guildId) {
     const outranks = topPosition(guildId) > topPosition(guildId, userId);
     const canNick = userId === me ? can(guildId, P.CHANGE_NICKNAME) : can(guildId, P.MANAGE_NICKNAMES) && outranks;
-    if (canNick || (can(guildId, P.MANAGE_ROLES) && (outranks || userId === me))) {
+    const ownRoles = userId === me && (state.members[guildId]?.[me]?.roles.length ?? 0) > 0;
+    // Your own server profile (picture, banner, about me) is always yours to edit.
+    if (userId === me || canNick || ownRoles || (can(guildId, P.MANAGE_ROLES) && outranks)) {
       items.push('separator', {
-        label: t('Edit Nickname & Roles'),
+        label: userId === me ? t('Edit Server Profile') : t('Edit Nickname & Roles'),
         icon: () => <I.Edit size={16} />,
         run: () => setUi('modal', { type: 'nickname', guildId, userId }),
       });
@@ -99,6 +127,48 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
     label: t('Copy User ID'),
     icon: () => <I.Copy size={16} />,
     run: () => navigator.clipboard.writeText(userId),
+  });
+  return items;
+}
+
+/** Move Members in their voice channel: move them to another voice channel, or disconnect them. */
+export function moveMember(guildId: string, userId: string, channelId: string | null) {
+  return attempt(() => api('PATCH', `/guilds/${guildId}/members/${userId}/voice`, { channel_id: channelId }));
+}
+
+function voiceModItems(userId: string, guildId: string): MenuEntry[] {
+  const from = state.voice[userId]?.channel_id;
+  if (!from || state.channels[from]?.guild_id !== guildId || !can(guildId, P.MOVE_MEMBERS, from)) return [];
+  const targets = Object.values(state.channels)
+    .filter(
+      (c) =>
+        c.guild_id === guildId &&
+        c.kind === Kind.Voice &&
+        c.id !== from &&
+        can(guildId, P.MOVE_MEMBERS, c.id) &&
+        can(guildId, P.CONNECT, c.id),
+    )
+    .sort((a, b) => a.position - b.position);
+  const items: MenuEntry[] = ['separator'];
+  if (targets.length && !state.users[userId]?.bot)
+    items.push({
+      label: t('Move To'),
+      icon: () => <I.Speaker size={16} />,
+      run: (at) =>
+        setUi('menu', {
+          ...at,
+          items: targets.map((c) => ({
+            label: c.name,
+            icon: () => <I.Speaker size={16} />,
+            run: () => moveMember(guildId, userId, c.id),
+          })),
+        }),
+    });
+  items.push({
+    label: t('Disconnect'),
+    danger: true,
+    icon: () => <I.Hangup size={16} />,
+    run: () => moveMember(guildId, userId, null),
   });
   return items;
 }
@@ -232,6 +302,8 @@ export function ProfilePopout() {
   });
 
   const gid = () => p().guildId;
+  // Their server profile (picture, banner, about me) in this server.
+  const shown = () => profileOf(p().userId, gid()) ?? user();
   const joined = () => (gid() ? state.members[gid()!]?.[p().userId]?.joined_at : undefined);
   const roles = () => (gid() ? memberRoles(gid()!, p().userId) : []);
   const isMe = () => p().userId === state.me?.id;
@@ -248,7 +320,7 @@ export function ProfilePopout() {
         {(u) => (
           <>
             <div class="profile-banner" style={{ 'background-color': accentCss(u().accent_color) }}>
-              <Show when={media(u().banner)}>{(src) => <img src={src()} alt="" />}</Show>
+              <Show when={media(shown()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
             </div>
             <div class="profile-avatar-row">
               <button
@@ -260,7 +332,7 @@ export function ProfilePopout() {
                   setUi('modal', modal);
                 }}
               >
-                <Avatar user={u()} size={84} presence />
+                <Avatar user={u()} size={84} presence guildId={gid()} />
                 <span class="profile-avatar-hint">{t('View profile')}</span>
               </button>
               <Show when={isMe()} fallback={<StatusBubble userId={u().id} />}>
@@ -268,9 +340,15 @@ export function ProfilePopout() {
               </Show>
             </div>
             <div class="profile-body">
-              <h3>{nameOf(u().id, gid())}</h3>
+              <h3>
+                {nameOf(u().id, gid())}
+                <BirthdayCake userId={u().id} />
+              </h3>
               <div class="profile-username">
                 {u().username}
+                <Show when={u().pronouns}>
+                  <span class="pronouns">{u().pronouns}</span>
+                </Show>
                 <Show when={u().bot}>
                   <span class="bot-tag">{t('BOT')}</span>
                 </Show>
@@ -292,10 +370,10 @@ export function ProfilePopout() {
                   </div>
                 )}
               </Show>
-              <Show when={u().bio}>
+              <Show when={shown()?.bio}>
                 <div class="profile-section">
                   <div class="label">{t('About me')}</div>
-                  <p class="bio">{u().bio}</p>
+                  <p class="bio">{shown()!.bio}</p>
                 </div>
               </Show>
               <Show when={joined()}>
@@ -362,8 +440,48 @@ export function ProfilePopout() {
   );
 }
 
+/**
+ * The card on the right of a full profile, as tall as the profile card: favorite games, Kass's top songs and the
+ * stats card, one at a time (tabs when there's more than one), each scrolling inside.
+ */
+function SideCard(p: { tabs: { id: string; label: string; body: () => JSX.Element }[] }) {
+  const [tab, setTab] = createSignal('');
+  const current = () => p.tabs.find((x) => x.id === tab()) ?? p.tabs[0];
+  return (
+    <aside class="modal games-card side-card" aria-label={current()?.label}>
+      <div class="games-card-inner">
+        <Show when={p.tabs.length > 1}>
+          <nav class="side-card-tabs">
+            <For each={p.tabs}>
+              {(x) => (
+                <button classList={{ active: current()?.id === x.id }} onClick={() => setTab(x.id)}>
+                  {x.label}
+                </button>
+              )}
+            </For>
+          </nav>
+        </Show>
+        <Show when={current()} keyed>
+          {(c) => c.body()}
+        </Show>
+      </div>
+    </aside>
+  );
+}
+
 interface FullProfile {
   user: User;
+  /** Older servers leave it out. */
+  favorite_games?: FavoriteGame[];
+  links?: ProfileLink[];
+  /** Your private note about them ('' = none). */
+  note?: string;
+  song?: ProfileSong | null;
+  /** Present when they show it (yours always, with show_top_songs / show_stats saying whether others see it). */
+  top_songs?: TopSong[];
+  stats?: PublicStats;
+  show_top_songs?: boolean;
+  show_stats?: boolean;
   connections?: { type: string; id: string; name: string }[];
   mutual_friends: User[];
   mutual_guilds: string[];
@@ -381,198 +499,286 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
     (id) => api<FullProfile>('GET', `/users/${id}/profile`),
   );
   const user = () => state.users[p.userId] ?? full()?.user;
+  // Their server profile (picture, banner, about me) when opened from a server.
+  const shown = () => profileOf(p.userId, p.guildId) ?? user();
   const isMe = () => p.userId === state.me?.id;
+  // Happy birthday: confetti once, as the profile opens.
+  onMount(() => isBirthdayToday(user()?.birthday) && confetti(2));
   const rel = () => state.relationships[p.userId];
   const joined = () => (p.guildId ? state.members[p.guildId]?.[p.userId]?.joined_at : undefined);
   const close = () => setUi('modal', null);
   const servers = () => (full()?.mutual_guilds ?? []).filter((id) => state.guilds[id]);
   const friends = () => full()?.mutual_friends ?? [];
+  // The favorite games card on the right (others' only when they picked some; yours always, to invite you to).
+  const games = () => full()?.favorite_games ?? [];
+  const showGames = () => !!full()?.favorite_games && (games().length > 0 || isMe());
+  // Others' Kass songs only when there are some; yours always (it says how to fill it).
+  const songs = () => full()?.top_songs;
+  const showSongs = () => !!songs() && (songs()!.length > 0 || isMe());
+  const widgets = () => showGames() || showSongs() || !!full()?.stats;
   return (
-    <div class="modal profile-modal" role="dialog" aria-label={t('Profile')}>
-      <Show when={user()}>
-        {(u) => (
-          <>
-            <div class="profile-banner big" style={{ 'background-color': accentCss(u().accent_color) }}>
-              <Show when={media(u().banner)}>{(src) => <img src={src()} alt="" />}</Show>
-              <button class="icon-btn modal-close" aria-label={t('Close')} onClick={close}>
-                <I.Close size={18} />
-              </button>
-            </div>
-            <div class="profile-modal-head">
-              <div class="profile-avatar-row">
-                <div class="profile-avatar big">
-                  <Avatar user={u()} size={120} presence />
-                </div>
-                <StatusBubble userId={u().id} big />
+    <div class="profile-modal-wrap" classList={{ 'with-games': widgets() }}>
+      <div class="modal profile-modal" role="dialog" aria-label={t('Profile')}>
+        <Show when={user()}>
+          {(u) => (
+            <>
+              <div class="profile-banner big" style={{ 'background-color': accentCss(u().accent_color) }}>
+                <Show when={media(shown()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
+                <button class="icon-btn modal-close" aria-label={t('Close')} onClick={close}>
+                  <I.Close size={18} />
+                </button>
               </div>
-              <div class="profile-modal-actions">
-                <Show
-                  when={!isMe()}
-                  fallback={
-                    <button class="btn" onClick={() => setUi('modal', { type: 'settings', tab: 'profile' })}>
-                      <I.EditProfile size={16} /> {t('Edit profile')}
+              <div class="profile-modal-head">
+                <div class="profile-avatar-row">
+                  <div class="profile-avatar big">
+                    <Avatar user={u()} size={120} presence guildId={p.guildId} />
+                  </div>
+                  <StatusBubble userId={u().id} big />
+                </div>
+                <div class="profile-modal-actions">
+                  <Show
+                    when={!isMe()}
+                    fallback={
+                      <button class="btn" onClick={() => setUi('modal', { type: 'settings', tab: 'profile' })}>
+                        <I.EditProfile size={16} /> {t('Edit profile')}
+                      </button>
+                    }
+                  >
+                    <button class="btn primary" onClick={() => (close(), void attempt(() => openDm(u().id)))}>
+                      {t('Message')}
                     </button>
-                  }
-                >
-                  <button class="btn primary" onClick={() => (close(), void attempt(() => openDm(u().id)))}>
-                    {t('Message')}
-                  </button>
-                  <Show when={!u().bot && rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
+                    <Show when={!u().bot && rel() !== Rel.Friend && rel() !== Rel.Blocked && rel() !== Rel.Outgoing}>
+                      <button
+                        class="btn"
+                        onClick={() =>
+                          void attempt(
+                            () => friendRequest(u().id),
+                            rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'),
+                          )
+                        }
+                      >
+                        <I.UserPlus size={16} /> {rel() === Rel.Incoming ? t('Accept friend request') : t('Add friend')}
+                      </button>
+                    </Show>
                     <button
                       class="btn"
-                      onClick={() =>
-                        void attempt(
-                          () => friendRequest(u().id),
-                          rel() === Rel.Incoming ? t('Friend added') : t('Friend request sent'),
-                        )
-                      }
+                      aria-label={t('More')}
+                      onClick={(e) => {
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setUi('menu', { x: r.left, y: r.bottom + 4, items: memberMenu(u().id, p.guildId) });
+                      }}
                     >
-                      <I.UserPlus size={16} /> {rel() === Rel.Incoming ? t('Accept friend request') : t('Add friend')}
+                      ⋯
                     </button>
                   </Show>
-                  <button
-                    class="btn"
-                    aria-label={t('More')}
-                    onClick={(e) => {
-                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setUi('menu', { x: r.left, y: r.bottom + 4, items: memberMenu(u().id, p.guildId) });
-                    }}
-                  >
-                    ⋯
-                  </button>
-                </Show>
+                </div>
               </div>
-            </div>
-            <div class="profile-modal-body">
-              <h2>{nameOf(u().id, p.guildId)}</h2>
-              <div class="profile-username">
-                {u().username}
-                <Show when={rel() === Rel.Friend}>
-                  <span class="tag">{t('Friend')}</span>
+              <div class="profile-modal-body">
+                <h2>
+                  {nameOf(u().id, p.guildId)}
+                  <BirthdayCake userId={u().id} />
+                </h2>
+                <div class="profile-username">
+                  {u().username}
+                  <Show when={u().pronouns}>
+                    <span class="pronouns">{u().pronouns}</span>
+                  </Show>
+                  <Show when={rel() === Rel.Friend}>
+                    <span class="tag">{t('Friend')}</span>
+                  </Show>
+                </div>
+                <Show when={full()?.song}>
+                  {(song) => <SongPlayer song={song()} autoplay={isMe() ? false : undefined} />}
                 </Show>
-              </div>
-              <nav class="profile-tabs">
-                <button classList={{ active: tab() === 'about' }} onClick={() => setTab('about')}>
-                  {t('About Me')}
-                </button>
-                <Show when={!isMe()}>
-                  <button classList={{ active: tab() === 'servers' }} onClick={() => setTab('servers')}>
-                    {full() ? plural(servers().length, '{n} Mutual Server', '{n} Mutual Servers') : t('Mutual Servers')}
+                <nav class="profile-tabs">
+                  <button classList={{ active: tab() === 'about' }} onClick={() => setTab('about')}>
+                    {t('About Me')}
                   </button>
-                  <button classList={{ active: tab() === 'friends' }} onClick={() => setTab('friends')}>
-                    {full() ? plural(friends().length, '{n} Mutual Friend', '{n} Mutual Friends') : t('Mutual Friends')}
-                  </button>
-                </Show>
-              </nav>
-              <div class="profile-tab-body">
-                <Switch>
-                  <Match when={tab() === 'about'}>
-                    <Show when={gameOf(u().id)}>
-                      {(a) => (
+                  <Show when={!isMe()}>
+                    <button classList={{ active: tab() === 'servers' }} onClick={() => setTab('servers')}>
+                      {full()
+                        ? plural(servers().length, '{n} Mutual Server', '{n} Mutual Servers')
+                        : t('Mutual Servers')}
+                    </button>
+                    <button classList={{ active: tab() === 'friends' }} onClick={() => setTab('friends')}>
+                      {full()
+                        ? plural(friends().length, '{n} Mutual Friend', '{n} Mutual Friends')
+                        : t('Mutual Friends')}
+                    </button>
+                  </Show>
+                </nav>
+                <div class="profile-tab-body">
+                  <Switch>
+                    <Match when={tab() === 'about'}>
+                      <Show when={gameOf(u().id)}>
+                        {(a) => (
+                          <div class="profile-section">
+                            <GameCard activity={a()} />
+                          </div>
+                        )}
+                      </Show>
+                      <Show when={spotifyOf(u().id)}>
+                        {(a) => (
+                          <div class="profile-section">
+                            <SpotifyCard activity={a()} />
+                          </div>
+                        )}
+                      </Show>
+                      <Show when={shown()?.bio}>
                         <div class="profile-section">
-                          <GameCard activity={a()} />
-                        </div>
-                      )}
-                    </Show>
-                    <Show when={spotifyOf(u().id)}>
-                      {(a) => (
-                        <div class="profile-section">
-                          <SpotifyCard activity={a()} />
-                        </div>
-                      )}
-                    </Show>
-                    <Show when={u().bio}>
-                      <div class="profile-section">
-                        <p class="bio">{u().bio}</p>
-                      </div>
-                    </Show>
-                    <div class="profile-dates">
-                      <Show when={full()}>
-                        <div class="profile-section">
-                          <div class="label">{t('Linkord member since')}</div>
-                          <p>{longDate(full()!.created_at)}</p>
+                          <p class="bio">{shown()!.bio}</p>
                         </div>
                       </Show>
-                      <Show when={joined()}>
+                      <Show when={full()?.links?.length}>
                         <div class="profile-section">
-                          <div class="label">{t('Member since')}</div>
-                          <p>
-                            <span class="profile-server-icon">
-                              <GuildIcon
-                                name={state.guilds[p.guildId!]?.name ?? ''}
-                                icon={state.guilds[p.guildId!]?.icon}
-                              />
+                          <ProfileLinks links={full()!.links!} />
+                        </div>
+                      </Show>
+                      <div class="profile-dates">
+                        <Show when={full()}>
+                          <div class="profile-section">
+                            <div class="label">{t('Linkord member since')}</div>
+                            <p>{longDate(full()!.created_at)}</p>
+                          </div>
+                        </Show>
+                        <Show when={joined()}>
+                          <div class="profile-section">
+                            <div class="label">{t('Member since')}</div>
+                            <p>
+                              <span class="profile-server-icon">
+                                <GuildIcon
+                                  name={state.guilds[p.guildId!]?.name ?? ''}
+                                  icon={state.guilds[p.guildId!]?.icon}
+                                />
+                              </span>
+                              {longDate(joined()!)}
+                            </p>
+                          </div>
+                        </Show>
+                        <Show when={formatBirthday(u().birthday)}>
+                          <div class="profile-section">
+                            <div class="label">{t('Birthday')}</div>
+                            <p>
+                              {formatBirthday(u().birthday)}
+                              <BirthdayCake userId={u().id} />
+                            </p>
+                          </div>
+                        </Show>
+                      </div>
+                      <Show when={p.guildId && state.members[p.guildId]?.[u().id]}>
+                        <div class="profile-section">
+                          <div class="label">{t('Roles')}</div>
+                          <MemberRoles guildId={p.guildId!} userId={u().id} />
+                        </div>
+                      </Show>
+                      <Show when={full()?.connections?.length}>
+                        <div class="profile-section">
+                          <div class="label">{t('Connections')}</div>
+                          <div class="profile-connections">
+                            <For each={full()!.connections}>
+                              {(c) => (
+                                <button
+                                  class="profile-connection"
+                                  onClick={() =>
+                                    void openExternal(`https://open.spotify.com/user/${encodeURIComponent(c.id)}`)
+                                  }
+                                >
+                                  <SpotifyIcon size={22} />
+                                  <span class="grow">{c.name}</span>
+                                  <I.External size={14} />
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                      <Show when={!isMe() && !u().bot && full()}>
+                        <div class="profile-section">
+                          <NoteField userId={u().id} initial={full()!.note ?? ''} />
+                        </div>
+                      </Show>
+                    </Match>
+                    <Match when={tab() === 'servers'}>
+                      <For each={servers()} fallback={<p class="empty-hint">{t('No servers in common.')}</p>}>
+                        {(id) => (
+                          <button class="profile-list-row" onClick={() => (close(), selectView(id))}>
+                            <span class="profile-server-icon big">
+                              <GuildIcon name={state.guilds[id].name} icon={state.guilds[id].icon} />
                             </span>
-                            {longDate(joined()!)}
-                          </p>
-                        </div>
-                      </Show>
-                    </div>
-                    <Show when={p.guildId && state.members[p.guildId]?.[u().id]}>
-                      <div class="profile-section">
-                        <div class="label">{t('Roles')}</div>
-                        <MemberRoles guildId={p.guildId!} userId={u().id} />
-                      </div>
-                    </Show>
-                    <Show when={full()?.connections?.length}>
-                      <div class="profile-section">
-                        <div class="label">{t('Connections')}</div>
-                        <div class="profile-connections">
-                          <For each={full()!.connections}>
-                            {(c) => (
-                              <button
-                                class="profile-connection"
-                                onClick={() =>
-                                  void openExternal(`https://open.spotify.com/user/${encodeURIComponent(c.id)}`)
-                                }
-                              >
-                                <SpotifyIcon size={22} />
-                                <span class="grow">{c.name}</span>
-                                <I.External size={14} />
-                              </button>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    </Show>
-                  </Match>
-                  <Match when={tab() === 'servers'}>
-                    <For each={servers()} fallback={<p class="empty-hint">{t('No servers in common.')}</p>}>
-                      {(id) => (
-                        <button class="profile-list-row" onClick={() => (close(), selectView(id))}>
-                          <span class="profile-server-icon big">
-                            <GuildIcon name={state.guilds[id].name} icon={state.guilds[id].icon} />
-                          </span>
-                          <span class="grow">
-                            <strong>{state.guilds[id].name}</strong>
-                            <Show when={state.members[id]?.[p.userId]?.nickname}>
-                              <span class="muted small"> · {state.members[id][p.userId].nickname}</span>
-                            </Show>
-                          </span>
-                        </button>
-                      )}
-                    </For>
-                  </Match>
-                  <Match when={tab() === 'friends'}>
-                    <For each={friends()} fallback={<p class="empty-hint">{t('No friends in common.')}</p>}>
-                      {(f) => (
-                        <button
-                          class="profile-list-row"
-                          onClick={() => setUi('modal', { type: 'user-profile', userId: f.id })}
-                        >
-                          <Avatar user={state.users[f.id] ?? f} size={36} presence />
-                          <span class="grow">
-                            <strong>{displayName(state.users[f.id] ?? f)}</strong>{' '}
-                            <span class="muted small">{f.username}</span>
-                          </span>
-                        </button>
-                      )}
-                    </For>
-                  </Match>
-                </Switch>
+                            <span class="grow">
+                              <strong>{state.guilds[id].name}</strong>
+                              <Show when={state.members[id]?.[p.userId]?.nickname}>
+                                <span class="muted small"> · {state.members[id][p.userId].nickname}</span>
+                              </Show>
+                            </span>
+                          </button>
+                        )}
+                      </For>
+                    </Match>
+                    <Match when={tab() === 'friends'}>
+                      <For each={friends()} fallback={<p class="empty-hint">{t('No friends in common.')}</p>}>
+                        {(f) => (
+                          <button
+                            class="profile-list-row"
+                            onClick={() => setUi('modal', { type: 'user-profile', userId: f.id })}
+                          >
+                            <Avatar user={state.users[f.id] ?? f} size={36} presence />
+                            <span class="grow">
+                              <strong>{displayName(state.users[f.id] ?? f)}</strong>{' '}
+                              <span class="muted small">{f.username}</span>
+                            </span>
+                          </button>
+                        )}
+                      </For>
+                    </Match>
+                  </Switch>
+                </div>
               </div>
-            </div>
-          </>
+            </>
+          )}
+        </Show>
+      </div>
+      <Show when={widgets() && user()}>
+        {(u) => (
+          <SideCard
+            tabs={[
+              ...(showGames()
+                ? [
+                    {
+                      id: 'games',
+                      label: t('Games'),
+                      body: () => (
+                        <FavoriteGamesCard
+                          bare
+                          userId={u().id}
+                          name={nameOf(u().id, p.guildId)}
+                          games={games()}
+                          isMe={isMe()}
+                        />
+                      ),
+                    },
+                  ]
+                : []),
+              ...(showSongs()
+                ? [
+                    {
+                      id: 'songs',
+                      label: t('Top songs'),
+                      body: () => <TopSongsCard songs={songs()!} isMe={isMe()} shown={full()?.show_top_songs} />,
+                    },
+                  ]
+                : []),
+              ...(full()?.stats
+                ? [
+                    {
+                      id: 'stats',
+                      label: t('Stats'),
+                      body: () => <StatsCard stats={full()!.stats!} isMe={isMe()} shown={full()?.show_stats} />,
+                    },
+                  ]
+                : []),
+            ]}
+          />
         )}
       </Show>
     </div>

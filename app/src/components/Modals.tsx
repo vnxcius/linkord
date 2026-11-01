@@ -13,9 +13,9 @@ import {
 import { api, media, serverUrl } from '../lib/api';
 import { createGroupDm, dmChannel, selectChannel, selectView, sendMessage } from '../lib/actions';
 import { plural, t } from '../lib/i18n';
-import { can, P, topPosition } from '../lib/perms';
+import { can, P, topPosition, withBit } from '../lib/perms';
 import { addGuild, dmName, nameOf, state } from '../lib/store';
-import type { Channel, Guild, GuildInfo, User } from '../lib/types';
+import type { Channel, Guild, GuildInfo, Overwrite, User } from '../lib/types';
 import { displayName, Kind, Rel } from '../lib/types';
 import { attempt, setUi, toast, ui, type Modal } from '../lib/ui';
 import { Avatar, GuildIcon } from './Avatar';
@@ -23,11 +23,24 @@ import * as I from './Icons';
 import { CustomStatusModal } from './CustomStatus';
 import { ForwardModal } from './Forward';
 import { accentCss, ProfileModal } from './Profile';
+import { ColorPicker } from './ColorPicker';
 import { railEntries, updateFolder } from './Rail';
 import { Settings } from './Settings';
 import { ServerSettings } from './SettingsModals';
+import { ChannelSettingsScreen } from './ChannelSettings';
+import { ImageEditor } from './ImageEditor';
 import { prefs } from '../lib/prefs';
-import { startScreenShare, switchScreenSource, updateStreamQuality, voiceUi, type StreamQuality } from '../lib/voice';
+import {
+  listCaptureDevices,
+  startDeviceShare,
+  startScreenShare,
+  switchScreenSource,
+  switchToDevice,
+  updateStreamQuality,
+  voiceUi,
+  type StreamQuality,
+} from '../lib/voice';
+import { matchCaptureAudio } from '../lib/capture-match';
 import {
   captureCapabilities,
   listCaptureSources,
@@ -35,13 +48,22 @@ import {
   type CaptureSource,
 } from '../lib/native-capture';
 
+/** Server channels and categories get full-window settings; threads and group DMs a small dialog. */
+function fullWindow(m: Modal | null) {
+  if (!m) return false;
+  if (m.type === 'settings' || m.type === 'server-settings') return true;
+  if (m.type !== 'channel-settings') return false;
+  const c = state.channels[m.channelId];
+  return !!c?.guild_id && c.kind !== Kind.Thread;
+}
+
 export function ModalHost() {
   const close = () => setUi('modal', null);
   // Escape closes dialogs even when focus has left them (e.g. the clicked button got disabled).
   // The full-window settings screens handle their own Escape.
   const onKey = (e: KeyboardEvent) => {
     const type = ui.modal?.type;
-    if (e.key !== 'Escape' || e.defaultPrevented || !type || type === 'settings' || type === 'server-settings') return;
+    if (e.key !== 'Escape' || e.defaultPrevented || !type || fullWindow(ui.modal)) return;
     if (document.querySelector('.context-menu')) return;
     close();
   };
@@ -52,9 +74,15 @@ export function ModalHost() {
       {(m) => (
         // User and server settings take the whole window rather than a dialog.
         <Show
-          when={m().type !== 'settings' && m().type !== 'server-settings'}
+          when={!fullWindow(m())}
           fallback={
             <Switch>
+              <Match
+                when={m().type === 'channel-settings' && (m() as Extract<Modal, { type: 'channel-settings' }>)}
+                keyed
+              >
+                {(x) => <ChannelSettingsScreen channelId={x.channelId} />}
+              </Match>
               <Match when={m().type === 'settings' && (m() as Extract<Modal, { type: 'settings' }>)}>
                 {(x) => <Settings tab={x().tab} />}
               </Match>
@@ -505,6 +533,30 @@ function Invite(p: { guildId: string }) {
 function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string }) {
   const [kind, setKind] = createSignal<0 | 2 | 4>(p.kind);
   const [name, setName] = createSignal('');
+  const [priv, setPriv] = createSignal(false);
+  // Private: the category's overwrites (if any) plus @everyone can't see it; you keep seeing it.
+  const privateOverwrites = (): Overwrite[] => {
+    const list = (p.parentId ? (state.channels[p.parentId]?.permission_overwrites ?? []) : []).map((o) => ({ ...o }));
+    const everyone = list.find((o) => o.id === p.guildId) ?? { id: p.guildId, type: 0 as const, allow: 0, deny: 0 };
+    const rest = list.filter((o) => o.id !== p.guildId);
+    const out = [
+      ...rest,
+      {
+        ...everyone,
+        allow: withBit(everyone.allow, P.VIEW_CHANNEL, false),
+        deny: withBit(everyone.deny, P.VIEW_CHANNEL, true),
+      },
+    ];
+    const me = state.me!.id;
+    if (!can(p.guildId, P.ADMINISTRATOR)) {
+      const mine = out.find((o) => o.id === me) ?? { id: me, type: 1 as const, allow: 0, deny: 0 };
+      return [
+        ...out.filter((o) => o.id !== me),
+        { ...mine, allow: withBit(mine.allow, P.VIEW_CHANNEL, true), deny: withBit(mine.deny, P.VIEW_CHANNEL, false) },
+      ];
+    }
+    return out;
+  };
   const { busy, error, run } = useSubmit();
   const category = () => (p.parentId ? state.channels[p.parentId] : undefined);
   const isCategory = p.kind === Kind.Category;
@@ -515,6 +567,7 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
         name: name(),
         kind: kind(),
         parent_id: p.parentId,
+        ...(priv() ? { permission_overwrites: privateOverwrites() } : {}),
       });
       setUi('modal', null);
       if (ch.kind === 0) selectChannel(ch.id);
@@ -534,6 +587,7 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
               autofocus
             />
           </label>
+          <PrivateToggle on={priv()} set={setPriv} category={isCategory} />
           <Show when={error()}>
             <p class="error">{error()}</p>
           </Show>
@@ -575,6 +629,7 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
             autofocus
           />
         </label>
+        <PrivateToggle on={priv()} set={setPriv} category={false} />
         <Show when={error()}>
           <p class="error">{error()}</p>
         </Show>
@@ -583,6 +638,20 @@ function CreateChannel(p: { guildId: string; kind: 0 | 2 | 4; parentId?: string 
         </button>
       </form>
     </Dialog>
+  );
+}
+
+function PrivateToggle(p: { on: boolean; set: (v: boolean) => void; category: boolean }) {
+  return (
+    <label class="toggle-row private-toggle">
+      <span>
+        <strong>
+          <I.Lock size={14} /> {p.category ? t('Private Category') : t('Private Channel')}
+        </strong>
+        <small>{t('Only you and admins see it at first; add roles and members in its Permissions.')}</small>
+      </span>
+      <input type="checkbox" class="switch" checked={p.on} onChange={(e) => p.set(e.currentTarget.checked)} />
+    </label>
   );
 }
 
@@ -757,13 +826,29 @@ function CreateGroup(p: { channelId?: string }) {
 /**
  * Someone's server profile: how they look in this server, edited in place. The nickname is typed right on the card
  * (yours with Change Nickname, others' with Manage Nicknames); roles are chips to switch on and off (Manage Roles,
- * below your own highest role).
+ * below your own highest role). Your own also takes a picture, banner and about me just for this server (uploaded
+ * right away, like Settings -> Profile; the about me is saved with the rest).
  */
 function MemberEditor(p: { guildId: string; userId: string }) {
   const member = () => state.members[p.guildId]?.[p.userId];
   const user = () => state.users[p.userId];
   const [nick, setNick] = createSignal(member()?.nickname ?? '');
   const [roles, setRoles] = createSignal<string[]>([...(member()?.roles ?? [])]);
+  const [bio, setBio] = createSignal(member()?.bio ?? '');
+  const [image, setImage] = createSignal<{ kind: 'avatar' | 'banner'; file: File } | null>(null);
+  const pickImage = (kind: 'avatar' | 'banner', input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) setImage({ kind, file });
+  };
+  const clearImage = (kind: 'avatar' | 'banner') =>
+    attempt(() => api('DELETE', `/guilds/${p.guildId}/members/@me/${kind}`));
+  const bioChanged = () => self() && bio().trim() !== (member()?.bio ?? '');
+  const banner = () => member()?.banner || user()?.banner;
+  const fitBio = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
   const [filter, setFilter] = createSignal('');
   const { busy, error, run } = useSubmit();
   const self = () => p.userId === state.me?.id;
@@ -781,12 +866,28 @@ function MemberEditor(p: { guildId: string; userId: string }) {
   const sorted = (l: string[]) => [...l].sort().join();
   const nickChanged = () => nick().trim() !== (member()?.nickname ?? '');
   const rolesChanged = () => canRoles() && sorted(roles()) !== sorted(member()?.roles ?? []);
-  const changed = () => nickChanged() || rolesChanged();
+  // Your own roles: anyone can rename and recolor the roles they have (not their permissions).
+  const myRoles = () => (self() ? allRoles().filter((r) => (member()?.roles ?? []).includes(r.id)) : []);
+  const [roleEdits, setRoleEdits] = createSignal<Record<string, { name: string; color: number | null }>>({});
+  const editedRoles = () =>
+    Object.entries(roleEdits()).filter(([id, e]) => {
+      const r = state.roles[p.guildId]?.[id];
+      return r && e.name.trim() && (e.name.trim() !== r.name || e.color !== (r.color ?? null));
+    });
+  const editRole = (id: string, patch: Partial<{ name: string; color: number | null }>) => {
+    const r = state.roles[p.guildId]![id];
+    setRoleEdits((m) => ({ ...m, [id]: { ...(m[id] ?? { name: r.name, color: r.color ?? null }), ...patch } }));
+  };
+  const changed = () => nickChanged() || rolesChanged() || editedRoles().length > 0 || bioChanged();
   const toggle = (id: string) => setRoles((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   const save = () =>
     run(async () => {
-      if (self() && !canRoles()) await api('PATCH', `/guilds/${p.guildId}/members/@me`, { nickname: nick().trim() });
-      else {
+      for (const [id, e] of editedRoles())
+        await api('PATCH', `/guilds/${p.guildId}/roles/${id}`, { name: e.name.trim(), color: e.color });
+      if (bioChanged()) await api('PATCH', `/guilds/${p.guildId}/members/@me`, { bio: bio().trim() });
+      if (self() && !canRoles()) {
+        if (nickChanged()) await api('PATCH', `/guilds/${p.guildId}/members/@me`, { nickname: nick().trim() });
+      } else if (nickChanged() || rolesChanged()) {
         const body: Record<string, unknown> = {};
         if (canNick() && nickChanged()) body.nickname = nick().trim();
         if (rolesChanged()) body.roles = roles();
@@ -817,14 +918,51 @@ function MemberEditor(p: { guildId: string; userId: string }) {
       <div class="member-studio">
         <div class="ms-card">
           <div class="ms-banner" style={{ 'background-color': accentCss(user()?.accent_color) ?? '#2b2d31' }}>
-            <Show when={media(user()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
+            <Show when={self()} fallback={<Show when={media(banner())}>{(src) => <img src={src()} alt="" />}</Show>}>
+              <label class="edit-banner ms-edit-banner">
+                <Show when={media(banner())}>{(src) => <img src={src()} alt="" />}</Show>
+                <span class="edit-overlay">
+                  <I.AddImage size={20} /> {t('Banner for this server')}
+                </span>
+                <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pickImage('banner', e.currentTarget)} />
+              </label>
+              <Show when={member()?.banner}>
+                <button
+                  class="edit-remove"
+                  aria-label={t('Use my usual banner')}
+                  data-tip={t('Use my usual banner')}
+                  onClick={() => void clearImage('banner')}
+                >
+                  <I.Close size={14} />
+                </button>
+              </Show>
+            </Show>
             <span class="ms-server">
               <GuildIcon name={guild()?.name ?? ''} icon={guild()?.icon} size={18} />
               {guild()?.name}
             </span>
           </div>
-          <div class="profile-avatar ms-avatar">
-            <Avatar user={user()} size={76} presence />
+          <div class="profile-avatar ms-avatar" classList={{ 'edit-avatar-wrap': self() }}>
+            <Show when={self()} fallback={<Avatar user={user()} size={76} presence guildId={p.guildId} />}>
+              <label class="edit-avatar">
+                <Avatar user={user()} size={76} guildId={p.guildId} />
+                <span class="edit-overlay round">
+                  <I.Photo size={18} />
+                  <small>{t('Change')}</small>
+                </span>
+                <input type="file" accept={IMAGE_TYPES} hidden onChange={(e) => pickImage('avatar', e.currentTarget)} />
+              </label>
+              <Show when={member()?.avatar}>
+                <button
+                  class="edit-remove"
+                  aria-label={t('Use my usual picture')}
+                  data-tip={t('Use my usual picture')}
+                  onClick={() => void clearImage('avatar')}
+                >
+                  <I.Close size={14} />
+                </button>
+              </Show>
+            </Show>
           </div>
           <div class="ms-body">
             <Show when={canNick()} fallback={<h3 class="ms-name">{nick().trim() || base()}</h3>}>
@@ -853,6 +991,29 @@ function MemberEditor(p: { guildId: string; userId: string }) {
                 <em class="counter">{nick().length}/32</em>
               </Show>
             </div>
+            <Show when={self()}>
+              <div class="ms-bio">
+                <div class="label">
+                  {t('About me in this server')} <em class="counter">{bio().length}/190</em>
+                </div>
+                <label class="inline-field">
+                  <span class="sr-only">{t('About me in this server')}</span>
+                  <textarea
+                    class="inline-edit inline-bio"
+                    ref={(el) => queueMicrotask(() => fitBio(el))}
+                    value={bio()}
+                    rows={1}
+                    maxLength={190}
+                    placeholder={user()?.bio || t('Say something just for this server')}
+                    onInput={(e) => {
+                      setBio(e.currentTarget.value);
+                      fitBio(e.currentTarget);
+                    }}
+                  />
+                  <I.Edit size={15} class="inline-pen" />
+                </label>
+              </div>
+            </Show>
             <div class="role-pills ms-pills">
               <For each={chosen()} fallback={<span class="muted small">{t('No roles')}</span>}>
                 {(r) => (
@@ -865,6 +1026,43 @@ function MemberEditor(p: { guildId: string; userId: string }) {
             </div>
           </div>
         </div>
+
+        <Show when={myRoles().length}>
+          <div class="ms-roles">
+            <div class="ms-roles-head">
+              <span class="field-label">{t('Your roles')}</span>
+              <span class="muted small">{t('Rename them or change their color.')}</span>
+            </div>
+            <div class="my-roles">
+              <For each={myRoles()}>
+                {(r) => {
+                  const cur = () => roleEdits()[r.id] ?? { name: r.name, color: r.color ?? null };
+                  return (
+                    <div class="my-role">
+                      <ColorPicker
+                        value={accentCss(cur().color) ?? '#8b8e97'}
+                        onChange={(hex) => editRole(r.id, { color: parseInt(hex.slice(1), 16) })}
+                        label={t('Role color')}
+                      />
+                      <input
+                        value={cur().name}
+                        maxLength={100}
+                        style={{ color: accentCss(cur().color) }}
+                        aria-label={t('Role name')}
+                        onInput={(e) => editRole(r.id, { name: e.currentTarget.value })}
+                      />
+                      <Show when={cur().color != null}>
+                        <button class="link-btn" onClick={() => editRole(r.id, { color: null })}>
+                          {t('No color')}
+                        </button>
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
 
         <Show when={canRoles() && allRoles().length}>
           <div class="ms-roles">
@@ -904,13 +1102,31 @@ function MemberEditor(p: { guildId: string; userId: string }) {
             </div>
           </div>
         </Show>
+        <Show when={self()}>
+          <small class="muted">
+            {t(
+              'Your picture, banner and about me here are only used in this server. Remove them (×) to go back to your usual ones.',
+            )}
+          </small>
+        </Show>
         <Show when={error()}>
           <p class="error">{error()}</p>
         </Show>
       </div>
+      <Show when={image() && user()}>
+        <ImageEditor
+          kind={image()!.kind}
+          file={image()!.file}
+          user={user()!}
+          endpoint={`/guilds/${p.guildId}/members/@me/${image()!.kind}`}
+          onClose={() => setImage(null)}
+        />
+      </Show>
     </Dialog>
   );
 }
+
+const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
 /** Like Discord's "Go Live" dialog: pick quality before choosing what to share. */
 function GoLive(p: { update: boolean; switchSource: boolean }) {
@@ -926,11 +1142,30 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
     picker ? listCaptureSources().catch(() => [] as CaptureSource[]) : Promise.resolve([] as CaptureSource[]),
   );
   const [caps] = createResource(captureCapabilities);
-  const [tab, setTab] = createSignal<'window' | 'screen'>('window');
+  const [tab, setTab] = createSignal<'window' | 'screen' | 'device'>(picker ? 'window' : 'screen');
   const [selected, setSelected] = createSignal<CaptureSource | null>(null);
   const shown = () => (sources() ?? []).filter((x) => x.kind === tab());
+  // Capture cards: also in browsers, where the other choice is the browser's own picker.
+  const [devices, { refetch: refetchDevices }] = createResource(
+    () => tab() === 'device',
+    () => listCaptureDevices().catch(() => ({ videos: [] as MediaDeviceInfo[], inputs: [] as MediaDeviceInfo[] })),
+  );
+  const [device, setDevice] = createSignal<MediaDeviceInfo | null>(null);
+  const [sound, setSound] = createSignal('');
+  const chooseDevice = (d: MediaDeviceInfo) => {
+    const inputs = devices()?.inputs ?? [];
+    const saved = prefs.captureAudio[d.deviceId];
+    setDevice(d);
+    setSound(
+      saved === '' || inputs.some((i) => i.deviceId === saved) ? saved : (matchCaptureAudio(d, inputs)?.deviceId ?? ''),
+    );
+  };
   const go = () => {
     setUi('modal', null);
+    if (tab() === 'device') {
+      const d = { video: device()!.deviceId, audio: sound() || null };
+      return void (p.switchSource ? switchToDevice(d) : startDeviceShare(quality(), d));
+    }
     if (p.switchSource) return void switchScreenSource(selected()?.id);
     void (p.update ? updateStreamQuality(quality()) : startScreenShare(quality(), selected()?.id));
   };
@@ -960,66 +1195,138 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
           <button class="btn ghost" onClick={() => setUi('modal', null)}>
             {t('Cancel')}
           </button>
-          <button class="btn primary" disabled={picker && !selected() && !!sources()?.length} onClick={go}>
+          <button
+            class="btn primary"
+            disabled={tab() === 'device' ? !device() : picker && !selected() && !!sources()?.length}
+            onClick={go}
+          >
             {p.switchSource ? t('Switch') : p.update ? t('Apply') : t('Go Live')}
           </button>
         </>
       }
     >
       <div class="stack go-live">
-        <Show when={picker}>
+        <Show when={!p.update || p.switchSource}>
           <div class="source-picker">
             <div class="picker-tabs">
-              <button classList={{ active: tab() === 'window' }} onClick={() => setTab('window')}>
-                {t('Applications')}
-              </button>
-              <button classList={{ active: tab() === 'screen' }} onClick={() => setTab('screen')}>
-                {t('Screens')}
+              <Show
+                when={picker}
+                fallback={
+                  <button classList={{ active: tab() === 'screen' }} onClick={() => setTab('screen')}>
+                    {t('Screen or tab')}
+                  </button>
+                }
+              >
+                <button classList={{ active: tab() === 'window' }} onClick={() => setTab('window')}>
+                  {t('Applications')}
+                </button>
+                <button classList={{ active: tab() === 'screen' }} onClick={() => setTab('screen')}>
+                  {t('Screens')}
+                </button>
+              </Show>
+              <button classList={{ active: tab() === 'device' }} onClick={() => setTab('device')}>
+                {t('Capture devices')}
               </button>
               <span class="grow" />
-              <button class="icon-btn tiny" aria-label={t('Refresh')} title={t('Refresh')} onClick={() => refetch()}>
-                ↻
-              </button>
-            </div>
-            <Show
-              when={!sources.loading}
-              fallback={
-                <div class="source-loading">
-                  <div class="spinner" />
-                </div>
-              }
-            >
-              <div class="source-grid">
-                <For
-                  each={shown()}
-                  fallback={
-                    <p class="empty-hint">
-                      {t('Nothing to share here. Open the app you want to stream, then refresh.')}
-                    </p>
-                  }
+              <Show when={picker || tab() === 'device'}>
+                <button
+                  class="icon-btn tiny"
+                  aria-label={t('Refresh')}
+                  title={t('Refresh')}
+                  onClick={() => (tab() === 'device' ? refetchDevices() : refetch())}
                 >
-                  {(src) => (
-                    <button
-                      class="source-card"
-                      classList={{ selected: selected()?.id === src.id }}
-                      onClick={() => setSelected(src)}
-                      onDblClick={() => (setSelected(src), go())}
-                    >
-                      <div class="source-thumb">
-                        <Show when={src.thumbnail} fallback={<I.Screen size={32} />}>
-                          <img src={src.thumbnail!} alt="" />
+                  ↻
+                </button>
+              </Show>
+            </div>
+            <Show when={tab() === 'device'}>
+              <Show
+                when={!devices.loading}
+                fallback={
+                  <div class="source-loading">
+                    <div class="spinner" />
+                  </div>
+                }
+              >
+                <div class="source-grid">
+                  <For
+                    each={devices()?.videos ?? []}
+                    fallback={<p class="empty-hint">{t('No capture devices found. Plug one in, then refresh.')}</p>}
+                  >
+                    {(d) => (
+                      <button
+                        class="source-card"
+                        classList={{ selected: device()?.deviceId === d.deviceId }}
+                        onClick={() => chooseDevice(d)}
+                        onDblClick={() => (chooseDevice(d), go())}
+                      >
+                        <div class="source-thumb">
+                          <I.Camera size={32} />
+                        </div>
+                        <span class="source-name" title={d.label}>
+                          {d.label || t('Camera')}
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={device()}>
+                <label class="field">
+                  <span>{t('Sound from')}</span>
+                  <div class="select-wrap">
+                    <select value={sound()} onChange={(e) => setSound(e.currentTarget.value)}>
+                      <option value="">{t('No sound')}</option>
+                      <For each={devices()?.inputs ?? []}>
+                        {(i) => <option value={i.deviceId}>{i.label || t('Microphone')}</option>}
+                      </For>
+                    </select>
+                    <I.Chevron size={16} />
+                  </div>
+                </label>
+              </Show>
+            </Show>
+            <Show when={picker && tab() !== 'device'}>
+              <Show
+                when={!sources.loading}
+                fallback={
+                  <div class="source-loading">
+                    <div class="spinner" />
+                  </div>
+                }
+              >
+                <div class="source-grid">
+                  <For
+                    each={shown()}
+                    fallback={
+                      <p class="empty-hint">
+                        {t('Nothing to share here. Open the app you want to stream, then refresh.')}
+                      </p>
+                    }
+                  >
+                    {(src) => (
+                      <button
+                        class="source-card"
+                        classList={{ selected: selected()?.id === src.id }}
+                        onClick={() => setSelected(src)}
+                        onDblClick={() => (setSelected(src), go())}
+                      >
+                        <div class="source-thumb">
+                          <Show when={src.thumbnail} fallback={<I.Screen size={32} />}>
+                            <img src={src.thumbnail!} alt="" />
+                          </Show>
+                        </div>
+                        <span class="source-name" title={src.name}>
+                          {src.name}
+                        </span>
+                        <Show when={src.app}>
+                          <span class="source-app">{src.app}</span>
                         </Show>
-                      </div>
-                      <span class="source-name" title={src.name}>
-                        {src.name}
-                      </span>
-                      <Show when={src.app}>
-                        <span class="source-app">{src.app}</span>
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
           </div>
         </Show>
@@ -1060,31 +1367,33 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
               />
             </div>
           </div>
-          <label class="toggle-row" classList={{ disabled: p.update }}>
-            <span>
-              <strong>{t('Share audio')}</strong>
-              <small>
-                {p.update
-                  ? t('Restart the stream to change this.')
-                  : !picker
-                    ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
-                    : caps() && !caps()!.per_app_audio
-                      ? t(
-                          'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
-                        )
-                      : selected()?.kind === 'screen'
-                        ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
-                        : t('Only the sound of the app you share.')}
-              </small>
-            </span>
-            <input
-              type="checkbox"
-              class="switch"
-              checked={audio()}
-              disabled={p.update}
-              onChange={(e) => setAudio(e.currentTarget.checked)}
-            />
-          </label>
+          <Show when={tab() !== 'device'}>
+            <label class="toggle-row" classList={{ disabled: p.update }}>
+              <span>
+                <strong>{t('Share audio')}</strong>
+                <small>
+                  {p.update
+                    ? t('Restart the stream to change this.')
+                    : !picker
+                      ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
+                      : caps() && !caps()!.per_app_audio
+                        ? t(
+                            'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
+                          )
+                        : selected()?.kind === 'screen'
+                          ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
+                          : t('Only the sound of the app you share.')}
+                </small>
+              </span>
+              <input
+                type="checkbox"
+                class="switch"
+                checked={audio()}
+                disabled={p.update}
+                onChange={(e) => setAudio(e.currentTarget.checked)}
+              />
+            </label>
+          </Show>
         </Show>
       </div>
     </Dialog>

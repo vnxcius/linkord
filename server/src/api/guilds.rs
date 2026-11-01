@@ -20,6 +20,14 @@ pub fn routes() -> Router<AppState> {
         .route("/guilds/{id}/icon", post(upload_icon))
         .route("/guilds/{id}/banner", post(upload_banner).delete(remove_banner))
         .route("/guilds/{id}/members/@me", delete(leave).patch(update_me))
+        .route(
+            "/guilds/{id}/members/@me/avatar",
+            post(|st, me, id, mp| upload_member_image(st, me, id, mp, "avatar")).delete(|st, me, id| clear_member_image(st, me, id, "avatar")),
+        )
+        .route(
+            "/guilds/{id}/members/@me/banner",
+            post(|st, me, id, mp| upload_member_image(st, me, id, mp, "banner")).delete(|st, me, id| clear_member_image(st, me, id, "banner")),
+        )
         .route("/guilds/{id}/members/{user}", delete(kick).patch(update_member))
 }
 
@@ -28,25 +36,39 @@ struct MemberRow {
     #[sqlx(flatten)]
     user: User,
     nickname: Option<String>,
+    member_avatar: Option<String>,
+    member_banner: Option<String>,
+    member_bio: Option<String>,
     joined_at: chrono::DateTime<chrono::Utc>,
     roles: Vec<Id>,
 }
 
 async fn load_members(db: &PgPool, guild: Id, only: Option<Id>) -> ApiResult<Vec<Member>> {
     let rows = sqlx::query_as::<_, MemberRow>(&format!(
-        "SELECT {}, m.nickname, m.joined_at,
+        "SELECT {}, m.nickname, m.avatar AS member_avatar, m.banner AS member_banner, m.bio AS member_bio, m.joined_at,
                 COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{{}}') AS roles
          FROM members m JOIN users u ON u.id = m.user_id
          LEFT JOIN member_roles mr ON mr.guild_id = m.guild_id AND mr.user_id = m.user_id
          WHERE m.guild_id = $1 AND ($2::BIGINT IS NULL OR m.user_id = $2)
-         GROUP BY u.id, m.nickname, m.joined_at ORDER BY m.joined_at",
+         GROUP BY u.id, m.nickname, m.avatar, m.banner, m.bio, m.joined_at ORDER BY m.joined_at",
         prefixed(USER_COLS, "u")
     ))
     .bind(guild)
     .bind(only)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|r| Member { user: r.user, nickname: r.nickname, joined_at: r.joined_at, roles: r.roles }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| Member {
+            user: r.user,
+            nickname: r.nickname,
+            avatar: r.member_avatar,
+            banner: r.member_banner,
+            bio: r.member_bio,
+            joined_at: r.joined_at,
+            roles: r.roles,
+        })
+        .collect())
 }
 
 pub async fn load_member(db: &PgPool, guild: Id, user: Id) -> ApiResult<Member> {
@@ -67,7 +89,8 @@ pub async fn load_emojis(db: &PgPool, guild: Id) -> ApiResult<Vec<Emoji>> {
         .await?)
 }
 
-pub async fn load_guild(db: &PgPool, id: Id) -> ApiResult<Guild> {
+/// The server as `viewer` gets it: only the channels they can see, with their overwrites.
+pub async fn load_guild(db: &PgPool, id: Id, viewer: Id) -> ApiResult<Guild> {
     let guild = sqlx::query_as::<_, GuildRow>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = $1"))
         .bind(id)
         .fetch_optional(db)
@@ -81,6 +104,18 @@ pub async fn load_guild(db: &PgPool, id: Id) -> ApiResult<Guild> {
     .bind(kind::THREAD)
     .fetch_all(db)
     .await?;
+    let ctx = crate::perms::GuildCtx::load(db, id).await?;
+    let visible = ctx.visible_channels(viewer);
+    let channels = channels
+        .into_iter()
+        .filter(|c| visible.contains(&c.id))
+        .map(|mut c| {
+            if c.kind != kind::THREAD {
+                c.permission_overwrites = Some(ctx.overwrites(c.id));
+            }
+            c
+        })
+        .collect();
     Ok(Guild {
         guild,
         channels,
@@ -149,7 +184,7 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): 
         .await?;
     super::templates::apply(&mut tx, id, &template).await?;
     tx.commit().await?;
-    let guild = load_guild(&st.db, id).await?;
+    let guild = load_guild(&st.db, id, me).await?;
     st.hub.send(&[me], "GUILD_CREATE", &guild);
     Ok(Json(guild))
 }
@@ -310,6 +345,8 @@ async fn leave_voice_in(st: &AppState, user: Id, guild: Id) {
 pub async fn remove_member(st: &AppState, guild: Id, user: Id) -> ApiResult<()> {
     leave_voice_in(st, user, guild).await;
     sqlx::query("DELETE FROM members WHERE guild_id = $1 AND user_id = $2").bind(guild).bind(user).execute(&st.db).await?;
+    // Their server profile goes with the membership.
+    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join("member-profiles").join(guild.to_string()).join(user.to_string())).await;
     st.hub.send(&[user], "GUILD_DELETE", &serde_json::json!({ "id": guild }));
     st.hub.send(&guild_members(&st.db, guild).await?, "GUILD_MEMBER_REMOVE", &serde_json::json!({ "guild_id": guild, "user_id": user }));
     Ok(())
@@ -361,16 +398,54 @@ async fn announce_member(st: &AppState, guild: Id, user: Id) -> ApiResult<Json<M
 #[derive(Deserialize)]
 struct SelfMemberUpdate {
     nickname: Option<String>,
+    /// Server profile about me. Absent: unchanged; empty: back to the account's own.
+    bio: Option<String>,
 }
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<SelfMemberUpdate>) -> ApiResult<Json<Member>> {
-    guild_perms(&st.db, id, me).await?.require(perms::CHANGE_NICKNAME)?;
-    sqlx::query("UPDATE members SET nickname = $3 WHERE guild_id = $1 AND user_id = $2")
-        .bind(id)
-        .bind(me)
-        .bind(nickname(body.nickname)?)
-        .execute(&st.db)
-        .await?;
+    let mine = guild_perms(&st.db, id, me).await?;
+    if body.nickname.is_some() {
+        mine.require(perms::CHANGE_NICKNAME)?;
+        sqlx::query("UPDATE members SET nickname = $3 WHERE guild_id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(me)
+            .bind(nickname(body.nickname)?)
+            .execute(&st.db)
+            .await?;
+    }
+    if let Some(bio) = body.bio {
+        if bio.chars().count() > 190 {
+            return Err(bad("bio must be at most 190 characters"));
+        }
+        let bio = Some(bio).filter(|b| !b.trim().is_empty());
+        sqlx::query("UPDATE members SET bio = $3 WHERE guild_id = $1 AND user_id = $2").bind(id).bind(me).bind(bio).execute(&st.db).await?;
+    }
+    announce_member(&st, id, me).await
+}
+
+/// Server profile picture or banner (`which`): the same files and cropping as the account's own (users.rs).
+async fn upload_member_image(
+    State(st): State<AppState>,
+    AuthUser(me): AuthUser,
+    Path(id): Path<Id>,
+    mp: Multipart,
+    which: &'static str,
+) -> ApiResult<Json<Member>> {
+    guild_perms(&st.db, id, me).await?;
+    let (name, bytes) = crate::api::users::read_image(&st, mp, which).await?;
+    uploads::reserve(&st, me, bytes.len()).await?;
+    let dir = format!("member-profiles/{id}/{me}/{which}s");
+    // One picture (and one banner) per server: the previous file goes.
+    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(&dir)).await;
+    let url = uploads::save(&st, &dir, &name, &bytes).await?;
+    sqlx::query(&format!("UPDATE members SET {which} = $3 WHERE guild_id = $1 AND user_id = $2")).bind(id).bind(me).bind(&url).execute(&st.db).await?;
+    announce_member(&st, id, me).await
+}
+
+async fn clear_member_image(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, which: &'static str) -> ApiResult<Json<Member>> {
+    guild_perms(&st.db, id, me).await?;
+    sqlx::query(&format!("UPDATE members SET {which} = NULL WHERE guild_id = $1 AND user_id = $2")).bind(id).bind(me).execute(&st.db).await?;
+    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(format!("member-profiles/{id}/{me}/{which}s"))).await;
     announce_member(&st, id, me).await
 }
 
@@ -414,6 +489,7 @@ async fn update_member(
                 return Err(bad("you can only assign roles below your highest role"));
             }
         }
+        let before = crate::gateway::visibility(&st.db, id).await?;
         let mut tx = st.db.begin().await?;
         sqlx::query("DELETE FROM member_roles WHERE guild_id = $1 AND user_id = $2").bind(id).bind(user).execute(&mut *tx).await?;
         for rid in &wanted {
@@ -425,6 +501,9 @@ async fn update_member(
                 .await?;
         }
         tx.commit().await?;
+        let member = announce_member(&st, id, user).await?;
+        crate::gateway::announce_visibility(&st, id, before).await?;
+        return Ok(member);
     }
     announce_member(&st, id, user).await
 }

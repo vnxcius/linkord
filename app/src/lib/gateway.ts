@@ -182,6 +182,8 @@ function handle(t: string, d: any) {
       return setState('customStatus', d.custom_status ?? null);
     case 'USER_CONNECTIONS_UPDATE':
       return setState('connectionsVersion', (n) => n + 1);
+    case 'USER_NOTE_UPDATE':
+      return setState('notes', d.id, d.note);
     case 'USER_UPDATE':
       return batch(() => {
         putUser(d);

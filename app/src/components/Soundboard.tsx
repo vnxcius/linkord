@@ -141,7 +141,7 @@ export function SoundboardButton(p: { class: string; label?: boolean; size?: num
 
 // ---------- server settings ----------
 
-const MAX_SECONDS = 5.2;
+const SOUND_SECONDS = 5.2;
 /** Per server, like the server's limit (soundboard.rs MAX_PER_GUILD). */
 const MAX_SOUNDS = 50;
 const MAX_SOURCE = 8 * 1024 * 1024;
@@ -162,7 +162,7 @@ function peaks(buf: AudioBuffer, bars: number): number[] {
   return out.map((v) => v / top);
 }
 
-interface Draft {
+export interface Draft {
   name: string;
   emoji: string;
   /** 0..1 */
@@ -173,16 +173,22 @@ interface Draft {
 
 /**
  * Trim and volume for a sound, before uploading it or later: the waveform of the whole file with the part that
- * plays between two handles (at most 5.2 s), a volume slider and a preview of exactly what will play.
+ * plays between two handles (at most 5.2 s), a volume slider and a preview of exactly what will play. Profile songs
+ * (Settings -> Profile) use it too, with a longer limit, a title instead of a name and no emoji.
  */
-function SoundEditor(p: {
+export function SoundEditor(p: {
   /** The file being added, or the URL of an uploaded sound's original. */
   source: File | string;
   initial: Draft;
   saveLabel: string;
   onSave: (d: Draft) => Promise<unknown>;
   onCancel: () => void;
+  /** Longest part that plays, in seconds (default: a soundboard sound's 5.2 s). */
+  maxSeconds?: number;
+  /** Profile songs: "Title" (may be empty), no emoji. */
+  song?: boolean;
 }) {
+  const MAX_SECONDS = p.maxSeconds ?? SOUND_SECONDS;
   const [buf, setBuf] = createSignal<AudioBuffer | null>(null);
   const [failed, setFailed] = createSignal(false);
   const [draft, setDraft] = createSignal<Draft>(p.initial);
@@ -300,7 +306,11 @@ function SoundEditor(p: {
         </div>
         <div class="sound-times">
           <span>{fmt(draft().start)}</span>
-          <span class="muted">{t('{n} selected (up to 5.2s)', { n: fmt(draft().end - draft().start) })}</span>
+          <span class="muted">
+            {p.song
+              ? t('{n} selected (up to {max}s)', { n: fmt(draft().end - draft().start), max: MAX_SECONDS })
+              : t('{n} selected (up to 5.2s)', { n: fmt(draft().end - draft().start) })}
+          </span>
           <span>{fmt(draft().end)}</span>
         </div>
         <div class="sound-editor-row">
@@ -319,41 +329,48 @@ function SoundEditor(p: {
         </div>
         <div class="sound-editor-row">
           <label class="field grow">
-            <span>{t('Name')}</span>
-            <input value={draft().name} maxLength={32} onInput={(e) => set({ name: e.currentTarget.value })} />
+            <span>{p.song ? t('Title (optional)') : t('Name')}</span>
+            <input
+              value={draft().name}
+              maxLength={p.song ? 80 : 32}
+              placeholder={p.song ? t('Artist — Song') : undefined}
+              onInput={(e) => set({ name: e.currentTarget.value })}
+            />
           </label>
-          <div class="field emoji-field">
-            <span>{t('Emoji')}</span>
-            <div class="emoji-pick">
-              <button
-                type="button"
-                class="emoji-pick-btn"
-                classList={{ empty: !draft().emoji }}
-                aria-label={t('Pick an emoji')}
-                data-tip={t('Pick an emoji')}
-                onClick={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  const below = r.bottom + 6 + 368 < innerHeight;
-                  setPicker({
-                    x: Math.max(8, Math.min(r.left, innerWidth - 348)),
-                    y: below ? r.bottom + 6 : Math.max(8, r.top - 366),
-                  });
-                }}
-              >
-                {draft().emoji || '🔊'}
-              </button>
-              <Show when={draft().emoji}>
+          <Show when={!p.song}>
+            <div class="field emoji-field">
+              <span>{t('Emoji')}</span>
+              <div class="emoji-pick">
                 <button
                   type="button"
-                  class="emoji-pick-clear"
-                  aria-label={t('Remove emoji')}
-                  onClick={() => set({ emoji: '' })}
+                  class="emoji-pick-btn"
+                  classList={{ empty: !draft().emoji }}
+                  aria-label={t('Pick an emoji')}
+                  data-tip={t('Pick an emoji')}
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const below = r.bottom + 6 + 368 < innerHeight;
+                    setPicker({
+                      x: Math.max(8, Math.min(r.left, innerWidth - 348)),
+                      y: below ? r.bottom + 6 : Math.max(8, r.top - 366),
+                    });
+                  }}
                 >
-                  <I.Close size={12} />
+                  {draft().emoji || '🔊'}
                 </button>
-              </Show>
+                <Show when={draft().emoji}>
+                  <button
+                    type="button"
+                    class="emoji-pick-clear"
+                    aria-label={t('Remove emoji')}
+                    onClick={() => set({ emoji: '' })}
+                  >
+                    <I.Close size={12} />
+                  </button>
+                </Show>
+              </div>
             </div>
-          </div>
+          </Show>
         </div>
         <Show when={picker()}>
           {(at) => (
@@ -361,7 +378,7 @@ function SoundEditor(p: {
               {/* Only the app's emoji: a sound's emoji is shown as text, server emoji wouldn't draw. */}
               <EmojiPicker
                 unicodeOnly
-                class="message-picker"
+                class="message-picker sound-emoji-picker"
                 style={{ left: `${at().x}px`, top: `${at().y}px` }}
                 onClose={() => setPicker(null)}
                 onPick={(picked) => {
@@ -378,7 +395,7 @@ function SoundEditor(p: {
           </button>
           <button
             class="btn primary small-btn"
-            disabled={busy() || !buf() || draft().name.trim().length < 2}
+            disabled={busy() || !buf() || (!p.song && draft().name.trim().length < 2)}
             onClick={async () => {
               stop();
               setBusy(true);

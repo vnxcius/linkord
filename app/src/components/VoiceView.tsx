@@ -88,7 +88,7 @@ export function VoiceView(p: { channel: Channel }) {
         onClick={() => setUi('modal', { type: 'user-profile', userId: v.user_id, guildId: gid() ?? undefined })}
         onContextMenu={(e) => openMenu(e, userMenu(v.user_id, gid()))}
       >
-        <Avatar user={state.users[v.user_id]} size={64} />
+        <Avatar user={state.users[v.user_id]} size={64} guildId={gid()} />
         <Show when={voiceUi.soundPlaying[v.user_id]}>
           <span class="sound-bubble">{voiceUi.soundPlaying[v.user_id]}</span>
         </Show>
@@ -322,7 +322,7 @@ export function Viewers(p: { userId?: string; ids?: string[]; guildId?: string |
   const open = (e: MouseEvent) => {
     e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setUi('menu', { x: r.left, y: r.bottom + 6, items: viewerList(ids(), p.guildId) });
+    setUi('menu', { x: r.left, y: r.bottom + 6, items: viewerList(ids(), p.guildId, r) });
   };
   return (
     <Show when={ids().length}>
@@ -348,8 +348,9 @@ export function viewerItems(userId: string, guildId?: string | null): MenuEntry[
   return viewerList(viewersOf(userId), guildId);
 }
 
-/** A list of people watching, as a menu: a header, then each of them (click opens their card). */
-export function viewerList(ids: string[], guildId?: string | null): MenuEntry[] {
+/** A list of people watching, as a menu: a header, then each of them (click opens their card to the right of
+ * `anchor`, the viewers button, or else beside the menu). */
+export function viewerList(ids: string[], guildId?: string | null, anchor?: DOMRect): MenuEntry[] {
   return [
     {
       label: t('Watching'),
@@ -358,7 +359,13 @@ export function viewerList(ids: string[], guildId?: string | null): MenuEntry[] 
     ...ids.map((id) => ({
       label: nameOf(id, guildId),
       icon: () => <Avatar user={state.users[id]} size={22} />,
-      run: () => setUi('profile', { userId: id, x: innerWidth / 2 - 150, y: 120, guildId: guildId ?? undefined }),
+      run: (at: { x: number; y: number }) =>
+        setUi('profile', {
+          userId: id,
+          x: anchor ? anchor.right + 10 : at.x + 10,
+          y: anchor ? anchor.top : at.y,
+          guildId: guildId ?? undefined,
+        }),
     })),
   ];
 }
@@ -576,6 +583,7 @@ function audioDiagLines(): string[] {
     all_but_linkord: t('everything except Linkord'),
     system: t('whole PC, voice chat removed by the echo canceller'),
     browser: t('browser capture, no echo canceller'),
+    device: t("the capture device's own sound"),
     none: t('none'),
   };
   const lines = [t('Stream audio: {mode}', { mode: modes[d.mode] })];
@@ -701,7 +709,7 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
         when={watching()}
         fallback={
           <div class="watch-card">
-            <Avatar user={state.users[p.item.userId]} size={p.small ? 40 : 72} />
+            <Avatar user={state.users[p.item.userId]} size={p.small ? 40 : 72} guildId={p.guildId} />
             <strong>
               {nameOf(p.item.userId, p.guildId)} <span class="live-badge">{t('LIVE')}</span>
             </strong>

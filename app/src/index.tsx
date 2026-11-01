@@ -8,7 +8,9 @@ import { pickReachableServer } from './lib/api';
 import { installContextMenu } from './lib/contextmenu';
 import { installErrorReporting } from './lib/report';
 import { initTooltips } from './lib/tooltip';
+import { initTheme } from './lib/theme';
 
+initTheme();
 installContextMenu();
 installErrorReporting();
 initTooltips();

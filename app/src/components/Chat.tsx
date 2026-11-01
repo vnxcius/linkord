@@ -44,6 +44,7 @@ import {
 import { Avatar } from './Avatar';
 import { Composer } from './Composer';
 import { Members } from './Members';
+import { PrivateBadge } from './PrivateBadge';
 import * as I from './Icons';
 import { formatTime, MessageItem, onContentClick, renderContent } from './MessageItem';
 import { VoiceStatusHeader } from './VoiceStatus';
@@ -1069,6 +1070,7 @@ function ChannelWelcome(p: { channel: Channel }) {
         <Match when={true}>
           <div class="welcome-icon">
             <I.Hash size={36} />
+            <PrivateBadge channelId={p.channel.id} />
           </div>
           <h1>{t('Welcome to #{name}', { name: p.channel.name })}</h1>
           <p class="muted">{t('This is the start of the #{name} channel.', { name: p.channel.name })}</p>

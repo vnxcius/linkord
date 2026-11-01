@@ -28,7 +28,8 @@ export interface MenuItem {
   danger?: boolean;
   checked?: boolean;
   disabled?: boolean;
-  run?: () => unknown;
+  /** Gets where the menu was, to open a follow-up menu there. */
+  run?: (at: { x: number; y: number }) => unknown;
   /** Custom content instead of a button (e.g. a volume slider). */
   render?: () => JSX.Element;
 }

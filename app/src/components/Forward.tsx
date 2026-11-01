@@ -58,10 +58,15 @@ function targets(withFiles: boolean): Target[] {
     });
   }
   for (const gid of state.guildOrder) {
-    if (!can(gid, P.SEND_MESSAGES) || (withFiles && !can(gid, P.ATTACH_FILES))) continue;
     const guild = state.guilds[gid]?.name;
     const channels = Object.values(state.channels)
-      .filter((c) => c.guild_id === gid && c.kind === Kind.Text)
+      .filter(
+        (c) =>
+          c.guild_id === gid &&
+          c.kind === Kind.Text &&
+          can(gid, P.SEND_MESSAGES, c.id) &&
+          (!withFiles || can(gid, P.ATTACH_FILES, c.id)),
+      )
       .sort((a, b) => a.position - b.position);
     for (const c of channels) {
       out.push({

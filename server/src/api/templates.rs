@@ -1,6 +1,6 @@
 //! Discord server templates (discord.new/<code>): fetched from Discord's public API and turned into a
-//! new Linkord server with the same categories, channels and roles. Linkord has no per-channel
-//! permissions, so overwrites are dropped. New servers without a template use `default_template`.
+//! new Linkord server with the same categories, channels, roles and role permission overwrites (member
+//! overwrites can't carry over). New servers without a template use `default_template`.
 
 use axum::extract::{Path, State};
 use axum::routing::get;
@@ -82,6 +82,19 @@ struct SourceChannel {
     topic: Option<String>,
     #[serde(default)]
     parent_id: Option<i64>,
+    #[serde(default)]
+    permission_overwrites: Vec<SourceOverwrite>,
+}
+
+#[derive(Deserialize)]
+struct SourceOverwrite {
+    id: i64,
+    #[serde(rename = "type", default)]
+    kind: i16,
+    #[serde(default)]
+    allow: String,
+    #[serde(default)]
+    deny: String,
 }
 
 #[derive(Serialize)]
@@ -92,6 +105,9 @@ pub struct TemplateRole {
     pub mentionable: bool,
     #[serde(skip)]
     pub permissions: i64,
+    /// Its id in the template, which overwrites refer to.
+    #[serde(skip)]
+    source_id: i64,
 }
 
 #[derive(Serialize)]
@@ -101,6 +117,9 @@ pub struct TemplateChannel {
     pub topic: String,
     /// Index of its category in `channels`.
     pub parent: Option<usize>,
+    /// Role overwrites: (index in `roles`, None = @everyone), allow, deny.
+    #[serde(skip)]
+    pub overwrites: Vec<(Option<usize>, i64, i64)>,
 }
 
 /// A template reduced to what Linkord can represent.
@@ -142,8 +161,21 @@ fn convert(t: DiscordTemplate) -> Template {
             hoist: r.hoist,
             mentionable: r.mentionable,
             permissions: perm(&r.permissions),
+            source_id: r.id,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let role_index = |id: i64| roles.iter().position(|r| r.source_id == id);
+    let overwrites = |c: &SourceChannel| -> Vec<(Option<usize>, i64, i64)> {
+        c.permission_overwrites
+            .iter()
+            .filter(|o| o.kind == 0)
+            .filter_map(|o| {
+                let target = if o.id == 0 { None } else { Some(role_index(o.id)?) };
+                let allow = o.allow.parse::<i64>().unwrap_or(0) & perms::CHANNEL;
+                Some((target, allow, o.deny.parse::<i64>().unwrap_or(0) & perms::CHANNEL & !allow))
+            })
+            .collect()
+    };
 
     // Discord's sidebar order: uncategorized channels, then categories; text before voice inside each.
     let is_category = |id: i64| src.channels.iter().any(|c| c.id == id && c.kind == 4);
@@ -163,7 +195,7 @@ fn convert(t: DiscordTemplate) -> Template {
         }
         let name = super::channels::channel_name(&c.name, k).ok()?;
         let topic = c.topic.as_deref().unwrap_or("").trim().chars().take(1024).collect();
-        out.push(TemplateChannel { kind: k, name, topic, parent });
+        out.push(TemplateChannel { kind: k, name, topic, parent, overwrites: overwrites(c) });
         Some(out.len() - 1)
     };
     for (k, c) in in_category(None) {
@@ -187,7 +219,7 @@ fn convert(t: DiscordTemplate) -> Template {
 
 /// What a new server starts with: Discord's default categories, a text and a voice channel.
 pub fn default_template(name: &str) -> Template {
-    let ch = |kind, name: &str, parent| TemplateChannel { kind, name: name.into(), topic: String::new(), parent };
+    let ch = |kind, name: &str, parent| TemplateChannel { kind, name: name.into(), topic: String::new(), parent, overwrites: vec![] };
     Template {
         name: name.into(),
         description: String::new(),
@@ -229,9 +261,10 @@ async fn preview(State(st): State<AppState>, AuthUser(me): AuthUser, Path(code):
 pub async fn apply(tx: &mut Transaction<'_, Postgres>, guild: Id, t: &Template) -> ApiResult<()> {
     sqlx::query("UPDATE roles SET permissions = $2 WHERE id = $1").bind(guild).bind(t.everyone).execute(&mut **tx).await?;
     let n = t.roles.len();
+    let role_ids: Vec<Id> = t.roles.iter().map(|_| Id::new()).collect();
     for (i, r) in t.roles.iter().enumerate() {
         sqlx::query("INSERT INTO roles (id, guild_id, name, color, permissions, position, hoist, mentionable) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
-            .bind(Id::new())
+            .bind(role_ids[i])
             .bind(guild)
             .bind(&r.name)
             .bind(r.color)
@@ -255,6 +288,15 @@ pub async fn apply(tx: &mut Transaction<'_, Postgres>, guild: Id, t: &Template) 
             .bind(c.parent.map(|i: usize| ids[i]))
             .execute(&mut **tx)
             .await?;
+        for (target, allow, deny) in &c.overwrites {
+            sqlx::query("INSERT INTO channel_overwrites (channel_id, target_id, kind, allow, deny) VALUES ($1, $2, 0, $3, $4) ON CONFLICT DO NOTHING")
+                .bind(id)
+                .bind(target.map(|i| role_ids[i]).unwrap_or(guild))
+                .bind(allow)
+                .bind(deny)
+                .execute(&mut **tx)
+                .await?;
+        }
         ids.push(id);
     }
     Ok(())
@@ -288,7 +330,11 @@ mod tests {
                     { "id": 11, "type": 4, "name": "Info", "position": 0 },
                     { "id": 12, "type": 2, "name": "Lounge", "position": 0, "parent_id": 10 },
                     { "id": 13, "type": 0, "name": "General Chat", "position": 1, "parent_id": 11, "topic": "hi" },
-                    { "id": 14, "type": 5, "name": "news", "position": 0, "parent_id": 11 },
+                    { "id": 14, "type": 5, "name": "news", "position": 0, "parent_id": 11, "permission_overwrites": [
+                        { "id": 0, "type": 0, "allow": "0", "deny": "2048" },
+                        { "id": 2, "type": 0, "allow": "2056", "deny": "0" },
+                        { "id": 99, "type": 1, "allow": "2048", "deny": "0" },
+                    ] },
                     { "id": 15, "type": 0, "name": "welcome", "position": 0 },
                 ],
             },
@@ -303,5 +349,7 @@ mod tests {
         assert_eq!(t.roles[0].color, Some(3447003));
         assert_eq!(t.roles[1].color, None);
         assert_eq!(t.everyone, perms::SEND_MESSAGES);
+        // "news": @everyone can't send, Mod (index 0) can; Administrator isn't a channel permission; members dropped.
+        assert_eq!(t.channels[2].overwrites, [(None, 0, perms::SEND_MESSAGES), (Some(0), perms::SEND_MESSAGES, 0)]);
     }
 }

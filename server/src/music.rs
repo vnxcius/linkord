@@ -637,8 +637,12 @@ async fn run(st: AppState, p: Arc<Player>, bot: Id, conn: u64) {
         first = false;
         p.skip.store(false, Ordering::Relaxed);
         p.paused.store(false, Ordering::Relaxed);
+        let began = Instant::now();
         let played = match play(&st, &p, bot, conn, &track).await {
-            Ok(()) => true,
+            Ok(()) => {
+                count_play(&st, &track, began.elapsed()).await;
+                true
+            }
             Err(e) => {
                 tracing::warn!("couldn't play {}: {e}", track.url);
                 let channel = *p.text_channel.lock().unwrap();
@@ -674,6 +678,29 @@ async fn run(st: AppState, p: Arc<Player>, bot: Id, conn: u64) {
         }
     }
     voice::part(&st, bot, conn, p.channel_id).await;
+}
+
+/// A song counts for its requester's top songs (profile widget) once it played half its length or 30 s: songs
+/// skipped right away don't.
+async fn count_play(st: &AppState, t: &Track, played: Duration) {
+    let enough = t.duration.map_or(30.0, |d| (d * 0.5).min(30.0));
+    if played.as_secs_f64() < enough {
+        return;
+    }
+    let url = t.page.clone().unwrap_or_else(|| t.url.clone());
+    let _ = sqlx::query(
+        "INSERT INTO kass_plays (user_id, key, title, url, uploader, thumbnail, plays) VALUES ($1, $2, $3, $4, $5, $6, 1)
+         ON CONFLICT (user_id, key) DO UPDATE SET plays = kass_plays.plays + 1, last_played = now(), title = EXCLUDED.title,
+             url = EXCLUDED.url, uploader = EXCLUDED.uploader, thumbnail = COALESCE(EXCLUDED.thumbnail, kass_plays.thumbnail)",
+    )
+    .bind(t.requested_by)
+    .bind(t.title.to_lowercase())
+    .bind(&t.title)
+    .bind(url)
+    .bind(&t.uploader)
+    .bind(&t.thumbnail)
+    .execute(&st.db)
+    .await;
 }
 
 /// "Now playing" for tracks that start from the queue.

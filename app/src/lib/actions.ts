@@ -402,7 +402,6 @@ export async function logout() {
   location.reload();
 }
 
-/** Saves a new order for one kind of channel (text or voice) in a server; applied right away. */
 /** A server's sidebar order: channel ids without a category, then each category with its channel ids. */
 export interface ChannelOrder {
   top: string[];
@@ -425,9 +424,12 @@ export async function saveChannelOrder(guildId: string, order: ChannelOrder) {
   const parents: Record<string, string | null> = {};
   for (const [id, parent] of parentOf) if ((state.channels[id]?.parent_id ?? null) !== parent) parents[id] = parent;
   const before = ids.map((id) => [id, state.channels[id].position, state.channels[id].parent_id ?? null] as const);
+  // Channels hidden from you keep their places: yours take the positions they had, in the new order (the
+  // server does the same).
+  const slots = before.map(([, pos]) => pos).sort((x, y) => x - y);
   batch(() =>
     ids.forEach((id, i) => {
-      setState('channels', id, 'position', i);
+      setState('channels', id, 'position', slots[i]);
       if (id in parents) setState('channels', id, 'parent_id', parents[id]);
     }),
   );
@@ -437,4 +439,29 @@ export async function saveChannelOrder(guildId: string, order: ChannelOrder) {
     batch(() => before.forEach(([id, pos, parent]) => setState('channels', id, { position: pos, parent_id: parent })));
     throw e;
   }
+}
+
+/** Discord's "Clone Channel": same kind, name, topic, category and permissions, placed right below it. */
+export async function duplicateChannel(channelId: string) {
+  const c = state.channels[channelId];
+  if (!c?.guild_id) return;
+  const guildId = c.guild_id;
+  const copy = await api<Channel>('POST', `/guilds/${guildId}/channels`, {
+    name: c.name,
+    kind: c.kind,
+    topic: c.topic,
+    parent_id: c.parent_id ?? undefined,
+    permission_overwrites: c.permission_overwrites ?? [],
+  });
+  if (!state.channels[copy.id]) setState('channels', copy.id, copy);
+  const order = currentOrder(guildId);
+  for (const list of [order.top, ...order.categories.map((x) => x.channels)]) {
+    const from = list.indexOf(copy.id);
+    if (from >= 0) list.splice(from, 1);
+  }
+  for (const list of [order.top, ...order.categories.map((x) => x.channels)]) {
+    const at = list.indexOf(channelId);
+    if (at >= 0) list.splice(at + 1, 0, copy.id);
+  }
+  await saveChannelOrder(guildId, order);
 }

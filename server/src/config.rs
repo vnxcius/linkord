@@ -31,6 +31,8 @@ pub struct Config {
     pub spotify_poll: std::time::Duration,
     /// Discord's list of detectable games (executable names), for "Playing" activities.
     pub detectable_url: String,
+    /// Game cards look up Steam and Wikipedia; LINKORD_GAME_INFO=off skips them (tests run offline).
+    pub game_info: bool,
     /// Direct access that skips Cloudflare (direct.rs): listen address, e.g. 0.0.0.0:8443. Off when unset.
     pub direct_bind: Option<String>,
     /// The DNS-only hostname pointing at this machine, e.g. mc.example.com.
@@ -72,6 +74,7 @@ impl Config {
             spotify_api_url: opt("SPOTIFY_API_URL").unwrap_or_else(|| "https://api.spotify.com".into()),
             spotify_poll: std::time::Duration::from_millis(opt("SPOTIFY_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(5000)),
             detectable_url: opt("LINKORD_DETECTABLE_URL").unwrap_or_else(|| "https://discord.com/api/v9/applications/detectable".into()),
+            game_info: opt("LINKORD_GAME_INFO").as_deref() != Some("off"),
             direct_bind: opt("LINKORD_DIRECT_BIND"),
             direct_host: opt("LINKORD_DIRECT_HOST").unwrap_or_default(),
             direct_tls: opt("LINKORD_DIRECT_TLS").is_none_or(|v| v != "off"),

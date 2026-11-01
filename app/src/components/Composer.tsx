@@ -46,8 +46,8 @@ export function Composer(p: { channel: Channel }) {
   };
 
   const gid = () => p.channel.guild_id ?? null;
-  const canSend = () => can(gid(), P.SEND_MESSAGES);
-  const canAttach = () => can(gid(), P.ATTACH_FILES);
+  const canSend = () => can(gid(), P.SEND_MESSAGES, p.channel.id);
+  const canAttach = () => can(gid(), P.ATTACH_FILES, p.channel.id);
   const placeholder = () => {
     if (!canSend()) return t('You do not have permission to send messages in this channel');
     if (isPrivate(p.channel.kind))
@@ -121,7 +121,7 @@ export function Composer(p: { channel: Channel }) {
         icon: () => <Avatar user={state.users[id]} size={24} />,
       }));
     if (!gid()) return users;
-    const everyone = can(gid(), P.MENTION_EVERYONE);
+    const everyone = can(gid(), P.MENTION_EVERYONE, p.channel.id);
     const roles: Suggestion[] = Object.values(state.roles[gid()!] ?? {})
       .filter((r) => r.id !== gid() && (r.mentionable || everyone) && r.name.toLowerCase().includes(tr.q))
       .slice(0, 4)

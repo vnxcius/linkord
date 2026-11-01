@@ -120,7 +120,7 @@ async fn accept(State(st): State<AppState>, AuthUser(me): AuthUser, Path(code): 
         .await?
         .rows_affected()
         > 0;
-    let guild = load_guild(&st.db, inv.guild_id).await?;
+    let guild = load_guild(&st.db, inv.guild_id, me).await?;
     if joined {
         sqlx::query("UPDATE invites SET uses = uses + 1 WHERE code = $1").bind(&code).execute(&st.db).await?;
         let member = load_member(&st.db, inv.guild_id, me).await?;

@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from 
 import { api, media } from '../lib/api';
 import {
   currentOrder,
+  duplicateChannel,
   logout,
   markRead,
   openFriends,
@@ -16,7 +17,7 @@ import {
   setGuildNotify,
 } from '../lib/actions';
 import { msg, plural, t } from '../lib/i18n';
-import { can, P } from '../lib/perms';
+import { can, isPrivateChannel, P } from '../lib/perms';
 import { prefs, setPrefs } from '../lib/prefs';
 import {
   activeThreads,
@@ -58,7 +59,8 @@ import { canSetVoiceStatus, editVoiceStatus, VoiceStatusLine } from './VoiceStat
 import { ActivityLine, CustomStatusView, elapsedSince, GameIcon } from './Activity';
 import { clearCustomStatusNow, openCustomStatus } from './CustomStatus';
 import { Avatar } from './Avatar';
-import { userMenu } from './Profile';
+import { moveMember, userMenu } from './Profile';
+import { PrivateBadge } from './PrivateBadge';
 import { streamPreviewOn } from './StreamPreview';
 import { SoundboardButton } from './Soundboard';
 import { watches } from '../lib/watch';
@@ -380,6 +382,23 @@ function GuildSidebar(p: { guildId: string }) {
 // (needs Manage Channels). Dropping on a category header puts a channel at the top of it.
 const [dragging, setDragging] = createSignal<string | null>(null);
 const [dropMark, setDropMark] = createSignal<{ id: string; before: boolean; into?: boolean } | null>(null);
+// People in voice can be dragged to another voice channel with Move Members.
+const [draggingUser, setDraggingUser] = createSignal<{ id: string; from: string } | null>(null);
+const [userDrop, setUserDrop] = createSignal<string | null>(null);
+
+/** Whether you can drag this person to `to` (null: whether you can drag them at all). Yourself: always, since
+ * dropping you somewhere just joins it; others need Move Members. */
+function canMoveTo(guildId: string, userId: string, from: string, to: string | null) {
+  const self = userId === state.me?.id;
+  if (!self && !can(guildId, P.MOVE_MEMBERS, from)) return false;
+  if (to === null) return true;
+  return (
+    to !== from &&
+    state.channels[to]?.kind === Kind.Voice &&
+    can(guildId, P.CONNECT, to) &&
+    (self || can(guildId, P.MOVE_MEMBERS, to))
+  );
+}
 
 /** Props for a draggable sidebar row (a channel, or a category header). */
 function dragProps(c: Channel) {
@@ -408,9 +427,22 @@ function channelDnd(guildId: string) {
   const clear = () => {
     setDragging(null);
     setDropMark(null);
+    setDraggingUser(null);
+    setUserDrop(null);
   };
+  const voiceTarget = (e: DragEvent) =>
+    (e.target as HTMLElement).closest('.voice-channel')?.querySelector<HTMLElement>('[data-channel-id]')?.dataset
+      .channelId ?? null;
   return {
     onDragStart: (e: DragEvent) => {
+      const person = (e.target as HTMLElement).closest<HTMLElement>('[data-voice-user]');
+      if (person) {
+        e.stopPropagation();
+        setDraggingUser({ id: person.dataset.voiceUser!, from: person.dataset.voiceFrom! });
+        e.dataTransfer!.effectAllowed = 'move';
+        e.dataTransfer!.setData('text/plain', person.dataset.voiceUser!);
+        return;
+      }
       const id = row(e)?.dataset.channelId ?? null;
       if (!id) return;
       setDragging(id);
@@ -418,6 +450,13 @@ function channelDnd(guildId: string) {
       e.dataTransfer!.setData('text/plain', id);
     },
     onDragOver: (e: DragEvent) => {
+      const person = draggingUser();
+      if (person) {
+        const to = voiceTarget(e);
+        setUserDrop(to && canMoveTo(guildId, person.id, person.from, to) ? to : null);
+        if (userDrop()) e.preventDefault();
+        return;
+      }
       const el = row(e);
       const from = dragging();
       if (!el || !from) return;
@@ -433,6 +472,16 @@ function channelDnd(guildId: string) {
     },
     onDrop: (e: DragEvent) => {
       e.preventDefault();
+      const person = draggingUser();
+      const to = userDrop();
+      if (person) {
+        clear();
+        if (to && person.id === state.me?.id) {
+          selectChannel(to);
+          void joinVoice(to);
+        } else if (to) void moveMember(guildId, person.id, to);
+        return;
+      }
       const from = dragging();
       const mark = dropMark();
       clear();
@@ -498,18 +547,18 @@ function categoryMenu(c: Channel): MenuEntry[] {
     { label: t('Collapse Category'), checked: !!collapsed, run: () => attempt(() => toggleCategory(c.id)) },
     { label: t('Collapse All Categories'), run: () => attempt(() => toggleAllCategories(gid)) },
   ];
+  if (can(gid, P.MANAGE_CHANNELS, c.id) || can(gid, P.MANAGE_ROLES, c.id))
+    items.push('separator', {
+      label: t('Edit Category'),
+      icon: () => <I.Gear size={16} />,
+      run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }),
+    });
   if (can(gid, P.MANAGE_CHANNELS)) {
     items.push(
-      'separator',
       {
         label: t('Create Channel'),
         icon: () => <I.Plus size={16} />,
         run: () => setUi('modal', { type: 'create-channel', guildId: gid, kind: 0, parentId: c.id }),
-      },
-      {
-        label: t('Edit Category'),
-        icon: () => <I.Gear size={16} />,
-        run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }),
       },
       {
         label: t('Delete Category'),
@@ -556,6 +605,9 @@ function Category(p: { guildId: string; category: Channel; channels: Channel[] }
       >
         <I.Chevron size={12} class="category-chev" />
         <span>{p.category.name}</span>
+        <Show when={isPrivateChannel(p.category.id)}>
+          <I.Lock size={11} class="category-lock" aria-label={t('Private channel')} />
+        </Show>
         <Show when={can(p.guildId, P.MANAGE_CHANNELS)}>
           <button
             class="icon-btn tiny"
@@ -623,22 +675,31 @@ function channelMenu(c: Channel): MenuEntry[] {
     );
   const manage =
     c.kind === Kind.Thread
-      ? c.owner_id === state.me?.id || can(c.guild_id, P.MANAGE_THREADS)
-      : can(c.guild_id, P.MANAGE_CHANNELS);
-  if (manage) {
+      ? c.owner_id === state.me?.id || can(c.guild_id, P.MANAGE_THREADS, c.id)
+      : can(c.guild_id, P.MANAGE_CHANNELS, c.id);
+  // Manage Permissions alone opens the settings too (on its Permissions page).
+  const perms = c.kind !== Kind.Thread && can(c.guild_id, P.MANAGE_ROLES, c.id);
+  if (manage || perms) {
     items.push('separator');
     items.push({
       label: c.kind === Kind.Thread ? t('Edit Thread') : t('Edit Channel'),
       icon: () => <I.Gear size={16} />,
       run: () => setUi('modal', { type: 'channel-settings', channelId: c.id }),
     });
-    if (c.kind !== Kind.Thread) {
+  }
+  if (manage) {
+    if (c.kind !== Kind.Thread && can(c.guild_id, P.MANAGE_CHANNELS)) {
       const order = currentOrder(c.guild_id!);
       const list = [order.top, ...order.categories.map((x) => x.channels)].find((l) => l.includes(c.id)) ?? [];
       const same = list.filter((id) => state.channels[id]?.kind === c.kind);
       const i = same.indexOf(c.id);
       items.push({ label: t('Move Up'), disabled: i <= 0, run: () => moveChannel(c, -1) });
       items.push({ label: t('Move Down'), disabled: i >= same.length - 1, run: () => moveChannel(c, 1) });
+      items.push({
+        label: t('Duplicate Channel'),
+        icon: () => <I.Copy size={16} />,
+        run: () => attempt(() => duplicateChannel(c.id), t('Channel duplicated')),
+      });
     }
     if (c.kind === Kind.Thread)
       items.push({
@@ -685,7 +746,10 @@ function TextChannelItem(p: { channel: Channel }) {
         onClick={() => selectChannel(p.channel.id)}
         onContextMenu={(e) => openMenu(e, channelMenu(p.channel))}
       >
-        <span class="channel-num">{channelNumber(p.channel)}</span>
+        <span class="channel-glyph">
+          <span class="channel-num">{channelNumber(p.channel)}</span>
+          <PrivateBadge channelId={p.channel.id} />
+        </span>
         <span class="channel-name">{p.channel.name}</span>
         <Show when={state.mentions[p.channel.id]}>
           <span class="badge">{state.mentions[p.channel.id]}</span>
@@ -763,7 +827,14 @@ function VoiceChannelItem(p: { channel: Channel }) {
     return starts.length ? Math.min(...starts) : connected() ? voiceUi.joinedAt : null;
   };
   return (
-    <div class="voice-channel" classList={{ occupied: members().length > 0, connected: connected() }}>
+    <div
+      class="voice-channel"
+      classList={{
+        occupied: members().length > 0,
+        connected: connected(),
+        'user-drop': userDrop() === p.channel.id,
+      }}
+    >
       <button
         class="channel-item"
         {...dragProps(p.channel)}
@@ -772,14 +843,17 @@ function VoiceChannelItem(p: { channel: Channel }) {
           active: state.selected[gid()] === p.channel.id,
           connected: connected(),
         }}
-        disabled={!can(gid(), P.CONNECT)}
+        disabled={!can(gid(), P.CONNECT, p.channel.id)}
         onClick={() => {
           selectChannel(p.channel.id);
           void joinVoice(p.channel.id);
         }}
         onContextMenu={(e) => openMenu(e, channelMenu(p.channel))}
       >
-        <I.Speaker size={18} class="channel-icon" />
+        <span class="channel-glyph">
+          <I.Speaker size={18} class="channel-icon" />
+          <PrivateBadge channelId={p.channel.id} />
+        </span>
         <span class="channel-name">{p.channel.name}</span>
         <Show when={watches[p.channel.id]}>
           {(w) => (
@@ -825,6 +899,10 @@ function VoiceChannelItem(p: { channel: Channel }) {
             <button
               {...preview}
               class="voice-user"
+              classList={{ dragging: draggingUser()?.id === v.user_id }}
+              draggable={canMoveTo(gid(), v.user_id, p.channel.id, null) && !state.users[v.user_id]?.bot}
+              data-voice-user={v.user_id}
+              data-voice-from={p.channel.id}
               onClick={(e) =>
                 v.self_stream && !showing()
                   ? void goToStream(p.channel.id, v.user_id)
@@ -834,6 +912,7 @@ function VoiceChannelItem(p: { channel: Channel }) {
             >
               <Avatar
                 user={u()}
+                guildId={gid()}
                 size={22}
                 speaking={(!!voiceUi.speaking[v.user_id] && !v.self_mute) || !!voiceUi.soundPlaying[v.user_id]}
               />

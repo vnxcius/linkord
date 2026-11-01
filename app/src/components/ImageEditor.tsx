@@ -35,6 +35,8 @@ interface Props {
   file: File;
   user: User;
   onClose: () => void;
+  /** Where it's uploaded (default: your own profile's, /users/@me/<kind>; server profiles use their own). */
+  endpoint?: string;
 }
 
 export function ImageEditor(p: Props) {
@@ -244,7 +246,7 @@ export function ImageEditor(p: Props) {
       setPhase('upload');
       await uploadForm(
         'POST',
-        `/users/@me/${p.kind}`,
+        p.endpoint ?? `/users/@me/${p.kind}`,
         fd,
         (f) => {
           setProgress(f);

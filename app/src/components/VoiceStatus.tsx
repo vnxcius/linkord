@@ -21,7 +21,7 @@ export const voiceStatusOf = (channelId: string) =>
   voiceMembers(channelId).length ? state.voiceStatus[channelId] : undefined;
 
 export const canSetVoiceStatus = (c: Channel) =>
-  voiceUi.channelId === c.id || (voiceMembers(c.id).length > 0 && can(c.guild_id, P.MANAGE_CHANNELS));
+  voiceUi.channelId === c.id || (voiceMembers(c.id).length > 0 && can(c.guild_id, P.MANAGE_CHANNELS, c.id));
 
 /** Opens the channel and starts editing its status in the header. */
 export const editVoiceStatus = (channelId: string) => setUi('editVoiceStatus', channelId);

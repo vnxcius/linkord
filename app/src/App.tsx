@@ -211,7 +211,7 @@ function ReconnectBanner() {
   const channel = () => {
     const id = resumable();
     const c = id && !voiceUi.channelId ? state.channels[id] : undefined;
-    return c && (!c.guild_id || can(c.guild_id, P.CONNECT)) ? c : undefined;
+    return c && (!c.guild_id || can(c.guild_id, P.CONNECT, c.id)) ? c : undefined;
   };
   return (
     <Show when={channel()}>

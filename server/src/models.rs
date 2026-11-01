@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgPool};
 use crate::error::{ApiError, ApiResult};
 use crate::id::Id;
 
-pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, status, bot, needs_username";
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, pronouns, birthday, status, bot, needs_username";
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct User {
@@ -18,6 +18,10 @@ pub struct User {
     pub nameplate: Option<String>,
     pub accent_color: Option<i32>,
     pub bio: String,
+    /// Free text like "she/her", up to 40 characters ('' = none).
+    pub pronouns: String,
+    /// 'MM-DD', or 'YYYY-MM-DD' when they show the year too (clients show a cake on the day).
+    pub birthday: Option<String>,
     /// A bot account (music.rs), shown with a BOT tag.
     pub bot: bool,
     /// The user's chosen status. Only sent to the user themselves; others see presence.
@@ -109,6 +113,11 @@ pub struct Channel {
     pub thread_message_id: Option<Id>,
     pub archived: bool,
     pub message_count: i32,
+    /// Server channels and categories: their permission overwrites (perms.rs). Left out of events that don't
+    /// change them (clients keep what they have), and of threads (they follow their parent).
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_overwrites: Option<Vec<crate::perms::Overwrite>>,
 }
 
 pub const CHANNEL_COLS: &str =
@@ -121,6 +130,14 @@ impl Channel {
             .fetch_optional(db)
             .await?
             .ok_or(ApiError::NotFound)
+    }
+
+    /// The channel with its permission overwrites filled in (server channels and categories).
+    pub async fn with_overwrites(mut self, db: &PgPool) -> ApiResult<Channel> {
+        if self.guild_id.is_some() && self.kind != kind::THREAD {
+            self.permission_overwrites = Some(crate::perms::load_overwrites(db, self.id).await?);
+        }
+        Ok(self)
     }
 }
 
@@ -185,6 +202,13 @@ pub struct Emoji {
 pub struct Member {
     pub user: User,
     pub nickname: Option<String>,
+    /// Server profile: picture, banner and about me used only in this server (absent = the account's own).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
     pub joined_at: DateTime<Utc>,
     pub roles: Vec<Id>,
 }

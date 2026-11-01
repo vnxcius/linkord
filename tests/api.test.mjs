@@ -368,7 +368,7 @@ test('avatar and banner can be removed', async () => {
   assert.equal((await ok(member.token, 'DELETE', '/users/@me/banner')).banner, null);
 });
 
-test('avatar history keeps the last 8 uploads, restores one, and ignores banners', async () => {
+test('avatar history keeps the last 5 uploads, restores one, removes one, and ignores banners', async () => {
   const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
   const send = (which) => {
     const fd = new FormData();
@@ -377,11 +377,16 @@ test('avatar history keeps the last 8 uploads, restores one, and ignores banners
   };
   await send('banner');
   const first = (await send('avatar')).avatar;
-  for (let i = 0; i < 9; i++) await send('avatar');
+  for (let i = 0; i < 6; i++) await send('avatar');
   const list = await ok(member.token, 'GET', '/users/@me/avatars');
-  assert.equal(list.length, 8);
+  assert.equal(list.length, 5);
   assert.ok(!list.includes(first), 'the oldest picture is dropped');
-  const old = list[7];
+  // The one in use can't be removed; another one can, and is gone from the list.
+  assert.equal((await call(member.token, 'DELETE', '/users/@me/avatars', { url: list[0] })).status, 400);
+  await ok(member.token, 'DELETE', '/users/@me/avatars', { url: list[1] });
+  const kept = await ok(member.token, 'GET', '/users/@me/avatars');
+  assert.ok(!kept.includes(list[1]));
+  const old = kept[kept.length - 1];
   assert.equal((await ok(member.token, 'PUT', '/users/@me/avatar', { url: old })).avatar, old);
   assert.equal((await ok(member.token, 'GET', '/users/@me/avatars'))[0], old);
   const bad = await fetch(`${BASE}/api/users/@me/avatar`, {
@@ -589,14 +594,15 @@ test('forwarding: a copy that outlives the original, to channels and DMs, with a
   assert.equal(await file(), 404);
 });
 
-test('channel reordering needs Manage Channels and every channel once', async () => {
+test('channel reordering needs Manage Channels and lists each channel once', async () => {
   const g = await ok(owner.token, 'POST', '/guilds', { name: `Order ${run}` });
   const inv = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});
   await ok(member.token, 'POST', `/invites/${inv.code}`);
   const extra = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'second', kind: 0 });
   const ids = [extra.id, ...g.channels.map((c) => c.id)];
   assert.equal((await call(member.token, 'PUT', `/guilds/${g.id}/channels`, { ids })).status, 403);
-  assert.equal((await call(owner.token, 'PUT', `/guilds/${g.id}/channels`, { ids: ids.slice(1) })).status, 400);
+  assert.equal((await call(owner.token, 'PUT', `/guilds/${g.id}/channels`, { ids: [...ids, ids[0]] })).status, 400);
+  assert.equal((await call(owner.token, 'PUT', `/guilds/${g.id}/channels`, { ids: [...ids, '123'] })).status, 400);
   const watcher = await gateway(member.token);
   await ok(owner.token, 'PUT', `/guilds/${g.id}/channels`, { ids });
   await until(() => watcher.events.some((e) => e.t === 'CHANNEL_UPDATE' && e.d.id === extra.id && e.d.position === 0));
@@ -1048,6 +1054,9 @@ test('Kass, the music bot: /play joins your voice channel and streams music; que
     assert.match((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' })).content, /\*\*Repeating\*\* this song/);
     await until(() => music().length > started + 450, 15000); // past the 8 s song
     assert.equal(nowPlaying(), announced);
+    // A song that played (not one skipped right away) counts for the profile's top songs, for whoever asked.
+    const top = await until(async () => (await ok(owner.token, 'GET', `/users/${member.id}/profile`)).top_songs.find((s) => s.title === 'Mock Song search'));
+    assert.ok(top.plays >= 1);
     assert.match((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'queue' })).content, /Now playing:\*\* \[Mock Song search\]/);
     // Repeating the queue: a skipped song goes to the back and comes round again (here, right away: it's alone).
     assert.equal((await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'repeat', query: 'queue' })).content, 'Repeating the queue');
@@ -1354,4 +1363,400 @@ test('group DMs: the owner can hand the group over and remove people', async () 
   assert.equal((await ok(p.token, 'PATCH', `/channels/${g.id}`, { owner_id: q.id })).owner_id, q.id);
   assert.equal((await call(p.token, 'DELETE', `/channels/${g.id}/recipients/${r.id}`)).status, 403);
   await ok(q.token, 'DELETE', `/channels/${g.id}/recipients/${r.id}`);
+});
+
+// ---------- channel permissions (perms.rs) ----------
+
+const VIEW = 1 << 10;
+const SEND = 1 << 11;
+const HISTORY = 1 << 16;
+const MOVE = 1 << 24;
+const MANAGE_ROLES = 1 << 28;
+
+/** A new server with its owner and a member (creating and joining servers are rate limited per person). */
+async function permGuild(name) {
+  const [o, m] = await Promise.all([login(`${name.toLowerCase()}o`), login(`${name.toLowerCase()}m`)]);
+  const g = await ok(o.token, 'POST', '/guilds', { name: `${name} ${run}` });
+  const inv = await ok(o.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(m.token, 'POST', `/invites/${inv.code}`);
+  return [g, m, o];
+}
+
+test('new servers let everyone view channels and read history, but not move members', () => {
+  const everyone = guild.roles.find((r) => r.id === guild.id);
+  assert.ok(everyone.permissions & VIEW);
+  assert.ok(everyone.permissions & HISTORY);
+  assert.ok(!(everyone.permissions & MOVE));
+});
+
+test('private channels: hidden from members until a role or member overwrite lets them in; access changes arrive live', async () => {
+  const [g, m, o] = await permGuild('Private');
+  const secret = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, {
+    name: 'secret',
+    kind: 0,
+    permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: VIEW }],
+  });
+  assert.deepEqual(secret.permission_overwrites, [{ id: g.id, type: 0, allow: 0, deny: VIEW }]);
+  await ok(o.token, 'POST', `/channels/${secret.id}/messages`, { content: 'hush hush' });
+  // Hidden: not in READY, can't be read, written, or found by search.
+  const s1 = await gateway(m.token);
+  const mine = s1.first.d.guilds.find((x) => x.id === g.id);
+  assert.ok(!mine.channels.some((c) => c.id === secret.id));
+  assert.equal((await call(m.token, 'GET', `/channels/${secret.id}/messages`)).status, 404);
+  assert.equal((await call(m.token, 'POST', `/channels/${secret.id}/messages`, { content: 'hi' })).status, 404);
+  const found = await ok(m.token, 'GET', `/guilds/${g.id}/messages/search?q=hush`);
+  assert.equal(found.total, 0);
+  // A role allowed to see it: giving it to the member shows the channel right away.
+  const role = await ok(o.token, 'POST', `/guilds/${g.id}/roles`, { name: 'Insider' });
+  await ok(o.token, 'PUT', `/channels/${secret.id}/permissions`, {
+    permission_overwrites: [
+      { id: g.id, type: 0, allow: 0, deny: VIEW },
+      { id: role.id, type: 0, allow: VIEW, deny: 0 },
+    ],
+  });
+  await ok(o.token, 'PATCH', `/guilds/${g.id}/members/${m.id}`, { roles: [role.id] });
+  await until(() => s1.events.some((e) => e.t === 'CHANNEL_CREATE' && e.d.id === secret.id));
+  assert.equal((await ok(m.token, 'GET', `/channels/${secret.id}/messages`))[0].content, 'hush hush');
+  // A member overwrite beats the role.
+  await ok(o.token, 'PUT', `/channels/${secret.id}/permissions`, {
+    permission_overwrites: [
+      { id: g.id, type: 0, allow: 0, deny: VIEW },
+      { id: role.id, type: 0, allow: VIEW, deny: 0 },
+      { id: m.id, type: 1, allow: 0, deny: VIEW },
+    ],
+  });
+  await until(() => s1.events.some((e) => e.t === 'CHANNEL_DELETE' && e.d.id === secret.id && e.d.hidden));
+  assert.equal((await call(m.token, 'GET', `/channels/${secret.id}/messages`)).status, 404);
+  s1.ws.close();
+});
+
+test('channel overwrites: Manage Permissions needed, only for permissions you have, never on threads', async () => {
+  const [g, m, o] = await permGuild('Overwrites');
+  const text = g.channels.find((c) => c.kind === 0);
+  const body = { permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: SEND }] };
+  assert.equal((await call(m.token, 'PUT', `/channels/${text.id}/permissions`, body)).status, 403);
+  // A channel-level Manage Permissions lets the member edit this channel, but not hand out what they lack.
+  await ok(o.token, 'PUT', `/channels/${text.id}/permissions`, {
+    permission_overwrites: [{ id: m.id, type: 1, allow: MANAGE_ROLES, deny: 0 }],
+  });
+  const bad = await call(m.token, 'PUT', `/channels/${text.id}/permissions`, {
+    permission_overwrites: [
+      { id: m.id, type: 1, allow: MANAGE_ROLES, deny: 0 },
+      { id: g.id, type: 0, allow: MOVE, deny: 0 },
+    ],
+  });
+  assert.equal(bad.status, 400);
+  await ok(m.token, 'PUT', `/channels/${text.id}/permissions`, {
+    permission_overwrites: [
+      { id: m.id, type: 1, allow: MANAGE_ROLES, deny: 0 },
+      { id: g.id, type: 0, allow: 0, deny: SEND },
+    ],
+  });
+  assert.equal((await call(o.token, 'POST', `/channels/${text.id}/messages`, { content: 'still me' })).status, 200);
+  assert.equal((await call(m.token, 'POST', `/channels/${text.id}/messages`, { content: 'muted' })).status, 403);
+  // Unknown targets are refused; server-only permissions are dropped.
+  const unknown = { permission_overwrites: [{ id: '42', type: 0, allow: 0, deny: 0 }] };
+  assert.equal((await call(o.token, 'PUT', `/channels/${text.id}/permissions`, unknown)).status, 400);
+  const cleaned = await ok(o.token, 'PUT', `/channels/${text.id}/permissions`, {
+    permission_overwrites: [{ id: g.id, type: 0, allow: 1 << 3, deny: 0 }],
+  });
+  assert.deepEqual(cleaned, [{ id: g.id, type: 0, allow: 0, deny: 0 }]);
+  const msg = await ok(o.token, 'POST', `/channels/${text.id}/messages`, { content: 'thread me' });
+  const thread = await ok(o.token, 'POST', `/channels/${text.id}/messages/${msg.id}/threads`, {});
+  assert.equal((await call(o.token, 'PUT', `/channels/${thread.id}/permissions`, body)).status, 400);
+});
+
+test('categories: new channels sync with them, category changes reach synced channels only, Sync Now', async () => {
+  const [g, m, o] = await permGuild('Sync');
+  const cat = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, { name: 'Staff', kind: 4 });
+  const locked = [{ id: g.id, type: 0, allow: 0, deny: VIEW }];
+  await ok(o.token, 'PUT', `/channels/${cat.id}/permissions`, { permission_overwrites: locked });
+  const synced = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, { name: 'synced', kind: 0, parent_id: cat.id });
+  assert.deepEqual(synced.permission_overwrites, locked);
+  const own = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, {
+    name: 'own',
+    kind: 2,
+    parent_id: cat.id,
+    permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: VIEW | SEND }],
+  });
+  // Opening the category to everyone opens the synced channel, not the one with its own permissions.
+  await ok(o.token, 'PUT', `/channels/${cat.id}/permissions`, { permission_overwrites: [] });
+  const s = await gateway(m.token);
+  const ids = s.first.d.guilds.find((x) => x.id === g.id).channels.map((c) => c.id);
+  assert.ok(ids.includes(synced.id));
+  assert.ok(!ids.includes(own.id));
+  await ok(o.token, 'POST', `/channels/${own.id}/permissions/sync`);
+  await until(() => s.events.some((e) => e.t === 'CHANNEL_CREATE' && e.d.id === own.id));
+  s.ws.close();
+  // Duplicating a channel (Clone) keeps its permissions.
+  const copy = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, {
+    name: 'own',
+    kind: 2,
+    parent_id: cat.id,
+    permission_overwrites: locked,
+  });
+  assert.deepEqual(copy.permission_overwrites, locked);
+});
+
+test('Read Message History: without it a channel shows no past messages', async () => {
+  const [g, m, o] = await permGuild('History');
+  const text = g.channels.find((c) => c.kind === 0);
+  await ok(o.token, 'POST', `/channels/${text.id}/messages`, { content: 'before you came' });
+  await ok(o.token, 'PUT', `/channels/${text.id}/permissions`, {
+    permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: HISTORY }],
+  });
+  assert.deepEqual(await ok(m.token, 'GET', `/channels/${text.id}/messages`), []);
+  assert.ok((await ok(o.token, 'GET', `/channels/${text.id}/messages`)).length > 0);
+});
+
+test('Move Members: drag someone to another voice channel or disconnect them; nobody can by default', async () => {
+  const [g, m, o] = await permGuild('Move');
+  const lounge = g.channels.find((c) => c.kind === 2);
+  const other = await ok(o.token, 'POST', `/guilds/${g.id}/channels`, { name: 'Other', kind: 2 });
+  const msgs = [];
+  const ws = await new Promise((resolve, reject) => {
+    const sock = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/connect`);
+    sock.onopen = () => sock.send(JSON.stringify({ token: m.token, channel_id: lounge.id }));
+    sock.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      const m = JSON.parse(e.data);
+      msgs.push(m);
+      if (m.op === 'ready') resolve(sock);
+    };
+    sock.onerror = reject;
+  });
+  const closed = new Promise((r) => (ws.onclose = r));
+  const third = await login('mover');
+  const inv = await ok(o.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(third.token, 'POST', `/invites/${inv.code}`);
+  const path = `/guilds/${g.id}/members/${m.id}/voice`;
+  assert.equal((await call(third.token, 'PATCH', path, { channel_id: other.id })).status, 403);
+  const role = await ok(o.token, 'POST', `/guilds/${g.id}/roles`, { name: 'Mover', permissions: MOVE });
+  await ok(o.token, 'PATCH', `/guilds/${g.id}/members/${third.id}`, { roles: [role.id] });
+  await ok(third.token, 'PATCH', path, { channel_id: other.id });
+  const move = await until(() => msgs.find((m) => m.op === 'move'));
+  assert.equal(move.channel_id, other.id);
+  assert.equal(move.by, third.id);
+  // Not into a text channel; disconnecting ends their session.
+  const text = g.channels.find((c) => c.kind === 0);
+  assert.equal((await call(third.token, 'PATCH', path, { channel_id: text.id })).status, 400);
+  await ok(third.token, 'PATCH', path, { channel_id: null });
+  await until(() => msgs.some((m) => m.op === 'move' && m.channel_id === null));
+  await closed;
+  assert.equal((await call(third.token, 'PATCH', path, { channel_id: null })).status, 400);
+});
+
+test('your own roles: rename and recolor them without Manage Roles, but not their permissions', async () => {
+  const [g, m, o] = await permGuild('OwnRoles');
+  const role = await ok(o.token, 'POST', `/guilds/${g.id}/roles`, { name: 'Friend' });
+  const notMine = await ok(o.token, 'POST', `/guilds/${g.id}/roles`, { name: 'Other' });
+  await ok(o.token, 'PATCH', `/guilds/${g.id}/members/${m.id}`, { roles: [role.id] });
+  const renamed = await ok(m.token, 'PATCH', `/guilds/${g.id}/roles/${role.id}`, { name: 'Best Friend', color: 0xff8800 });
+  assert.equal(renamed.name, 'Best Friend');
+  assert.equal(renamed.color, 0xff8800);
+  const roleUrl = `/guilds/${g.id}/roles/${role.id}`;
+  assert.equal((await call(m.token, 'PATCH', roleUrl, { permissions: 8 })).status, 403);
+  assert.equal((await call(m.token, 'PATCH', roleUrl, { name: 'x', hoist: true })).status, 403);
+  assert.equal((await call(m.token, 'PATCH', `/guilds/${g.id}/roles/${notMine.id}`, { name: 'Mine now' })).status, 403);
+  assert.equal((await call(m.token, 'PATCH', `/guilds/${g.id}/roles/${g.id}`, { name: 'everyone!' })).status, 403);
+});
+
+test('role order: Manage Roles reorders roles below their own highest role', async () => {
+  const [g, m, o] = await permGuild('RoleOrder');
+  const roles = {};
+  for (const name of ['Top', 'Manager', 'A', 'B']) roles[name] = await ok(o.token, 'POST', `/guilds/${g.id}/roles`, { name });
+  const order = (names) => names.map((n) => roles[n].id);
+  await ok(o.token, 'PUT', `/guilds/${g.id}/roles`, { ids: order(['Top', 'Manager', 'A', 'B']) });
+  await ok(o.token, 'PATCH', `/guilds/${g.id}/roles/${roles.Manager.id}`, { permissions: MANAGE_ROLES });
+  await ok(o.token, 'PATCH', `/guilds/${g.id}/members/${m.id}`, { roles: [roles.Manager.id] });
+  const after = await ok(m.token, 'PUT', `/guilds/${g.id}/roles`, { ids: order(['Top', 'Manager', 'B', 'A']) });
+  assert.deepEqual(
+    after.filter((r) => r.id !== g.id).map((r) => r.name),
+    ['Top', 'Manager', 'B', 'A'],
+  );
+  const url = `/guilds/${g.id}/roles`;
+  assert.equal((await call(m.token, 'PUT', url, { ids: order(['Manager', 'Top', 'B', 'A']) })).status, 400);
+  assert.equal((await call(m.token, 'PUT', url, { ids: order(['Top', 'B', 'Manager', 'A']) })).status, 400);
+});
+
+// ---------- profile: pronouns and favorite games ----------
+
+test('pronouns: up to 40 characters, shown with the user', async () => {
+  const u = await login('pronouns');
+  const me = await ok(u.token, 'PATCH', '/users/@me', { pronouns: '  she /  her  ' });
+  assert.equal(me.pronouns, 'she / her');
+  assert.equal((await call(u.token, 'PATCH', '/users/@me', { pronouns: 'x'.repeat(41) })).status, 400);
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).user.pronouns, 'she / her');
+  // Other changes keep them.
+  assert.equal((await ok(u.token, 'PATCH', '/users/@me', { bio: 'hi' })).pronouns, 'she / her');
+});
+
+test('favorite games: search the catalog, pick up to 20 in order, own games by name, on the profile with time played', async () => {
+  const u = await login('gamer');
+  // The catalog comes from the same list as game detection (the mock), loaded in the background.
+  const hits = await until(async () => {
+    const r = await ok(u.token, 'GET', '/games/search?q=mine');
+    return r.length ? r : null;
+  }, 8000);
+  assert.equal(hits[0].name, 'Minecraft');
+  assert.match(hits[0].cover, /cdn\.discordapp\.com\/app-icons\/1402418491272986635\/.+keep_aspect_ratio=true/);
+  const cs = (await ok(u.token, 'GET', '/games/search?q=counter'))[0];
+  assert.equal(cs.poster, 'https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900.jpg');
+  assert.equal((await ok(u.token, 'GET', '/games/search?q=valorant'))[0].id, '700136079562375258');
+
+  const saved = await ok(u.token, 'PUT', '/users/@me/favorite-games', {
+    games: [{ id: cs.id }, { id: null, name: '  Hollow   Knight ' }, { id: hits[0].id }, { id: cs.id }],
+  });
+  assert.deepEqual(
+    saved.map((g) => g.name),
+    ['Counter-Strike 2', 'Hollow Knight', 'Minecraft'],
+    'duplicates dropped, names from the catalog, own games tidied',
+  );
+  assert.equal(saved[1].id, null);
+  assert.equal((await call(u.token, 'PUT', '/users/@me/favorite-games', { games: [{ id: '123' }] })).status, 400);
+  const many = Array.from({ length: 21 }, (_, i) => ({ id: null, name: `Game ${i}` }));
+  assert.equal((await call(u.token, 'PUT', '/users/@me/favorite-games', { games: many })).status, 400);
+
+  // Time played comes from game detection.
+  await ok(u.token, 'PUT', '/activities/playing', { application_id: cs.id, name: 'Counter-Strike 2' });
+  const profile = await ok(owner.token, 'GET', `/users/${u.id}/profile`);
+  assert.deepEqual(
+    profile.favorite_games.map((g) => g.name),
+    ['Counter-Strike 2', 'Hollow Knight', 'Minecraft'],
+  );
+  assert.ok(profile.favorite_games[0].icon);
+  // A game's card: catalog info, and the people you know who love it too (here: yourself).
+  const card = await ok(u.token, 'GET', `/games/${hits[0].id}?lang=pt-BR`);
+  assert.equal(card.name, 'Minecraft');
+  assert.deepEqual(card.aliases, ['Minecraft Launcher']);
+  assert.ok(!card.store_url, 'not on Steam');
+  assert.deepEqual(card.fans.map((f) => f.id), [u.id]);
+  assert.equal((await call(u.token, 'GET', '/games/123')).status, 404);
+  await ok(u.token, 'DELETE', '/activities/playing');
+  await ok(u.token, 'PUT', '/users/@me/favorite-games', { games: [] });
+  assert.deepEqual((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).favorite_games, []);
+});
+
+
+// ---------- profile extras: notes, links, birthday, server profiles, widgets, profile song ----------
+
+test('notes: private to whoever wrote them, up to 256 characters, empty deletes', async () => {
+  const u = await login('noted');
+  await ok(owner.token, 'PUT', `/users/${u.id}/note`, { note: '  plays support  ' });
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).note, 'plays support');
+  assert.equal((await ok(member.token, 'GET', `/users/${u.id}/profile`)).note, '', 'only the writer sees it');
+  assert.equal((await ok(u.token, 'GET', `/users/${u.id}/profile`)).note, '', 'not even the person it is about');
+  assert.equal((await call(owner.token, 'PUT', `/users/${u.id}/note`, { note: 'x'.repeat(257) })).status, 400);
+  assert.equal((await call(owner.token, 'PUT', `/users/${owner.id}/note`, { note: 'me' })).status, 400);
+  await ok(owner.token, 'PUT', `/users/${u.id}/note`, { note: '' });
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).note, '');
+});
+
+test('profile links and birthday', async () => {
+  const u = await login('linked');
+  await ok(u.token, 'PATCH', '/users/@me', {
+    links: [{ label: '', url: 'github.com/someone' }, { label: '  My   blog ', url: 'http://blog.example.org/x' }],
+  });
+  const links = (await ok(owner.token, 'GET', `/users/${u.id}/profile`)).links;
+  assert.deepEqual(links, [
+    { label: '', url: 'https://github.com/someone' },
+    { label: 'My blog', url: 'http://blog.example.org/x' },
+  ]);
+  for (const bad of [[{ url: 'javascript:alert(1)' }], [{ url: 'ftp://example.com' }], Array.from({ length: 6 }, (_, i) => ({ url: `e${i}.com` }))]) {
+    assert.equal((await call(u.token, 'PATCH', '/users/@me', { links: bad })).status, 400);
+  }
+  // Other changes keep them.
+  await ok(u.token, 'PATCH', '/users/@me', { bio: 'hi' });
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).links.length, 2);
+
+  // The birthday travels with the user (clients show a cake on the day).
+  assert.equal((await ok(u.token, 'PATCH', '/users/@me', { birthday: '02-29' })).birthday, '02-29');
+  assert.equal((await ok(u.token, 'PATCH', '/users/@me', { birthday: '1999-03-14' })).birthday, '1999-03-14');
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}`)).birthday, '1999-03-14');
+  for (const bad of ['2001-02-29', '13-01', '1850-01-01', 'soon']) {
+    assert.equal((await call(u.token, 'PATCH', '/users/@me', { birthday: bad })).status, 400, bad);
+  }
+  assert.equal((await ok(u.token, 'PATCH', '/users/@me', { pronouns: 'they/them' })).birthday, '1999-03-14');
+  assert.equal((await ok(u.token, 'PATCH', '/users/@me', { birthday: '' })).birthday, null);
+});
+
+test('server profiles: a picture, banner and about me only in that server', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+  const watch = await gateway(owner.token);
+  try {
+    const m = await ok(member.token, 'PATCH', `/guilds/${guild.id}/members/@me`, { bio: 'only here' });
+    assert.equal(m.bio, 'only here');
+    assert.equal((await call(member.token, 'PATCH', `/guilds/${guild.id}/members/@me`, { bio: 'x'.repeat(191) })).status, 400);
+    for (const which of ['avatar', 'banner']) {
+      const fd = new FormData();
+      fd.append('file', new Blob([png], { type: 'image/png' }), `${which}.png`);
+      const after = await ok(member.token, 'POST', `/guilds/${guild.id}/members/@me/${which}`, fd);
+      assert.match(after[which], new RegExp(`^/uploads/member-profiles/${guild.id}/${member.id}/${which}s/`));
+      assert.equal((await fetch(`${BASE}${after[which]}`)).status, 200);
+    }
+    // Everyone in the server hears about it; the account itself is untouched.
+    const update = await until(() => watch.events.find((e) => e.t === 'GUILD_MEMBER_UPDATE' && e.d.member.user.id === member.id && e.d.member.banner));
+    assert.ok(update.d.member.avatar);
+    assert.equal(update.d.member.bio, 'only here');
+    assert.doesNotMatch((await ok(owner.token, 'GET', `/users/${member.id}`)).avatar ?? '', /member-profiles/);
+    assert.equal((await call(outsider.token, 'PATCH', `/guilds/${guild.id}/members/@me`, { bio: 'nope' })).status, 404);
+
+    const cleared = await ok(member.token, 'DELETE', `/guilds/${guild.id}/members/@me/avatar`);
+    assert.equal(cleared.avatar, undefined, 'back to the account picture');
+    await ok(member.token, 'DELETE', `/guilds/${guild.id}/members/@me/banner`);
+    const plain = await ok(member.token, 'PATCH', `/guilds/${guild.id}/members/@me`, { bio: '' });
+    assert.equal(plain.bio, undefined);
+  } finally {
+    watch.ws.close();
+  }
+});
+
+test('profile widgets: the stats card is opt-in, Kass songs opt-out; you always see yours', async () => {
+  const u = await login('widgets');
+  let theirs = await ok(owner.token, 'GET', `/users/${u.id}/profile`);
+  assert.equal(theirs.stats, undefined);
+  assert.deepEqual(theirs.top_songs, [], 'Kass songs show (none yet)');
+  assert.equal(theirs.show_stats, undefined, 'settings only for yourself');
+  const mine = await ok(u.token, 'GET', `/users/${u.id}/profile`);
+  assert.equal(mine.show_stats, false);
+  assert.equal(mine.show_top_songs, true);
+  assert.equal(typeof mine.stats.voice_seconds, 'number');
+
+  await ok(u.token, 'PATCH', '/users/@me', { show_stats: true, show_top_songs: false });
+  theirs = await ok(owner.token, 'GET', `/users/${u.id}/profile`);
+  assert.equal(typeof theirs.stats.messages, 'number');
+  assert.ok(Array.isArray(theirs.stats.top_emoji));
+  assert.equal(theirs.top_songs, undefined);
+});
+
+test('profile song: up to 30 s of an audio file, trimmed again later, removed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const u = await login('songbird');
+  const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=40', '-b:a', '32k', '-f', 'mp3', 'pipe:1']);
+  const form = (fields, name = 'tune.mp3') => {
+    const fd = new FormData();
+    fd.append('payload_json', JSON.stringify(fields));
+    fd.append('file', new Blob([mp3], { type: 'audio/mpeg' }), name);
+    return fd;
+  };
+  assert.equal((await call(u.token, 'POST', '/users/@me/profile-song', form({ trim_start: 0, trim_end: 35 }))).status, 400);
+  assert.equal((await call(u.token, 'POST', '/users/@me/profile-song', form({}, 'tune.exe'))).status, 400);
+  const song = await ok(u.token, 'POST', '/users/@me/profile-song', form({ title: '  Mock   Tune ', volume: 0.5, trim_start: 2, trim_end: 12 }));
+  assert.equal(song.title, 'Mock Tune');
+  assert.equal(song.duration, 10);
+  assert.equal(song.trim_start, 2);
+  assert.ok(song.source);
+  assert.equal((await fetch(`${BASE}${song.url}`)).status, 200);
+  // Others get what plays, not the original.
+  const seen = (await ok(owner.token, 'GET', `/users/${u.id}/profile`)).song;
+  assert.equal(seen.url, song.url);
+  assert.equal(seen.source, undefined);
+
+  const trimmed = await ok(u.token, 'PATCH', '/users/@me/profile-song', { trim_start: 20, trim_end: 40, volume: 0.8 });
+  assert.equal(trimmed.duration, 20);
+  assert.equal(trimmed.title, 'Mock Tune');
+  assert.notEqual(trimmed.url, song.url);
+  assert.equal((await call(u.token, 'PATCH', '/users/@me/profile-song', { trim_start: 0, trim_end: 31 })).status, 400);
+  await ok(u.token, 'DELETE', '/users/@me/profile-song');
+  assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).song, null);
+  assert.equal((await fetch(`${BASE}${song.source}`)).status, 404);
 });

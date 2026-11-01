@@ -91,9 +91,34 @@ async fn editable(st: &AppState, gid: Id, me: Id, rid: Id) -> ApiResult<(Perms, 
     Ok((mine, role))
 }
 
+/// Whether `me` has the role.
+async fn holds(st: &AppState, gid: Id, me: Id, rid: Id) -> ApiResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM member_roles WHERE guild_id = $1 AND user_id = $2 AND role_id = $3)")
+        .bind(gid)
+        .bind(me)
+        .bind(rid)
+        .fetch_one(&st.db)
+        .await?)
+}
+
 async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, rid)): Path<(Id, Id)>, Json(body): Json<RoleBody>) -> ApiResult<Json<Role>> {
-    let (mine, role) = editable(&st, gid, me, rid).await?;
     let everyone = rid == gid;
+    // Anyone can rename and recolor the roles they have (owner's choice); the rest needs Manage Roles.
+    let display_only = body.permissions.is_none() && body.hoist.is_none() && body.mentionable.is_none();
+    let (mine, role) = match editable(&st, gid, me, rid).await {
+        Ok(x) => x,
+        Err(e) => {
+            if everyone || !display_only || !holds(&st, gid, me, rid).await? {
+                return Err(e);
+            }
+            let role = load_roles(&st.db, gid).await?.into_iter().find(|r| r.id == rid).ok_or(ApiError::NotFound)?;
+            (guild_perms(&st.db, gid, me).await?, role)
+        }
+    };
+    let before = match body.permissions {
+        Some(p) if p != role.permissions => Some(crate::gateway::visibility(&st.db, gid).await?),
+        _ => None,
+    };
     let name = match body.name {
         Some(n) if !everyone => role_name(&n)?,
         _ => role.name.clone(),
@@ -114,6 +139,9 @@ async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, r
     .fetch_one(&st.db)
     .await?;
     announce(&st, gid, "GUILD_ROLE_UPDATE", json!({ "guild_id": gid, "role": role })).await?;
+    if let Some(before) = before {
+        crate::gateway::announce_visibility(&st, gid, before).await?;
+    }
     Ok(Json(role))
 }
 
@@ -122,8 +150,19 @@ async fn remove(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, r
         return Err(bad("the @everyone role cannot be deleted"));
     }
     editable(&st, gid, me, rid).await?;
+    let before = crate::gateway::visibility(&st.db, gid).await?;
+    // Its channel overwrites go with it.
+    let touched: Vec<Id> = sqlx::query_scalar("DELETE FROM channel_overwrites WHERE target_id = $1 AND kind = 0 RETURNING channel_id")
+        .bind(rid)
+        .fetch_all(&st.db)
+        .await?;
     sqlx::query("DELETE FROM roles WHERE id = $1").bind(rid).execute(&st.db).await?;
     announce(&st, gid, "GUILD_ROLES_UPDATE", json!({ "guild_id": gid, "roles": load_roles(&st.db, gid).await? })).await?;
+    crate::gateway::announce_visibility(&st, gid, before).await?;
+    for id in touched {
+        let ch = crate::models::Channel::get(&st.db, id).await?.with_overwrites(&st.db).await?;
+        st.hub.send(&crate::gateway::channel_audience(&st.db, &ch).await?, "CHANNEL_UPDATE", &ch);
+    }
     // Members lost the role; clients drop unknown role ids on GUILD_ROLES_UPDATE.
     Ok(())
 }
@@ -135,14 +174,24 @@ struct Reorder {
 }
 
 async fn reorder(State(st): State<AppState>, AuthUser(me): AuthUser, Path(gid): Path<Id>, Json(body): Json<Reorder>) -> ApiResult<Json<Vec<Role>>> {
-    guild_perms(&st.db, gid, me).await?.require(perms::ADMINISTRATOR)?;
+    let mine = guild_perms(&st.db, gid, me).await?;
+    mine.require(perms::MANAGE_ROLES)?;
     let roles = load_roles(&st.db, gid).await?;
-    let mut expected: Vec<Id> = roles.iter().map(|r| r.id).filter(|r| *r != gid).collect();
+    // Highest first, like the request.
+    let old: Vec<Id> = roles.iter().map(|r| r.id).filter(|r| *r != gid).collect();
+    let mut expected = old.clone();
     let mut given = body.ids.clone();
     expected.sort();
     given.sort();
     if expected != given {
         return Err(bad("reorder must list every role exactly once"));
+    }
+    // Like Discord: roles at or above your highest role stay where they are (owner and admins move anything).
+    if !mine.owner && !mine.has(perms::ADMINISTRATOR) {
+        let fixed = roles.iter().filter(|r| r.id != gid && r.position >= mine.top).count();
+        if body.ids[..fixed] != old[..fixed] {
+            return Err(bad("you can only move roles below your highest role"));
+        }
     }
     let n = body.ids.len() as i32;
     let mut tx = st.db.begin().await?;

@@ -53,8 +53,9 @@ export function ContextMenu() {
               classList={{ danger: item.danger, checked: item.checked }}
               disabled={item.disabled}
               onClick={() => {
+                const at = { x: ui.menu!.x, y: ui.menu!.y };
                 close();
-                item.run?.();
+                item.run?.(at);
               }}
             >
               <span>{item.label}</span>
