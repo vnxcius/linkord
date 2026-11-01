@@ -11,7 +11,8 @@ and screen share. Login is Discord OAuth only.
 ```
 server/   Rust backend (src/api REST, gateway.rs, voice.rs, migrations/)
 app/      SolidJS client; app/src-tauri = desktop shell
-deploy/   Postgres docker-compose, systemd user unit, install script
+monitor/  The dashboard (health, logs, moderation): a separate service
+deploy/   Postgres docker-compose, systemd user units, install scripts
 tests/    API, browser (Playwright) and unit tests
 ```
 
@@ -46,6 +47,7 @@ Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no T
    tests/run-local.sh                # everything, on a throwaway server (:7701, DB linkord_test)
    tests/run-local.sh --api          # API only (~10 s)
    tests/run-local.sh --ui 'regex'   # matching browser steps only
+   tests/run-local.sh --monitor      # the dashboard only
    cd server && cargo test           # server unit tests
    cd app && bun run lint && bun run fmt:check   # oxlint + oxfmt on the client
    cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs
@@ -88,6 +90,15 @@ Production runs as a systemd user service on `127.0.0.1:7700`, published through
    GitLab CI also builds both installers as job artifacts on `v*` tags (needs a `TAURI_SIGNING_KEY` File variable);
    publishing to the update feed stays local.
 
+4. **Deploy the dashboard** (separate service, deploying one never restarts the other):
+   ```bash
+   deploy/install-monitor.sh                       # the first run creates monitor/.env with a random password
+   ssh -L 7710:127.0.0.1:7710 <user>@<server>      # from your PC, then open http://localhost:7710
+   ```
+   Availability, performance, network, storage, database, logs and diagnostics, plus every server, account and uploaded
+   file for moderation. It listens on loopback by default (`LINKORD_MONITOR_BIND`). Only expose it on purpose: it can see
+   everything people upload, direct messages included.
+
 **Updater signing key:** `~/.config/linkord/updater.key` (outside the repo). Back it up: without it, installed apps
 can't verify updates and everyone has to reinstall.
 
@@ -102,3 +113,4 @@ can't verify updates and everyone has to reinstall.
 | `LINKORD_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional Spotify connection (redirect `<public_url>/api/connections/spotify/callback`) |
 | `LINKORD_DIRECT_BIND` / `LINKORD_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |
+| `LINKORD_INTERNAL_BIND` | Loopback address the dashboard reads live numbers from (default `127.0.0.1:7711`, `off` to disable) |

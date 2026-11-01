@@ -1204,31 +1204,6 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
   await ctx.close();
 });
 
-await step('logs page: an admin sees new lines appear live', async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
-  if (TIMEOUT) ctx.setDefaultTimeout(TIMEOUT);
-  const page = await ctx.newPage();
-  page.on('pageerror', (e) => errors.push(`logadmin: ${e.message}`));
-  await page.goto(BASE);
-  await page.fill('.dev-login input', 'logadmin');
-  await page.click('.dev-login button');
-  await page.waitForSelector('.layout');
-  await page.goto(`${BASE}/logs`);
-  await page.waitForSelector('.logs-live.on');
-  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
-  const report = () =>
-    fetch(`${BASE}/api/logs/client`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ level: 'warn', message: `ui live ${run}` }) });
-  // The page may still be connecting: report until a line shows up, without reloading.
-  for (let i = 0; ; i++) {
-    await report();
-    const seen = await page.waitForSelector(`.log-row.fresh:has-text("ui live ${run}")`, { timeout: 1500 }).catch(() => null);
-    if (seen) break;
-    assert.ok(i < 8, 'no live line arrived');
-  }
-  await shot(page, 'e2e-logs-live');
-  await ctx.close();
-});
-
 await step('spellcheck: Portuguese (Hunspell) underlines only the misspelled word', async () => {
   const setLang = (lang) =>
     b.page.evaluate((l) => {

@@ -43,8 +43,10 @@ pub struct Config {
     pub cloudflare_token: Option<String>,
     /// Use Let's Encrypt's staging directory (testing certificates, no rate limits).
     pub acme_staging: bool,
-    /// Who may open /logs and change the music bot's picture: Linkord usernames, user ids or Discord ids.
+    /// Who may change the music bot's picture: Linkord usernames, user ids or Discord ids.
     pub admins: Vec<String>,
+    /// Loopback address for the monitor's counters (internal.rs). "off" turns it off.
+    pub internal_bind: Option<String>,
 }
 
 fn opt(key: &str) -> Option<String> {
@@ -83,6 +85,11 @@ impl Config {
             admins: opt("LINKORD_ADMINS")
                 .map(|v| v.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect())
                 .unwrap_or_default(),
+            internal_bind: match opt("LINKORD_INTERNAL_BIND").as_deref() {
+                Some("off") => None,
+                Some(v) => Some(v.to_string()),
+                None => Some("127.0.0.1:7711".into()),
+            },
         })
     }
 

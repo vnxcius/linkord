@@ -3,4 +3,5 @@ node_modules/
 dist/
 target/
 /server/data/
+/monitor/data/
 /app/out/

@@ -1,5 +1,5 @@
 // Sends this client's errors (and a few notable events, like voice failing) to the server's log, which the
-// admin reads at /logs. The server redacts ids and secrets; message contents are never sent from here.
+// owner reads in the monitor (monitor/, a separate service). The server redacts ids and secrets; message contents are never sent from here.
 import { api, getToken } from './api';
 import { isTauri } from './platform';
 

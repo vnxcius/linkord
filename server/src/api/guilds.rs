@@ -281,7 +281,7 @@ pub async fn welcome(st: &AppState, g: &GuildRow, user: Id) {
     }
 }
 
-async fn announce_update(st: &AppState, id: Id, me: Id) -> ApiResult<Json<GuildRow>> {
+pub async fn announce_update(st: &AppState, id: Id, me: Id) -> ApiResult<Json<GuildRow>> {
     let g = guild_for(&st.db, id, me).await?;
     st.hub.send(&guild_members(&st.db, id).await?, "GUILD_UPDATE", &g);
     Ok(Json(g))
@@ -389,7 +389,7 @@ fn nickname(n: Option<String>) -> ApiResult<Option<String>> {
     Ok(n)
 }
 
-async fn announce_member(st: &AppState, guild: Id, user: Id) -> ApiResult<Json<Member>> {
+pub async fn announce_member(st: &AppState, guild: Id, user: Id) -> ApiResult<Json<Member>> {
     let member = load_member(&st.db, guild, user).await?;
     st.hub.send(&guild_members(&st.db, guild).await?, "GUILD_MEMBER_UPDATE", &serde_json::json!({ "guild_id": guild, "member": member }));
     Ok(Json(member))

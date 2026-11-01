@@ -120,7 +120,7 @@ async fn list_guild(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id)
 }
 
 /// Tells the server's members its sounds changed.
-async fn announce(st: &AppState, guild: Id) -> ApiResult<()> {
+pub async fn announce(st: &AppState, guild: Id) -> ApiResult<()> {
     let sounds = guild_sounds(st, guild).await?;
     st.hub.send(&guild_members(&st.db, guild).await?, "GUILD_SOUNDBOARD_UPDATE", &serde_json::json!({ "guild_id": guild, "sounds": sounds }));
     Ok(())

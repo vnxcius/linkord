@@ -61,8 +61,8 @@ let started = false;
 
 /** Full-window pages over the app (or the sign-in screen): /download and /changelog on the web. The desktop
  * app opens them too, without touching the URL. */
-export type Page = 'download' | 'changelog' | 'logs';
-const PAGES: Record<string, Page> = { '/download': 'download', '/changelog': 'changelog', '/logs': 'logs' };
+export type Page = 'download' | 'changelog';
+const PAGES: Record<string, Page> = { '/download': 'download', '/changelog': 'changelog' };
 const [page, setPage] = createSignal<Page | null>(isTauri ? null : (PAGES[location.pathname] ?? null));
 export { page };
 /** History steps pushed by opening pages; closing goes back over them, unless the visit started on a page. */

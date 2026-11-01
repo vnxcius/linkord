@@ -1160,24 +1160,13 @@ test('notification levels are synced settings', async () => {
   assert.equal(s.guild_notifications[guild.id], 'mentions');
 });
 
-test('logs: only admins can read them, clients can report errors', async () => {
-  assert.equal((await call(owner.token, 'GET', '/admin/logs/days')).status, 403);
-  assert.equal((await call(owner.token, 'GET', '/admin/logs/live')).status, 403);
+test('logs: clients report errors into the log files, the app no longer serves them', async () => {
   assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'error', message: 'test error from api tests' })).status, 204);
   assert.equal((await call(owner.token, 'POST', '/logs/client', { level: 'shout', message: 'x' })).status, 400);
-
-  // An admin (LINKORD_ADMINS=logadmin in run-local.sh) follows new lines live, as server-sent events.
+  // Reading them is the monitor's job now (tests/monitor.test.mjs), even for admins.
   const { token: admin } = await ok(null, 'POST', '/auth/dev', { username: 'logadmin' });
-  const ctrl = new AbortController();
-  const res = await fetch(`${BASE}/api/admin/logs/live`, { headers: { authorization: `Bearer ${admin}` }, signal: ctrl.signal });
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-type'), /^text\/event-stream/);
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  await ok(owner.token, 'POST', '/logs/client', { level: 'warn', message: `live check ${run}` });
-  let text = '';
-  while (!text.includes(`live check ${run}`)) text += (await reader.read()).value;
-  assert.match(text, /^data: \{/m);
-  ctrl.abort();
+  const res = await fetch(`${BASE}/api/admin/logs/days`, { headers: { authorization: `Bearer ${admin}` } });
+  assert.doesNotMatch(res.headers.get('content-type') ?? '', /json/, 'the old logs route must be gone');
 });
 
 test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {

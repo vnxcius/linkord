@@ -52,6 +52,12 @@ pub struct Hub {
 }
 
 impl Hub {
+    /// For the monitor: sessions, sessions with a live socket, users shown as online.
+    pub fn snapshot(&self) -> (usize, usize, usize) {
+        let attached = self.sessions.iter().filter(|s| s.tx.is_some()).count();
+        (self.sessions.len(), attached, self.announced.len())
+    }
+
     fn create(&self, user: Id, tx: Tx) -> String {
         let id = random_token(16);
         self.sessions.insert(id.clone(), Session { user, tx: Some(tx), attach: 0, seq: 0, buffer: VecDeque::new(), detached_at: None });
@@ -292,7 +298,7 @@ struct Ready<'a> {
     watches: Vec<serde_json::Value>,
     server_now: i64,
     features: Features,
-    /// LINKORD_ADMINS: can open /logs and change the music bot's picture.
+    /// LINKORD_ADMINS: can change the music bot's picture.
     admin: bool,
 }
 

@@ -54,6 +54,13 @@ pub struct Music {
     player: Mutex<Option<Arc<Player>>>,
 }
 
+impl Music {
+    /// For the monitor.
+    pub fn is_playing(&self) -> bool {
+        self.player.lock().unwrap().as_ref().is_some_and(|p| p.now.lock().unwrap().is_some())
+    }
+}
+
 #[derive(Clone)]
 struct Track {
     /// What yt-dlp plays: a YouTube URL, or `ytsearch1:<artist> - <title>` for songs from Spotify (looked up

@@ -23,8 +23,6 @@ import { isMobile } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
 import { AppPreview } from './Login';
-import { LogsPage } from './Logs';
-import { state } from '../lib/store';
 
 interface Download {
   version: string;
@@ -96,9 +94,6 @@ export function PageHost() {
           <Match when={page() === 'changelog'}>
             <PatchNotesPage />
           </Match>
-          <Match when={page() === 'logs'}>
-            <LogsPage />
-          </Match>
         </Switch>
       </PageShell>
     </Show>
@@ -127,11 +122,6 @@ function PageShell(p: { children: JSX.Element }) {
           <button classList={{ active: page() === 'changelog' }} onClick={() => openPage('changelog')}>
             {t('Patch notes')}
           </button>
-          <Show when={state.admin || page() === 'logs'}>
-            <button classList={{ active: page() === 'logs' }} onClick={() => openPage('logs')}>
-              {t('Logs')}
-            </button>
-          </Show>
         </nav>
         <button class="btn site-back" onClick={closePage}>
           <I.Back size={16} />

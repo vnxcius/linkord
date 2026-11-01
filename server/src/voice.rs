@@ -137,7 +137,24 @@ pub struct VoiceStates {
     calls: DashMap<Id, Call>,
 }
 
+/// For the monitor: what's going on in voice right now.
+pub struct VoiceSnapshot {
+    pub users: usize,
+    pub calls: usize,
+    pub streams: usize,
+    pub cameras: usize,
+}
+
 impl VoiceStates {
+    pub fn snapshot(&self) -> VoiceSnapshot {
+        let (mut streams, mut cameras) = (0, 0);
+        for v in self.by_user.iter() {
+            streams += v.self_stream as usize;
+            cameras += v.self_video as usize;
+        }
+        VoiceSnapshot { users: self.by_user.len(), calls: self.rooms.iter().filter(|r| !r.is_empty()).count(), streams, cameras }
+    }
+
     pub fn for_guilds(&self, guilds: &[Id]) -> Vec<VoiceState> {
         self.by_user.iter().filter(|v| v.guild_id.is_some_and(|g| guilds.contains(&g))).map(|v| v.clone()).collect()
     }
@@ -171,18 +188,29 @@ impl VoiceStates {
         let Some(room) = self.rooms.get(&channel) else { return };
         let now = Instant::now();
         let screen = kind == KIND_SCREEN || kind == KIND_SCREEN_AUDIO;
+        let counters = crate::internal::counters();
+        let size = if let WsMsg::Binary(b) = &msg { b.len() as u64 } else { 0 };
+        if kind == KIND_VOICE || kind == KIND_MUSIC {
+            counters.voice_packets.fetch_add(1, Ordering::Relaxed);
+            counters.voice_bytes.fetch_add(size, Ordering::Relaxed);
+        } else if kind != 0 {
+            counters.media_packets.fetch_add(1, Ordering::Relaxed);
+            counters.media_bytes.fetch_add(size, Ordering::Relaxed);
+        }
         for p in room.iter().filter(|p| p.conn != from) {
-            if kind == KIND_VOICE || kind == KIND_MUSIC || kind == 0 {
-                let _ = p.tx.try_send(msg.clone());
+            let sent = if kind == KIND_VOICE || kind == KIND_MUSIC || kind == 0 {
+                p.tx.try_send(msg.clone()).is_ok()
+            } else if screen && !p.watching.lock().unwrap().contains(&from_user) {
                 continue;
-            }
-            if screen && !p.watching.lock().unwrap().contains(&from_user) {
-                continue;
-            }
-            match p.media.lock().unwrap().as_ref() {
-                Some(media) => drop(media.try_send((now, msg.clone()))),
-                // Apps older than 0.1.7 have no media socket yet.
-                None => drop(p.tx.try_send(msg.clone())),
+            } else {
+                match p.media.lock().unwrap().as_ref() {
+                    Some(media) => media.try_send((now, msg.clone())).is_ok(),
+                    // Apps older than 0.1.7 have no media socket yet.
+                    None => p.tx.try_send(msg.clone()).is_ok(),
+                }
+            };
+            if !sent {
+                counters.queue_drops.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -915,7 +943,9 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
             out = rx.recv() => match out {
                 Some((_, WsMsg::Close(_))) | None => break,
                 // Too old to be useful: skip it. The viewer notices the gap and asks for a keyframe.
-                Some((at, _)) if at.elapsed() > MEDIA_MAX_AGE => {}
+                Some((at, _)) if at.elapsed() > MEDIA_MAX_AGE => {
+                    crate::internal::counters().stale_media.fetch_add(1, Ordering::Relaxed);
+                }
                 Some((_, m)) => if sink.send(m).await.is_err() { break },
             },
             inc = stream.next() => {

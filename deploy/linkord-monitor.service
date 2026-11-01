@@ -1,0 +1,19 @@
+# systemd *user* unit. Install with deploy/install-monitor.sh
+# The monitor must never compete with the app: it runs at low priority with hard limits, and nothing depends on it.
+[Unit]
+Description=Linkord monitor (dashboard)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/repositories/linkord/monitor
+ExecStart=%h/repositories/linkord/monitor/target/release/linkord-monitor
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=linkord_monitor=info
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=256M
+
+[Install]
+WantedBy=default.target

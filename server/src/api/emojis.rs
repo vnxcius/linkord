@@ -31,7 +31,7 @@ fn emoji_name(n: &str) -> ApiResult<String> {
     Ok(n.to_string())
 }
 
-async fn announce(st: &AppState, gid: Id) -> ApiResult<()> {
+pub async fn announce(st: &AppState, gid: Id) -> ApiResult<()> {
     let emojis = load_emojis(&st.db, gid).await?;
     st.hub.send(&guild_members(&st.db, gid).await?, "GUILD_EMOJIS_UPDATE", &json!({ "guild_id": gid, "emojis": emojis }));
     Ok(())

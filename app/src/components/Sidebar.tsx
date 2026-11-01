@@ -36,7 +36,6 @@ import {
 import type { Channel, NotifyLevel, Status } from '../lib/types';
 import { Kind, Rel } from '../lib/types';
 import { attempt, openMenu, openProfile, setUi, ui, type MenuEntry } from '../lib/ui';
-import { openPage } from '../lib/route';
 import {
   canSendVideo,
   joinVoice,
@@ -1230,9 +1229,6 @@ function UserPanel() {
           icon: () => <I.Copy size={16} />,
           run: () => navigator.clipboard.writeText(me().username),
         },
-        ...(state.admin
-          ? [{ label: t('Logs'), icon: () => <I.Tune size={16} />, run: () => openPage('logs') } as MenuEntry]
-          : []),
         { label: t('Log Out'), danger: true, icon: () => <I.Logout size={16} />, run: () => logout() },
       ],
     });

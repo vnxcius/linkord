@@ -14,7 +14,7 @@ use crate::auth::AuthUser;
 use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::channel_audience;
 use crate::id::Id;
-use crate::models::{kind, message_type, Attachment, Forwarded, Interaction, InteractionRow, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
+use crate::models::{kind, message_type, Attachment, Channel, Forwarded, Interaction, InteractionRow, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
 use crate::perms::{self, guild_perms};
 use crate::state::AppState;
 use crate::{embeds, uploads};
@@ -491,6 +491,46 @@ async fn delete_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
     uploads::release(&st, row.author_id, freed).await;
     st.hub.send(&channel_audience(&st.db, &a.ch).await?, "MESSAGE_DELETE", &json!({ "id": mid, "channel_id": id }));
     Ok(())
+}
+
+/// A moderator removes one attachment (internal.rs): out of the message and of every forward showing it, then the
+/// file goes. A message left with nothing to show is deleted. Returns the bytes freed.
+pub async fn remove_attachment(st: &AppState, message: Id, url: &str) -> ApiResult<u64> {
+    let channel: Id = sqlx::query_scalar("SELECT channel_id FROM messages WHERE id = $1").bind(message).fetch_optional(&st.db).await?.ok_or(ApiError::NotFound)?;
+    let row = load_message(st, channel, message).await?;
+    let (gone, left): (Vec<Attachment>, Vec<Attachment>) = row.attachments.0.iter().cloned().partition(|a| a.url == url);
+    if gone.is_empty() {
+        return Err(ApiError::NotFound);
+    }
+    let freed: u64 = gone.iter().map(|a| a.size).sum();
+    let probe = json!([{ "url": url }]);
+    let forwards: Vec<(Id, Id)> = sqlx::query_as(
+        "UPDATE messages SET forwarded = jsonb_set(forwarded, '{attachments}',
+            (SELECT COALESCE(jsonb_agg(a), '[]'::jsonb) FROM jsonb_array_elements(forwarded->'attachments') a WHERE a->>'url' <> $1))
+         WHERE forwarded IS NOT NULL AND forwarded->'attachments' @> $2 RETURNING id, channel_id",
+    )
+    .bind(url)
+    .bind(&probe)
+    .fetch_all(&st.db)
+    .await?;
+    let audience = channel_audience(&st.db, &Channel::get(&st.db, channel).await?).await?;
+    if left.is_empty() && row.content.trim().is_empty() && row.forwarded.is_none() {
+        sqlx::query("DELETE FROM messages WHERE id = $1").bind(message).execute(&st.db).await?;
+        st.hub.send(&audience, "MESSAGE_DELETE", &json!({ "id": message, "channel_id": channel }));
+    } else {
+        sqlx::query("UPDATE messages SET attachments = $2 WHERE id = $1").bind(message).bind(sqlx::types::Json(&left)).execute(&st.db).await?;
+        let updated = load_message(st, channel, message).await?;
+        let msg = hydrate(st, vec![updated]).await?.pop().ok_or(ApiError::NotFound)?;
+        st.hub.send(&audience, "MESSAGE_UPDATE", &msg);
+    }
+    for (id, ch) in forwards.into_iter().filter(|(id, _)| *id != message) {
+        let updated = load_message(st, ch, id).await?;
+        let msg = hydrate(st, vec![updated]).await?.pop().ok_or(ApiError::NotFound)?;
+        st.hub.send(&channel_audience(&st.db, &Channel::get(&st.db, ch).await?).await?, "MESSAGE_UPDATE", &msg);
+    }
+    uploads::delete_attachment(st, url).await;
+    uploads::release(st, row.author_id, freed).await;
+    Ok(freed)
 }
 
 #[derive(Deserialize)]

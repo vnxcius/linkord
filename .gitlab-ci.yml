@@ -39,7 +39,7 @@ test:
   # Saved after failures too, or every failing run rebuilds the Rust deps and downloads Chromium again.
   cache:
     - key: { prefix: cargo, files: [server/Cargo.lock] }
-      paths: [.cargo/registry, server/target]
+      paths: [.cargo/registry, server/target, monitor/target]
       when: always
     - key: { prefix: bun, files: [app/bun.lock] }
       paths: [.bun-cache]
@@ -56,6 +56,8 @@ test:
     - npm i -g bun@1
     - (cd app && bun install --frozen-lockfile && bun run build)
     - (cd server && cargo test && cargo build)
+    - (cd monitor/web && bun install --frozen-lockfile && bun run build)
+    - (cd monitor && cargo test && cargo build)
     # The installed playwright-core picks the matching browser; the headless shell isn't used.
     - (cd tests && npm ci && npx playwright-core install --with-deps --no-shell chromium)
     # Throwaway server, same settings as tests/run-local.sh
@@ -66,20 +68,30 @@ test:
       SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=500
       SPOTIFY_ACCOUNTS_URL=http://localhost:7702 SPOTIFY_API_URL=http://localhost:7702
       LINKORD_DETECTABLE_URL=http://localhost:7702/detectable
-      LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701
+      LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704
       LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off
       DATABASE_URL=postgres://linkord:linkord@postgres:5432/linkord_test
       LINKORD_DATA_DIR="$DATA" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID= DISCORD_CLIENT_SECRET=
       ./target/debug/linkord-server > "$DATA/server.log" 2>&1 &
       cd "$CI_PROJECT_DIR"
     - for i in $(seq 1 60); do curl -sf localhost:7701/api/health && break; sleep 1; done
+    - >
+      cd monitor &&
+      LINKORD_MONITOR_BIND=127.0.0.1:7705 LINKORD_MONITOR_PASSWORD=monitor-test-password LINKORD_MONITOR_DATA_DIR="$DATA/monitor"
+      LINKORD_MONITOR_SERVER_DIR="$DATA/no-server-env" LINKORD_MONITOR_PROBE_INTERNET=off
+      LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704
+      DATABASE_URL=postgres://linkord:linkord@postgres:5432/linkord_test LINKORD_DATA_DIR="$DATA"
+      ./target/debug/linkord-monitor > "$DATA/monitor.log" 2>&1 &
+      cd "$CI_PROJECT_DIR"
+    - for i in $(seq 1 60); do curl -sf localhost:7705/api/session && break; sleep 1; done
     - cd tests
     - export LINKORD_TEST_URL=http://localhost:7701 LINKORD_TEST_DATA_DIR="$DATA"
     - export CHROMIUM=$(ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome | tail -1)
     - node --test --test-timeout=20000 api.test.mjs
+    - MONITOR_TEST_URL=http://localhost:7705 LINKORD_INTERNAL_TEST_URL=http://127.0.0.1:7704 node --test --test-timeout=120000 monitor.test.mjs
     - E2E_FAILFAST=1 node ui.e2e.mjs
   after_script:
-    - '[ "$CI_JOB_STATUS" = success ] || cat /tmp/linkord-data/server.log'
+    - '[ "$CI_JOB_STATUS" = success ] || cat /tmp/linkord-data/server.log /tmp/linkord-data/monitor.log'
 
 # Desktop installers, built with the same Dockerfiles as app/build-windows.sh / app/build-linux.sh.
 .desktop:

@@ -569,7 +569,7 @@ async fn set_favorite_games(State(st): State<AppState>, AuthUser(me): AuthUser, 
     Ok(Json(favorite_games(&st, me).await?))
 }
 
-async fn notify_update(st: &AppState, user: &User) -> ApiResult<()> {
+pub async fn notify_update(st: &AppState, user: &User) -> ApiResult<()> {
     let audience = related_users(&st.db, user.id).await?;
     st.hub.send(&audience, "USER_UPDATE", user);
     Ok(())

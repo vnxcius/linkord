@@ -7,6 +7,7 @@ mod embeds;
 mod error;
 mod gateway;
 mod id;
+mod internal;
 mod logs;
 mod models;
 mod music;
@@ -43,13 +44,15 @@ use crate::state::{AppState, Inner};
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
     let cfg = Config::from_env()?;
-    // The console (journalctl) as before, plus the redacted daily files behind /logs.
+    internal::mark_started();
+    // The console (journalctl) as before, plus the redacted daily files the monitor reads.
     let console = EnvFilter::try_from_default_env().unwrap_or_else(|_| "linkord_server=info,tower_http=warn".into());
     let files = tracing_subscriber::filter::Targets::new()
         .with_default(tracing::Level::WARN)
         .with_target("linkord_server", tracing::Level::INFO)
         .with_target("http", tracing::Level::INFO)
-        .with_target("client", tracing::Level::INFO);
+        .with_target("client", tracing::Level::INFO)
+        .with_target("moderation", tracing::Level::INFO);
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_filter(console))
         .with(logs::FileLayer::new(&cfg.data_dir).with_filter(files))
@@ -102,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(spotify::poller(st.clone()));
     }
     tokio::fs::create_dir_all(cfg.data_dir.join("updates")).await?;
+    tokio::spawn(internal::serve(st.clone()));
 
     let api = Router::new()
         .merge(auth::routes())
