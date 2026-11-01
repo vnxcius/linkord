@@ -218,7 +218,7 @@ pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> Ap
     let q = s.q.unwrap_or_default();
     let rows = sqlx::query(
         "SELECT u.id::text AS id, u.username, u.display_name, u.discord_username, u.avatar, u.bot, u.deleted_at, u.created_at,
-            u.upload_bytes, u.voice_seconds,
+            u.upload_bytes, u.voice_seconds, u.suspended_at,
             (SELECT count(*) FROM guilds g WHERE g.owner_id = u.id)::bigint AS servers_owned,
             (SELECT count(*) FROM members m WHERE m.user_id = u.id)::bigint AS servers_joined,
             (SELECT count(*) FROM messages x WHERE x.author_id = u.id)::bigint AS messages,
@@ -254,6 +254,7 @@ pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> Ap
                 "media": n("media"),
                 "last_message": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_message"),
                 "sessions": n("sessions"),
+                "suspended_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_at"),
             })
         })
         .collect();
@@ -446,6 +447,30 @@ pub struct RemoveMedia {
 }
 
 /// Asks the app to remove the file: it updates the database, tells connected apps and gives back the quota.
+#[derive(Deserialize, serde::Serialize)]
+pub struct Suspend {
+    user_id: String,
+    suspended: bool,
+}
+
+/// Suspends or restores an account, through the app (this process never changes its data).
+pub async fn suspend(State(st): State<AppState>, Json(body): Json<Suspend>) -> ApiResult {
+    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
+    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
+    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
+        return Err(unavailable("Can't read the app's internal token."));
+    };
+    let res = st.http.post(format!("{url}/moderation/suspend")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
+    let status = res.status();
+    let v: Value = res.json().await.unwrap_or(Value::Null);
+    if status.is_success() {
+        Ok(Json(v))
+    } else {
+        let message = v["error"].as_str().unwrap_or("The app refused.").to_string();
+        Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": message }))))
+    }
+}
+
 pub async fn remove(State(st): State<AppState>, Json(body): Json<RemoveMedia>) -> ApiResult {
     let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
     let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };

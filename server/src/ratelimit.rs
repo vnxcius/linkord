@@ -37,11 +37,22 @@ impl RateLimiter {
 /// Client address. The server only listens on localhost behind the tunnel, so the proxy header is trusted.
 pub struct ClientIp(pub String);
 
+/// One bucket per IPv6 /64: a single home or server can use any address in one.
+fn bucket_ip(ip: String) -> String {
+    match ip.parse::<std::net::Ipv6Addr>() {
+        Ok(v6) if v6.to_ipv4_mapped().is_none() => {
+            let s = v6.segments();
+            format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        _ => ip,
+    }
+}
+
 impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
-    type Rejection = ApiError;
+    type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let h = |name: &str| parts.headers.get(name).and_then(|v| v.to_str().ok()).map(|v| v.split(',').next().unwrap_or("").trim().to_string());
-        Ok(ClientIp(h("cf-connecting-ip").or_else(|| h("x-forwarded-for")).unwrap_or_else(|| "local".into())))
+        Ok(ClientIp(bucket_ip(h("cf-connecting-ip").or_else(|| h("x-forwarded-for")).unwrap_or_else(|| "local".into()))))
     }
 }

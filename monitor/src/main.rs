@@ -67,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/moderation/media", get(moderation::media))
         .route("/moderation/media/totals", get(moderation::media_totals))
         .route("/moderation/media/remove", post(moderation::remove))
+        .route("/moderation/accounts/suspend", post(moderation::suspend))
         .route("/diagnostics/run", post(diagnose::run))
         .route("/tools/dns", post(diagnose::tool_dns))
         .route("/tools/tcp", post(diagnose::tool_tcp))
@@ -91,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(files)
         .fallback_service(web)
         .layer(middleware::from_fn(security_headers))
+        .layer(middleware::from_fn_with_state(st.clone(), auth::check_host))
         .with_state(st);
 
     let listener = tokio::net::TcpListener::bind(&bind).await.with_context(|| format!("binding {bind}"))?;

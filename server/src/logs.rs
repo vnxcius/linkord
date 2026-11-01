@@ -34,6 +34,10 @@ use crate::state::AppState;
 const KEEP_DAYS: i64 = 30;
 /// Longest field value kept (a long error chain is cut).
 const MAX_VALUE: usize = 2000;
+/// Longest path kept in the access log.
+const MAX_PATH: usize = 200;
+/// One day's file stops growing here: anyone can make the server log a refused request.
+const MAX_DAY_BYTES: u64 = 64 * 1024 * 1024;
 
 // ---------- redaction ----------
 
@@ -41,6 +45,7 @@ struct Rules {
     id: Regex,
     bearer: Regex,
     pair: Regex,
+    spaced: Regex,
     url_query: Regex,
     long_secret: Regex,
     email: Regex,
@@ -54,6 +59,7 @@ fn rules() -> &'static Rules {
         // Snowflake ids (users, channels, messages...) and Discord ids.
         id: Regex::new(r"\b(\d{6})\d{9,14}\b").unwrap(),
         bearer: Regex::new(r"(?i)\b(bearer|bot)\s+[\w\-.~+/]+=*").unwrap(),
+        spaced: Regex::new(r#"(?i)\b(token|access_token|refresh_token|secret|client_secret|password|passwd|api_key)\s+[^\s"',;&]+"#).unwrap(),
         pair: Regex::new(r#"(?i)\b(token|access_token|refresh_token|secret|client_secret|password|passwd|key|api_key|code|state|nonce|authorization|cookie|session(?:_id)?)(["']?\s*[=:]\s*["']?)[^&\s"',;]+"#).unwrap(),
         url_query: Regex::new(r#"(https?://[^\s?"'#]+)\?[^\s"']*"#).unwrap(),
         // Anything that looks like a key or token (long base64/hex runs).
@@ -70,6 +76,7 @@ pub fn redact(s: &str) -> String {
     let s = r.url_query.replace_all(s, "$1?…");
     let s = r.bearer.replace_all(&s, "$1 [redacted]");
     let s = r.pair.replace_all(&s, "$1$2[redacted]");
+    let s = r.spaced.replace_all(&s, "$1 [redacted]");
     let s = r.email.replace_all(&s, "[email]");
     let s = r.long_secret.replace_all(&s, "[redacted]");
     let s = r.id.replace_all(&s, "$1…");
@@ -97,6 +104,7 @@ struct DailyFile {
     dir: PathBuf,
     day: String,
     file: Option<std::fs::File>,
+    written: u64,
 }
 
 impl DailyFile {
@@ -105,12 +113,30 @@ impl DailyFile {
         if self.file.is_none() || day != self.day {
             let _ = std::fs::create_dir_all(&self.dir);
             self.file = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join(format!("{day}.jsonl"))).ok();
+            self.written = self.file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
             self.day = day;
+        }
+        if self.written >= MAX_DAY_BYTES {
+            return;
         }
         if let Some(f) = &mut self.file {
             let _ = writeln!(f, "{line}");
+            self.written += line.len() as u64 + 1;
+            if self.written >= MAX_DAY_BYTES {
+                let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                let _ = writeln!(f, r#"{{"t":"{at}","level":"WARN","target":"linkord_server::logs","msg":"this day's log reached its size limit; nothing more is written until tomorrow","fields":{{}}}}"#);
+            }
         }
     }
+}
+
+/// Log paths without what identifies a live secret, and never at length.
+fn log_path(path: &str) -> String {
+    let path = match path.strip_prefix("/api/invites/") {
+        Some(_) => "/api/invites/:code",
+        None => path,
+    };
+    path.chars().take(MAX_PATH).collect()
 }
 
 /// A tracing layer that writes redacted JSON lines to the daily file.
@@ -120,7 +146,7 @@ pub struct FileLayer {
 
 impl FileLayer {
     pub fn new(data_dir: &std::path::Path) -> FileLayer {
-        FileLayer { out: Mutex::new(DailyFile { dir: dir(data_dir), day: String::new(), file: None }) }
+        FileLayer { out: Mutex::new(DailyFile { dir: dir(data_dir), day: String::new(), file: None, written: 0 }) }
     }
 }
 
@@ -183,11 +209,21 @@ pub async fn prune(st: AppState) {
 
 // ---------- HTTP access log ----------
 
+/// Refused requests worth a line, across everyone: bursts above this aren't news, and anyone can cause them.
+fn refused_budget() -> bool {
+    static BUDGET: Mutex<(f64, Option<Instant>)> = Mutex::new((100.0, None));
+    let mut b = BUDGET.lock().unwrap();
+    let now = Instant::now();
+    let tokens = (b.0 + b.1.map_or(0.0, |t| now.duration_since(t).as_secs_f64()) * 5.0).min(100.0);
+    *b = (if tokens >= 1.0 { tokens - 1.0 } else { tokens }, Some(now));
+    tokens >= 1.0
+}
+
 /// One line per API request (method, path with ids cut, status, time). Static files, uploads and health
 /// checks are left out unless they fail.
 pub async fn access_log(req: Request, next: Next) -> Response {
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
+    let path = log_path(req.uri().path());
     let start = Instant::now();
     crate::internal::request_started();
     let res = next.run(req).await;
@@ -203,7 +239,7 @@ pub async fn access_log(req: Request, next: Next) -> Response {
         || path.starts_with("/api/logs/");
     if status.is_server_error() {
         tracing::error!(target: "http", %method, path = %path, status = status.as_u16(), ms, "request failed");
-    } else if status.is_client_error() && status != StatusCode::NOT_FOUND && !quiet {
+    } else if status.is_client_error() && status != StatusCode::NOT_FOUND && !quiet && refused_budget() {
         tracing::warn!(target: "http", %method, path = %path, status = status.as_u16(), ms, "request refused");
     } else if !quiet && (method != axum::http::Method::GET || ms > 1500) {
         // Reads are many and boring; changes and slow requests are worth a line.

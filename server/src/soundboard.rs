@@ -154,14 +154,16 @@ pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f
     }
     let name = format!("sound-{}.mp3", crate::auth::random_token(6));
     let out_path = src.with_file_name(&name);
-    let status = tokio::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{start:.3}"), "-t", &format!("{:.3}", end - start), "-i"])
+    let format = crate::media::audio_format_of(&src).await.ok_or_else(|| bad("couldn't read that sound"))?;
+    let mut ff = tokio::process::Command::new("ffmpeg");
+    ff.args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{start:.3}"), "-t", &format!("{:.3}", end - start)])
+        .args(["-protocol_whitelist", "file", "-f", format, "-i"])
         .arg(&src)
         .args(["-vn", "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k"])
-        .arg(&out_path)
-        .status()
-        .await?;
-    if !status.success() {
+        .arg(&out_path);
+    let ok = matches!(crate::media::run(ff, std::time::Duration::from_secs(60)).await?, Some(o) if o.status.success());
+    if !ok {
+        let _ = tokio::fs::remove_file(&out_path).await;
         return Err(bad("couldn't read that sound"));
     }
     Ok(src_url.rsplit_once('/').map(|(dir, _)| format!("{dir}/{name}")).unwrap_or(name))
@@ -181,18 +183,17 @@ fn clean_emoji(e: Option<String>) -> Option<String> {
 
 /// Length in seconds with ffprobe; None when ffprobe isn't there (the client checks too).
 pub async fn duration(path: &std::path::Path) -> Option<f64> {
-    let out = tokio::process::Command::new("ffprobe")
-        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
-        .arg(path)
-        .output()
-        .await
-        .ok()?;
+    let format = crate::media::audio_format_of(path).await?;
+    let mut probe = tokio::process::Command::new("ffprobe");
+    probe.args(["-v", "error", "-protocol_whitelist", "file", "-f", format, "-show_entries", "format=duration", "-of", "csv=p=0"]).arg(path);
+    let out = crate::media::run(probe, std::time::Duration::from_secs(20)).await.ok()??;
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
 /// Multipart: `file` (mp3, ogg, wav, webm or m4a, up to 1 MB and 5 seconds) and `payload_json` {name, emoji, volume}.
 async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, mut mp: Multipart) -> ApiResult<Json<Sound>> {
     guild_perms(&st.db, id, me).await?.require(perms::MANAGE_EMOJIS)?;
+    st.limits.check(format!("upload:{me}"), 10.0, 0.2)?;
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM soundboard_sounds WHERE guild_id = $1").bind(id).fetch_one(&st.db).await?;
     if count >= MAX_PER_GUILD {
         return Err(bad(format!("servers can have up to {MAX_PER_GUILD} sounds")));
@@ -218,6 +219,9 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Pa
     }
     let (filename, bytes) = file.ok_or_else(|| bad("missing file"))?;
     let name = clean_name(fields.name.as_deref().unwrap_or(filename.rsplit_once('.').map_or(&filename[..], |x| x.0)))?;
+    if crate::media::audio_format(&bytes).is_none() {
+        return Err(bad("sounds must be mp3, ogg, wav, webm or m4a files"));
+    }
     uploads::reserve(&st, me, bytes.len()).await?;
     let source = uploads::save(&st, &format!("sounds/{id}"), &filename, &bytes).await?;
     let path = upload_path(&st, &source).ok_or_else(|| bad("couldn't read that sound"))?;

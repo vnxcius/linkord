@@ -10,5 +10,10 @@ Restart=on-failure
 RestartSec=3
 Environment=RUST_LOG=linkord_server=info
 
+# Limits that hold even if a media tool goes wrong on something a stranger uploaded. Room for voice: it runs in here too.
+NoNewPrivileges=true
+MemoryMax=8G
+TasksMax=4096
+
 [Install]
 WantedBy=default.target

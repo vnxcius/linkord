@@ -11,13 +11,24 @@ use crate::gateway::Hub;
 use crate::ratelimit::RateLimiter;
 use crate::voice::VoiceStates;
 
+/// A desktop sign-in that reached its callback: the app swaps the code for a session, proving it started the sign-in.
 pub struct PendingLogin {
-    pub token: String,
+    pub user: Id,
+    pub challenge: String,
     pub created: Instant,
 }
 
+/// Where a desktop sign-in ends: the local address of the app that started it.
+pub struct DesktopLogin {
+    pub port: u16,
+    pub state: String,
+    pub challenge: String,
+}
+
 pub struct OAuthState {
-    pub nonce: Option<String>,
+    pub desktop: Option<DesktopLogin>,
+    /// The invite link this person came through, which lets a new account be created.
+    pub invite: Option<String>,
     pub created: Instant,
 }
 
@@ -27,7 +38,7 @@ pub struct Inner {
     pub http: reqwest::Client,
     pub hub: Hub,
     pub voice: VoiceStates,
-    /// Desktop login: nonce -> session token, picked up by polling.
+    /// Desktop login: one-time code -> who signed in.
     pub pending_logins: DashMap<String, PendingLogin>,
     pub oauth_states: DashMap<String, OAuthState>,
     pub limits: RateLimiter,

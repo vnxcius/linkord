@@ -960,7 +960,35 @@ function MembersPage(p: { guildId: string }) {
           )}
         </For>
       </div>
+      <Show when={can(p.guildId, P.KICK_MEMBERS)}>
+        <BanList guildId={p.guildId} />
+      </Show>
     </div>
+  );
+}
+
+/** Who is banned from the server, with a way back. */
+function BanList(p: { guildId: string }) {
+  const [bans, { refetch }] = createResource(() => api<User[]>('GET', `/guilds/${p.guildId}/bans`));
+  return (
+    <Show when={bans()?.length}>
+      <h3 class="ban-title">{t('Banned')}</h3>
+      <div class="ban-list">
+        <For each={bans()}>
+          {(u) => (
+            <div class="ban-row">
+              <span class="ban-name">{u.display_name ?? u.username}</span>
+              <button
+                class="btn ghost"
+                onClick={() => void api('DELETE', `/guilds/${p.guildId}/bans/${u.id}`).then(refetch)}
+              >
+                {t('Unban')}
+              </button>
+            </div>
+          )}
+        </For>
+      </div>
+    </Show>
   );
 }
 

@@ -1572,6 +1572,7 @@ test('role order: Manage Roles reorders roles below their own highest role', asy
 
 test('pronouns: up to 40 characters, shown with the user', async () => {
   const u = await login('pronouns');
+  await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   const me = await ok(u.token, 'PATCH', '/users/@me', { pronouns: '  she /  her  ' });
   assert.equal(me.pronouns, 'she / her');
   assert.equal((await call(u.token, 'PATCH', '/users/@me', { pronouns: 'x'.repeat(41) })).status, 400);
@@ -1582,6 +1583,7 @@ test('pronouns: up to 40 characters, shown with the user', async () => {
 
 test('favorite games: search the catalog, pick up to 20 in order, own games by name, on the profile with time played', async () => {
   const u = await login('gamer');
+  await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   // The catalog comes from the same list as game detection (the mock), loaded in the background.
   const hits = await until(async () => {
     const r = await ok(u.token, 'GET', '/games/search?q=mine');
@@ -1643,6 +1645,7 @@ test('notes: private to whoever wrote them, up to 256 characters, empty deletes'
 
 test('profile links and birthday', async () => {
   const u = await login('linked');
+  await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   await ok(u.token, 'PATCH', '/users/@me', {
     links: [{ label: '', url: 'github.com/someone' }, { label: '  My   blog ', url: 'http://blog.example.org/x' }],
   });
@@ -1702,6 +1705,7 @@ test('server profiles: a picture, banner and about me only in that server', asyn
 
 test('profile widgets: the stats card is opt-in, Kass songs opt-out; you always see yours', async () => {
   const u = await login('widgets');
+  await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   let theirs = await ok(owner.token, 'GET', `/users/${u.id}/profile`);
   assert.equal(theirs.stats, undefined);
   assert.deepEqual(theirs.top_songs, [], 'Kass songs show (none yet)');
@@ -1720,6 +1724,7 @@ test('profile widgets: the stats card is opt-in, Kass songs opt-out; you always 
 
 test('profile song: up to 30 s of an audio file, trimmed again later, removed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const u = await login('songbird');
+  await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=40', '-b:a', '32k', '-f', 'mp3', 'pipe:1']);
   const form = (fields, name = 'tune.mp3') => {
     const fd = new FormData();
@@ -1748,4 +1753,362 @@ test('profile song: up to 30 s of an audio file, trimmed again later, removed', 
   await ok(u.token, 'DELETE', '/users/@me/profile-song');
   assert.equal((await ok(owner.token, 'GET', `/users/${u.id}/profile`)).song, null);
   assert.equal((await fetch(`${BASE}${song.source}`)).status, 404);
+});
+
+// ---------- security regressions ----------
+
+const png1 = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+const voiceSocket = (token, channelId, path = 'connect') =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/${path}`);
+    const state = { ws, closed: null, ops: [], binary: 0 };
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(JSON.stringify({ token, channel_id: channelId }));
+    ws.onerror = reject;
+    ws.onclose = (e) => {
+      state.closed = e.code;
+      resolve(state);
+    };
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') state.binary += 1;
+      else {
+        const m = JSON.parse(e.data);
+        state.ops.push(m);
+        if (m.op === 'ready') resolve(state);
+      }
+    };
+  });
+const eventually = async (check, ms = 4000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+};
+async function serverWithVoice(owner) {
+  const g = await ok(owner.token, 'POST', '/guilds', { name: `Sec ${run}` });
+  const voice = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'call', kind: 2 });
+  const text = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'sec-text', kind: 0 });
+  const invite = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});
+  return { g, voice, text, invite };
+}
+
+test('uploads can never run on the app origin', async () => {
+  const u = await login('secupload');
+  const { text } = await serverWithVoice(u);
+  for (const [name, type, body] of [['evil.html', 'text/html', '<script>alert(1)</script>'], ['evil.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"/>'], ['evil.js', 'text/javascript', 'alert(1)']]) {
+    const fd = new FormData();
+    fd.append('payload_json', JSON.stringify({ content: 'x' }));
+    fd.append('file', new Blob([body], { type }), name);
+    const msg = await ok(u.token, 'POST', `/channels/${text.id}/messages`, fd);
+    const res = await fetch(BASE + msg.attachments[0].url);
+    assert.equal(res.status, 200, 'a posted attachment stays on disk');
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(res.headers.get('content-security-policy'), /sandbox/);
+    assert.equal(res.headers.get('content-disposition'), 'attachment', name);
+    assert.match(res.headers.get('cache-control'), /private/);
+  }
+  const pic = new FormData();
+  pic.append('payload_json', '{}');
+  pic.append('file', new Blob([png1], { type: 'image/png' }), 'cat.png');
+  const msg = await ok(u.token, 'POST', `/channels/${text.id}/messages`, pic);
+  const res = await fetch(BASE + msg.attachments[0].url);
+  assert.equal(res.headers.get('content-disposition'), null, 'pictures still show inline');
+  assert.equal(res.headers.get('content-type'), 'image/png');
+});
+
+test('picture uploads take their type from the bytes, not the client', async () => {
+  const u = await login('secavatar');
+  const fake = new FormData();
+  fake.append('file', new Blob(['<script>alert(1)</script>'], { type: 'image/png' }), 'x.html');
+  assert.equal((await call(u.token, 'POST', '/users/@me/avatar', fake)).status, 400);
+  const named = new FormData();
+  named.append('file', new Blob([png1], { type: 'image/png' }), 'x.html');
+  const me = await ok(u.token, 'POST', '/users/@me/avatar', named);
+  assert.match(me.avatar, /\/avatar\.png$/);
+});
+
+test('the web client sends security headers', async () => {
+  const res = await fetch(`${BASE}/`);
+  const csp = res.headers.get('content-security-policy');
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.ok(!/script-src[^;]*'unsafe-inline'/.test(csp));
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});
+
+test('a rejected message keeps no files and costs no quota', async () => {
+  const u = await login('secquota');
+  const { text } = await serverWithVoice(u);
+  const before = (await ok(u.token, 'GET', '/users/@me/stats?tz=0')).upload_bytes;
+  const fd = new FormData();
+  fd.append('payload_json', '{}');
+  for (let i = 0; i < 11; i++) fd.append('file', new Blob([new Uint8Array(1000)]), `f${i}.bin`);
+  assert.equal((await call(u.token, 'POST', `/channels/${text.id}/messages`, fd)).status, 400);
+  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR ?? '', 'uploads', 'attachments', String(text.id));
+  assert.ok(await eventually(() => !fs.existsSync(dir) || fs.readdirSync(dir).length === 0), 'saved files are removed');
+  assert.equal(before, (await ok(u.token, 'GET', '/users/@me/stats?tz=0')).upload_bytes);
+});
+
+test('uploads that are really playlists never reach ffmpeg as playlists', async () => {
+  const u = await login('secff');
+  const { g, text } = await serverWithVoice(u);
+  const playlist = '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nfile:///etc/hostname.ogg\n#EXT-X-ENDLIST\n';
+  const note = new FormData();
+  note.append('payload_json', JSON.stringify({ voice: { duration_secs: 1, waveform: 'AA==' } }));
+  note.append('file', new Blob([playlist], { type: 'audio/webm' }), 'x.m3u8');
+  const r = await call(u.token, 'POST', `/channels/${text.id}/messages`, note);
+  if (r.status === 200) assert.notEqual(r.body.attachments[0].filename, 'voice-message.ogg', 'not converted');
+  for (const [route, label] of [[`/guilds/${g.id}/soundboard`, 'sound'], ['/users/@me/profile-song', 'song']]) {
+    for (const body of [playlist, 'ffconcat version 1.0\nfile loop.mp3\n']) {
+      const fd = new FormData();
+      fd.append('payload_json', JSON.stringify({ name: 'loop', title: 'loop' }));
+      fd.append('file', new Blob([body], { type: 'audio/mpeg' }), 'loop.mp3');
+      assert.equal((await call(u.token, 'POST', route, fd)).status, 400, label);
+    }
+  }
+});
+
+test('a GIF that declares enormous frames is refused before ffmpeg', async () => {
+  const u = await login('secgif');
+  const gif = new Uint8Array(32);
+  gif.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x20, 0x4e, 0x20, 0x4e]);
+  const fd = new FormData();
+  fd.append('file', new Blob([gif], { type: 'image/gif' }), 'huge.gif');
+  const started = Date.now();
+  const r = await call(u.token, 'POST', '/users/@me/banner', fd);
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /dimensions/);
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('small routes refuse large bodies', async () => {
+  const u = await login('secbody');
+  // Only the declared size: the server answers without reading the rest.
+  const { request } = await import('node:http');
+  const declared = (method, route) =>
+    new Promise((resolve, reject) => {
+      const req = request(`${BASE}/api${route}`, { method, headers: { authorization: `Bearer ${u.token}`, 'content-type': 'application/json', 'content-length': 2 * 1024 * 1024 } }, (res) => {
+        res.resume();
+        req.destroy();
+        resolve(res.statusCode);
+      });
+      req.on('error', reject);
+      req.flushHeaders();
+    });
+  assert.equal(await declared('PUT', '/voice/preview'), 413);
+  assert.equal(await declared('PATCH', '/users/@me/settings'), 413);
+});
+
+test('the API limits one address, and a /64 counts as one', async () => {
+  call.noRetry = true;
+  try {
+    const hit = (ip) => fetch(`${BASE}/api/health`, { headers: { 'cf-connecting-ip': ip } }).then((r) => r.status);
+    const results = await Promise.all(Array.from({ length: 400 }, (_, i) => hit(`2001:db8:${run.length}:1::${(i + 1).toString(16)}`)));
+    assert.ok(results.includes(429), 'rotating inside a /64 is still limited');
+  } finally {
+    call.noRetry = false;
+  }
+});
+
+test('Manage Channels can\'t expose a hidden channel by moving it', async () => {
+  const owner = await login('secreorder');
+  const mod = await login('secreordermod');
+  const { g } = await serverWithVoice(owner);
+  const invite = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(mod.token, 'POST', `/invites/${invite.code}`);
+  const role = await ok(owner.token, 'POST', `/guilds/${g.id}/roles`, { name: 'chan', permissions: 1 << 4 });
+  await ok(owner.token, 'PATCH', `/guilds/${g.id}/members/${mod.id}`, { roles: [role.id] });
+  const open = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'open', kind: 4 });
+  const staff = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'staff', kind: 4 });
+  const secret = await ok(owner.token, 'POST', `/guilds/${g.id}/channels`, { name: 'secret', kind: 0, parent_id: staff.id });
+  const hide = [{ id: g.id, type: 0, allow: 0, deny: 1 << 10 }];
+  await ok(owner.token, 'PUT', `/channels/${staff.id}/permissions`, { permission_overwrites: hide });
+  await ok(owner.token, 'PUT', `/channels/${secret.id}/permissions`, { permission_overwrites: hide });
+  await ok(owner.token, 'POST', `/channels/${secret.id}/messages`, { content: 'staff only' });
+  assert.equal((await call(mod.token, 'GET', `/channels/${secret.id}/messages`)).status, 404);
+  const moved = await call(mod.token, 'PUT', `/guilds/${g.id}/channels`, { ids: [secret.id], parents: { [secret.id]: open.id } });
+  assert.ok(moved.status === 403 || moved.status === 404, `reorder -> ${moved.status}`);
+  assert.equal((await call(mod.token, 'GET', `/channels/${secret.id}/messages`)).status, 404);
+});
+
+test('Read Message History can\'t be sidestepped', async () => {
+  const owner = await login('sechistory');
+  const reader = await login('sechistoryreader');
+  const { g, text, invite } = await serverWithVoice(owner);
+  await ok(reader.token, 'POST', `/invites/${invite.code}`);
+  const old = await ok(owner.token, 'POST', `/channels/${text.id}/messages`, { content: 'old secret' });
+  await ok(owner.token, 'PUT', `/channels/${text.id}/permissions`, { permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: 1 << 16 }] });
+  assert.equal((await call(reader.token, 'POST', `/channels/${text.id}/messages/${old.id}/forward`, { channel_ids: [text.id] })).status, 403);
+  assert.equal((await call(reader.token, 'POST', `/channels/${text.id}/messages/${old.id}/threads`, {})).status, 403);
+  const reply = await ok(reader.token, 'POST', `/channels/${text.id}/messages`, { content: 'hm', reply_to: old.id });
+  assert.ok(!JSON.stringify(reply).includes('old secret'));
+});
+
+test('strangers only see a name and a picture', async () => {
+  const owner = await login('secprofile');
+  const stranger = await login('secstranger');
+  await ok(owner.token, 'PATCH', '/users/@me', { bio: 'private bio', birthday: '1990-05-01', pronouns: 'they' });
+  const seen = await ok(stranger.token, 'GET', `/users/${owner.id}/profile`);
+  assert.equal(seen.user.username, owner.username);
+  for (const leaked of ['private bio', '1990-05-01']) assert.ok(!JSON.stringify(seen).includes(leaked), leaked);
+  assert.ok(!JSON.stringify(await ok(stranger.token, 'GET', `/users/${owner.id}`)).includes('private bio'));
+  // Friends of friends stay strangers, but a shared server makes the profile visible.
+  const { invite } = await serverWithVoice(owner);
+  await ok(stranger.token, 'POST', `/invites/${invite.code}`);
+  assert.equal((await ok(stranger.token, 'GET', `/users/${owner.id}/profile`)).user.bio, 'private bio');
+});
+
+test('a one-use invite lets in exactly one person, racing or not', async () => {
+  const owner = await login('secrace');
+  const { g } = await serverWithVoice(owner);
+  const invite = await ok(owner.token, 'POST', `/guilds/${g.id}/invites`, { max_uses: 1 });
+  const people = await Promise.all(Array.from({ length: 6 }, (_, i) => login(`secrace${i}`)));
+  const results = await Promise.all(people.map((p) => call(p.token, 'POST', `/invites/${invite.code}`)));
+  assert.equal(results.filter((r) => r.status === 200).length, 1);
+});
+
+test('bans keep someone out until they\'re lifted', async () => {
+  const owner = await login('secban');
+  const member = await login('secbanned');
+  const outsider = await login('secbanother');
+  const { g, invite } = await serverWithVoice(owner);
+  await ok(member.token, 'POST', `/invites/${invite.code}`);
+  await ok(outsider.token, 'POST', `/invites/${invite.code}`);
+  assert.equal((await call(outsider.token, 'PUT', `/guilds/${g.id}/bans/${member.id}`)).status, 403);
+  await ok(owner.token, 'PUT', `/guilds/${g.id}/bans/${member.id}`);
+  assert.equal((await call(member.token, 'GET', `/guilds/${g.id}/bans`)).status, 404);
+  const rejoin = await call(member.token, 'POST', `/invites/${invite.code}`);
+  assert.equal(rejoin.status, 400);
+  assert.match(rejoin.body.error, /banned/);
+  assert.deepEqual((await ok(owner.token, 'GET', `/guilds/${g.id}/bans`)).map((u) => u.id), [member.id]);
+  await ok(owner.token, 'DELETE', `/guilds/${g.id}/bans/${member.id}`);
+  await ok(member.token, 'POST', `/invites/${invite.code}`);
+});
+
+test('logging out closes the session\'s sockets; logging out everywhere ends every session', async () => {
+  const name = `seclogout.${run}`;
+  const first = (await ok(null, 'POST', '/auth/dev', { username: name })).token;
+  const second = (await ok(null, 'POST', '/auth/dev', { username: name })).token;
+  const a = await gateway(first);
+  const b = await gateway(second);
+  const closed = (g) => new Promise((resolve) => g.ws.addEventListener('close', (e) => resolve(e.code)));
+  const aClosed = closed(a);
+  await ok(first, 'POST', '/auth/logout');
+  assert.equal(await aClosed, 4001);
+  assert.equal(b.ws.readyState, WebSocket.OPEN, 'other sessions stay');
+  assert.equal((await call(second, 'GET', '/users/@me')).status, 200);
+  const bClosed = closed(b);
+  await ok(second, 'POST', '/auth/logout-all');
+  assert.equal(await bClosed, 4001);
+  assert.equal((await call(second, 'GET', '/users/@me')).status, 401);
+});
+
+test('losing access to a call ends it; losing Speak stops the audio', async () => {
+  const owner = await login('seccall');
+  const member = await login('seccallmember');
+  const { g, voice, invite } = await serverWithVoice(owner);
+  await ok(member.token, 'POST', `/invites/${invite.code}`);
+  const o = await voiceSocket(owner.token, voice.id);
+  const m = await voiceSocket(member.token, voice.id);
+  const audio = new Uint8Array([1, 9, 9, 9]);
+  m.ws.send(audio);
+  assert.ok(await eventually(() => o.binary > 0), 'audio flows at first');
+
+  await ok(owner.token, 'PUT', `/channels/${voice.id}/permissions`, { permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: 1 << 21 }] });
+  await new Promise((r) => setTimeout(r, 200));
+  const before = o.binary;
+  m.ws.send(audio);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(o.binary, before, 'no audio after losing Speak');
+  assert.equal(m.ws.readyState, WebSocket.OPEN, 'still in the call');
+
+  await ok(owner.token, 'PUT', `/channels/${voice.id}/permissions`, { permission_overwrites: [{ id: g.id, type: 0, allow: 0, deny: 1 << 20 }] });
+  assert.ok(await eventually(() => m.closed !== null), 'out of the call after losing Connect');
+  o.ws.close();
+});
+
+test('leaving a group DM ends your part in its call, and blocks cover DM calls', async () => {
+  const a = await login('secgroupa');
+  const b = await login('secgroupb');
+  const c = await login('secgroupc');
+  for (const other of [b, c]) {
+    await ok(a.token, 'POST', '/users/@me/relationships', { username: other.username });
+    await ok(other.token, 'PUT', `/users/@me/relationships/${a.id}`, {});
+  }
+  const group = await ok(a.token, 'POST', '/users/@me/channels', { recipients: [b.id, c.id] });
+  const inCall = await voiceSocket(b.token, group.id);
+  await ok(a.token, 'DELETE', `/channels/${group.id}/recipients/${b.id}`);
+  assert.ok(await eventually(() => inCall.closed !== null), 'removed person is out of the call');
+
+  const dm = await ok(a.token, 'POST', '/users/@me/channels', { recipient_id: c.id });
+  await ok(c.token, 'PUT', `/users/@me/relationships/${a.id}`, { type: 2 });
+  const blocked = await voiceSocket(a.token, dm.id);
+  assert.equal(blocked.closed, 4004);
+});
+
+test('Discord sign-in: invites, the browser that started it, and only the app that started it', async () => {
+  // A new address each time: sign-ins are limited per address, and this test does many.
+  let address = 0;
+  const from = () => ({ 'cf-connecting-ip': `198.51.100.${++address}` });
+  const start = (query, cookie) => fetch(`${BASE}/api/auth/discord/start${query}`, { redirect: 'manual', headers: { ...from(), ...(cookie ? { cookie } : {}) } });
+  const stateOf = (res) => new URL(res.headers.get('location')).searchParams.get('state');
+  const cookieOf = (res) => res.headers.get('set-cookie').split(';')[0];
+  const callback = (state, name, cookie) => fetch(`${BASE}/api/auth/discord/callback?code=user-${name}&state=${state}`, { redirect: 'manual', headers: { ...from(), ...(cookie ? { cookie } : {}) } });
+  const name = `newcomer${run}`;
+
+  // Old desktop apps chose the secret themselves: whoever sent the link would get the session.
+  const old = await start(`?nonce=${'a'.repeat(40)}`);
+  assert.equal(old.status, 200);
+  assert.match(await old.text(), /can't sign in any more/);
+  assert.ok(!(await (await fetch(`${BASE}/api/auth/poll?nonce=${'a'.repeat(40)}`)).text()).includes('"token"'), 'polling is gone');
+
+  // No invite, no account.
+  let s = await start('');
+  assert.match(s.headers.get('location'), /prompt=none/);
+  let res = await callback(stateOf(s), name, cookieOf(s));
+  assert.match(await res.text(), /invite-only/);
+
+  // The callback must come back to the browser that started the sign-in.
+  const owner = await login('secinviter');
+  const { invite } = await serverWithVoice(owner);
+  s = await start(`?invite=${invite.code}`);
+  res = await callback(stateOf(s), name);
+  assert.match(await res.text(), /expired/, 'no cookie');
+  s = await start(`?invite=${invite.code}`);
+  res = await callback(stateOf(s), name, 'linkord_login=someone-elses');
+  assert.match(await res.text(), /expired/, 'wrong cookie');
+
+  // With the invite, the web sign-in creates the account and lands in the client.
+  s = await start(`?invite=${invite.code}`);
+  res = await callback(stateOf(s), name, cookieOf(s));
+  assert.equal(res.status, 303);
+  const webToken = res.headers.get('location').match(/#token=([\w-]+)/)[1];
+  const me = await ok(webToken, 'GET', '/users/@me');
+  assert.equal(me.username, name.toLowerCase());
+
+  // Existing accounts don't need one any more. Desktop: the code only goes to the local callback...
+  const verifier = 'v'.repeat(43);
+  const challenge = (await import('node:crypto')).createHash('sha256').update(verifier).digest('base64url');
+  const clientState = 's'.repeat(40);
+  s = await start(`?port=45123&state=${clientState}&challenge=${challenge}`);
+  assert.ok(!s.headers.get('location').includes('prompt=none'), 'desktop always asks');
+  res = await callback(stateOf(s), name, cookieOf(s));
+  const local = new URL(res.headers.get('location'));
+  assert.equal(local.origin, 'http://127.0.0.1:45123');
+  assert.equal(local.searchParams.get('state'), clientState);
+  const code = local.searchParams.get('code');
+  // ...and is only good with the secret behind the challenge, and only once.
+  assert.equal((await call(null, 'POST', '/auth/exchange', { code, verifier: 'wrong' })).status, 401);
+  s = await start(`?port=45123&state=${clientState}&challenge=${challenge}`);
+  res = await callback(stateOf(s), name, cookieOf(s));
+  const code2 = new URL(res.headers.get('location')).searchParams.get('code');
+  const { token } = await ok(null, 'POST', '/auth/exchange', { code: code2, verifier });
+  assert.equal((await ok(token, 'GET', '/users/@me')).id, me.id);
+  assert.equal((await call(null, 'POST', '/auth/exchange', { code: code2, verifier })).status, 401, 'one time');
+
+  for (const bad of ['?port=80&state=' + clientState + '&challenge=' + challenge, '?port=45123&state=short&challenge=' + challenge, `?port=45123&state=${clientState}`]) {
+    assert.equal((await start(bad)).status, 400, bad);
+  }
 });

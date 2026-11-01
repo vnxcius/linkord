@@ -25,9 +25,13 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
   const slots: string[] = [];
   const slot = (html: string) => `\u0000${slots.push(html) - 1}\u0000`;
 
-  let s = src.replace(/```(?:([\w+-]+)\n)?([\s\S]*?)```/g, (_, _lang, code: string) =>
-    slot(`<pre class="md-code"><code>${esc(code.replace(/^\n+|\n+$/g, ''))}</code></pre>`),
-  );
+  // Slots hold finished HTML, so nothing from outside may look like one, and no URL below may swallow one: expanded
+  // inside href="..." it would break out of the attribute.
+  let s = src
+    .replace(/\u0000/g, '')
+    .replace(/```(?:([\w+-]+)\n)?([\s\S]*?)```/g, (_, _lang, code: string) =>
+      slot(`<pre class="md-code"><code>${esc(code.replace(/^\n+|\n+$/g, ''))}</code></pre>`),
+    );
   s = s.replace(/`([^`\n]+)`/g, (_, c: string) => slot(`<code class="md-inline">${esc(c)}</code>`));
   // A backslash keeps the next character from being markup (Kass escapes song titles this way).
   s = s.replace(/\\([\\`*_~|[\]()<>#@:!.-])/g, (_, c: string) => slot(esc(c)));
@@ -55,12 +59,12 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
     slot(`<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`);
   // Masked links: [text](url), or [text](<url>) as Discord writes them when the URL shouldn't get a preview.
   s = s.replace(
-    /\[([^\]\n]+)\]\((?:&lt;(https?:\/\/[^\s]+?)&gt;|(https?:\/\/[^\s()]+))\)/g,
+    /\[([^\]\n]+)\]\((?:&lt;(https?:\/\/[^\s\u0000]+?)&gt;|(https?:\/\/[^\s()\u0000]+))\)/g,
     (_, text: string, a?: string, b?: string) => link((a ?? b)!, inline(text)),
   );
   // <url>: a plain link, shown without the angle brackets.
-  s = s.replace(/&lt;(https?:\/\/[^\s]+?)&gt;/g, (_, url: string) => link(url, url));
-  s = s.replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g, (url) => link(url, url));
+  s = s.replace(/&lt;(https?:\/\/[^\s\u0000]+?)&gt;/g, (_, url: string) => link(url, url));
+  s = s.replace(/https?:\/\/[^\s<\u0000]+[^\s<.,:;"')\]!?\u0000]/g, (url) => link(url, url));
 
   const out: string[] = [];
   let quote: string[] = [];

@@ -52,7 +52,7 @@ test:
     - curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y --no-install-recommends nodejs ffmpeg
   script:
     # Cheapest checks first, so a broken translation fails in seconds instead of after the Rust build.
-    - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs)
+    - (cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs markdown.test.mjs)
     - npm i -g bun@1
     - (cd app && bun install --frozen-lockfile && bun run build)
     - (cd server && cargo test && cargo build)
@@ -71,7 +71,7 @@ test:
       LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704
       LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off
       DATABASE_URL=postgres://linkord:linkord@postgres:5432/linkord_test
-      LINKORD_DATA_DIR="$DATA" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID= DISCORD_CLIENT_SECRET=
+      LINKORD_DATA_DIR="$DATA" LINKORD_DEV_LOGIN=true DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702
       ./target/debug/linkord-server > "$DATA/server.log" 2>&1 &
       cd "$CI_PROJECT_DIR"
     - for i in $(seq 1 60); do curl -sf localhost:7701/api/health && break; sleep 1; done

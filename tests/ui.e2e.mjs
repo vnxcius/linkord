@@ -62,7 +62,7 @@ async function user(name, prefs, context = {}, tour = false) {
   if (TIMEOUT) ctx.setDefaultTimeout(TIMEOUT);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
-  page.on('console', (m) => m.text().includes('noise suppression unavailable') && errors.push(`${name}: ${m.text()}`));
+  page.on('console', (m) => (m.text().includes('noise suppression unavailable') || m.text().includes('Content Security Policy')) && errors.push(`${name}: ${m.text()}`));
   await page.goto(BASE);
   if (prefs) {
     await page.evaluate((p) => localStorage.setItem('linkord.prefs', JSON.stringify(p)), prefs);
@@ -143,6 +143,25 @@ await step('profile: click the picture to set a GIF (stays animated), × removes
     await a.page.waitForSelector(`.account-names span:text-is("@${name}")`);
   }
   await a.page.click('.settings-close');
+});
+
+await step('security: a crafted message runs nothing, and a link can\'t swap your session', async () => {
+  const payload = 'https://a.b/[link](<https://x/autofocus/onfocus=window.__pwned=1//>) https://a.b/[l](https://x/onmouseover=window.__pwned=1//)';
+  await a.page.fill('.composer textarea', payload);
+  await a.page.keyboard.press('Enter');
+  const msg = b.page.locator('.message', { hasText: 'a.b' }).last();
+  await msg.waitFor();
+  await msg.locator('a').first().hover();
+  await b.page.waitForTimeout(200);
+  assert.equal(await b.page.evaluate(() => window.__pwned), undefined);
+  assert.equal(await b.page.locator('.message a[onfocus], .message a[onmouseover], .message a[autofocus]').count(), 0);
+
+  const other = await browser.newContext();
+  const page = await other.newPage();
+  await page.goto(`${BASE}/#token=someone-elses-token`);
+  await page.waitForSelector('.login');
+  assert.equal(await page.evaluate(() => localStorage.getItem('linkord.token')), null);
+  await other.close();
 });
 
 await step('messages, link preview, reactions via context menu', async () => {
@@ -268,11 +287,12 @@ await step('channels: categories, drag to reorder and between categories, Move U
   const order = (pg) => pg.$$eval(`${textCat} .channel-item:not(.thread-item) .channel-name`, (els) => els.map((e) => e.textContent));
   assert.deepEqual((await order(a.page)).slice(0, 2), ['general', 'lore']);
   await a.page.dragAndDrop('.channel-item:has-text("lore")', '.channel-item:has-text("general")', { targetPosition: { x: 20, y: 3 } });
-  const firstIn = (cat) => [...document.querySelectorAll('.channel-group')].find((g) => g.querySelector('.category-title')?.textContent.includes(cat))?.querySelector('.channel-item .channel-name')?.textContent;
-  await b.page.waitForFunction(`(${firstIn})('Text Channels') === 'lore'`);
+  // A function, not a string: the page's CSP doesn't allow eval.
+  const firstIs = ([cat, name]) => [...document.querySelectorAll('.channel-group')].find((g) => g.querySelector('.category-title')?.textContent.includes(cat))?.querySelector('.channel-item .channel-name')?.textContent === name;
+  await b.page.waitForFunction(firstIs, ['Text Channels', 'lore']);
   await a.page.click('.channel-item:has-text("general")', { button: 'right' });
   await a.page.click('.context-menu button:has-text("Move Up")');
-  await b.page.waitForFunction(`(${firstIn})('Text Channels') === 'general'`);
+  await b.page.waitForFunction(firstIs, ['Text Channels', 'general']);
 
   // A new category; drop "lore" on its header to move it in.
   await a.page.click('.guild-header');

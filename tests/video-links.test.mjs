@@ -44,3 +44,9 @@ test('every player origin is allowed in the desktop CSP frame-src', () => {
     assert.ok(PLAYER_ORIGINS.includes(new URL(play(url).src).origin), url);
   }
 });
+
+test('every player origin is allowed in the web CSP frame-src too', () => {
+  const server = readFileSync(new URL('../server/src/security.rs', import.meta.url), 'utf8');
+  for (const o of PLAYER_ORIGINS) assert.ok(server.includes(o), `${o} missing from security.rs WEB_CSP`);
+  assert.ok(server.includes('https://player.kick.com'));
+});

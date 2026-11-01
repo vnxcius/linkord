@@ -165,6 +165,7 @@ pub async fn serve(st: AppState) {
     let app = Router::new()
         .route("/metrics", get(metrics))
         .route("/moderation/remove", post(remove_media))
+        .route("/moderation/suspend", post(suspend))
         .layer(axum::middleware::from_fn(move |req: Request, next: Next| {
             let token = token.clone();
             async move { guard(&token, req, next).await }
@@ -302,6 +303,30 @@ async fn remove_upload(st: &AppState, base: &str, url: &str) -> u64 {
         let _ = tokio::fs::remove_dir_all(dir).await;
     }
     size
+}
+
+#[derive(Deserialize)]
+struct Suspend {
+    user_id: Id,
+    suspended: bool,
+}
+
+/// Suspends an account (no sign-in, every session ended, out of voice) or restores it.
+async fn suspend(State(st): State<AppState>, Json(b): Json<Suspend>) -> ApiResult<Json<Value>> {
+    let done = sqlx::query("UPDATE users SET suspended_at = CASE WHEN $2 THEN now() END WHERE id = $1 AND NOT bot AND deleted_at IS NULL")
+        .bind(b.user_id)
+        .bind(b.suspended)
+        .execute(&st.db)
+        .await?
+        .rows_affected();
+    if done == 0 {
+        return Err(crate::error::ApiError::NotFound);
+    }
+    if b.suspended {
+        crate::auth::end_sessions(&st, b.user_id).await?;
+    }
+    tracing::info!(target: "moderation", user = %b.user_id, suspended = b.suspended, "account suspension changed");
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// Removes one upload for a moderator: the row that shows it, its file and the owner's quota, and tells connected

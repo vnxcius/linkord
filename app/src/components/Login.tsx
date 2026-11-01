@@ -1,5 +1,14 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
-import { api, checkServer, defaultServer, serverUrl, setServerUrl, setToken } from '../lib/api';
+import {
+  api,
+  checkServer,
+  defaultServer,
+  INVITE_KEY,
+  LOGIN_PENDING_KEY,
+  serverUrl,
+  setServerUrl,
+  setToken,
+} from '../lib/api';
 import { t } from '../lib/i18n';
 import { isTauri, openExternal } from '../lib/platform';
 import * as I from './Icons';
@@ -8,6 +17,15 @@ import { Emblem } from './Icons';
 function randomNonce() {
   const b = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** SHA-256 of `text` in URL-safe base64, the challenge the server checks the sign-in's secret against. */
+async function challengeOf(text: string) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 function hostOf(url: string) {
@@ -43,23 +61,40 @@ export function Login(p: { onLogin: () => void }) {
 
   async function discordLogin() {
     setError(null);
+    const invite = sessionStorage.getItem(INVITE_KEY);
+    const inviteParam = invite ? `invite=${encodeURIComponent(invite)}` : '';
     if (!isTauri) {
-      location.href = `${serverUrl()}/api/auth/discord/start`;
+      sessionStorage.setItem(LOGIN_PENDING_KEY, '1');
+      location.href = `${serverUrl()}/api/auth/discord/start${inviteParam ? `?${inviteParam}` : ''}`;
       return;
     }
-    // Desktop: sign in through the system browser, then pick the session up by polling.
-    const nonce = randomNonce();
-    await openExternal(`${serverUrl()}/api/auth/discord/start?nonce=${nonce}`);
-    setWaiting(true);
-    const deadline = Date.now() + 10 * 60_000;
-    while (Date.now() < deadline && waiting()) {
-      await new Promise((r) => setTimeout(r, 1500));
+    // Desktop: sign in through the system browser, which comes back to a listener on this computer. Only this app
+    // gets the code, and only with this secret does it become a session.
+    const verifier = randomNonce();
+    const state = randomNonce();
+    const challenge = await challengeOf(verifier);
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { listen } = await import('@tauri-apps/api/event');
+    const unlisten = await listen<string>('login-code', async ({ payload: code }) => {
+      unlisten();
       try {
-        const { token } = await api<{ token: string | null }>('GET', `/auth/poll?nonce=${nonce}`);
-        if (token) return done(token);
-      } catch {}
+        const { token } = await api<{ token: string }>('POST', '/auth/exchange', { code, verifier });
+        done(token);
+      } catch (err) {
+        setError((err as Error).message);
+      }
+      setWaiting(false);
+    });
+    try {
+      const port = await invoke<number>('login_listen', { state });
+      setWaiting(true);
+      const params = `port=${port}&state=${state}&challenge=${challenge}${inviteParam ? `&${inviteParam}` : ''}`;
+      await openExternal(`${serverUrl()}/api/auth/discord/start?${params}`);
+    } catch (err) {
+      unlisten();
+      setWaiting(false);
+      setError((err as Error).message ?? String(err));
     }
-    setWaiting(false);
   }
 
   async function devLogin(e: Event) {

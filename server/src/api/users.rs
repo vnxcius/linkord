@@ -45,13 +45,39 @@ async fn me(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<Jso
     Ok(Json(serde_json::to_value(u.me()).unwrap()))
 }
 
-async fn get_user(State(st): State<AppState>, AuthUser(_): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<User>> {
-    Ok(Json(User::get(&st.db, id).await?))
+async fn get_user(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<User>> {
+    let user = User::get(&st.db, id).await?;
+    Ok(Json(if knows(&st, me, &user).await? { user } else { user.outline() }))
+}
+
+/// Whether `me` has anything to do with `user`: a server or DM in common, or a relationship of any kind (a friend
+/// request needs to show who it's from). Everyone else gets only the name and picture.
+pub async fn knows(st: &AppState, me: Id, user: &User) -> ApiResult<bool> {
+    if me == user.id || user.bot {
+        return Ok(true);
+    }
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM members a JOIN members b USING (guild_id) WHERE a.user_id = $1 AND b.user_id = $2)
+             OR EXISTS (SELECT 1 FROM dm_recipients a JOIN dm_recipients b USING (channel_id) WHERE a.user_id = $1 AND b.user_id = $2)
+             OR EXISTS (SELECT 1 FROM relationships WHERE (user_id = $1 AND target_id = $2) OR (user_id = $2 AND target_id = $1))",
+    )
+    .bind(me)
+    .bind(user.id)
+    .fetch_one(&st.db)
+    .await?)
 }
 
 /// The full profile modal: the user plus what you have in common (mutual friends and servers).
 async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<serde_json::Value>> {
     let user = User::get(&st.db, id).await?;
+    if !knows(&st, me, &user).await? {
+        let note: Option<String> =
+            sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
+        return Ok(Json(serde_json::json!({
+            "user": user.outline(), "mutual_friends": [], "mutual_guilds": [], "connections": [], "favorite_games": [], "links": [],
+            "note": note.unwrap_or_default(), "song": null,
+        })));
+    }
     let friend = crate::api::relationships::FRIEND;
     let mutual_friends: Vec<Id> = sqlx::query_scalar(
         "SELECT a.target_id FROM relationships a JOIN relationships b ON b.target_id = a.target_id
@@ -314,6 +340,10 @@ async fn upload_song(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp:
     }
     let (filename, bytes) = file.ok_or_else(|| bad("missing file"))?;
     let title = clean_song_title(fields.title.as_deref())?;
+    if crate::media::audio_format(&bytes).is_none() {
+        return Err(bad("songs must be mp3, ogg, wav, webm or m4a files"));
+    }
+    st.limits.check(format!("upload:{me}"), 10.0, 0.2)?;
     uploads::reserve(&st, me, bytes.len()).await?;
     // One song per person: the previous one's files go.
     let dir = format!("profile-songs/{me}");
@@ -601,6 +631,7 @@ struct Crop {
 }
 
 async fn upload_image(State(st): State<AppState>, AuthUser(me): AuthUser, mp: Multipart, which: &'static str) -> ApiResult<Json<serde_json::Value>> {
+    st.limits.check(format!("upload:{me}"), 10.0, 0.2)?;
     let (name, bytes) = read_image(&st, mp, which).await?;
     uploads::reserve(&st, me, bytes.len()).await?;
     let url = uploads::save(&st, &format!("{which}s/{me}"), &name, &bytes).await?;
@@ -639,14 +670,6 @@ pub async fn read_image(st: &AppState, mut mp: Multipart, which: &'static str) -
     if !uploads::is_image(&ct) && !video {
         return Err(bad("must be a png, jpeg, gif or webp image"));
     }
-    // Clients show a nameplate as a video when its URL ends in .webm, so that name is ours to give.
-    let name = if video {
-        "nameplate.webm".to_string()
-    } else if gif {
-        format!("{which}.webp")
-    } else {
-        field.file_name().unwrap_or("image").to_string()
-    };
     let limit = match which {
         _ if gif => MAX_GIF_SOURCE,
         "avatar" => MAX_AVATAR,
@@ -659,6 +682,14 @@ pub async fn read_image(st: &AppState, mut mp: Multipart, which: &'static str) -
     if video && !bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
         return Err(bad("that file isn't a WebM video"));
     }
+    // Clients show a nameplate as a video when its URL ends in .webm, so that name is ours to give.
+    let name = if video {
+        "nameplate.webm".to_string()
+    } else if gif {
+        format!("{which}.webp")
+    } else {
+        uploads::image_name(which, &bytes)?
+    };
     if gif {
         bytes = crop_gif(st, &bytes, crop, which == "avatar").await?;
     }
@@ -668,8 +699,9 @@ pub async fn read_image(st: &AppState, mut mp: Multipart, which: &'static str) -
 /// Crops and resizes an animated GIF (avatar 1:1 up to 320 px, banner 3:1 up to 960 px) into an animated WebP,
 /// smaller and smaller until it fits.
 async fn crop_gif(st: &AppState, gif: &[u8], crop: Option<Crop>, avatar: bool) -> ApiResult<Vec<u8>> {
-    if !gif.starts_with(b"GIF8") {
-        return Err(bad("couldn't read that GIF"));
+    let (w, h) = crate::media::gif_size(gif).ok_or_else(|| bad("couldn't read that GIF"))?;
+    if w > crate::media::MAX_GIF_SIDE || h > crate::media::MAX_GIF_SIDE {
+        return Err(bad("that GIF's dimensions are too large"));
     }
     let (aspect, max_w, limit) = if avatar { (1.0, 320.0, MAX_ANIMATED_AVATAR) } else { (3.0, 960.0, MAX_ANIMATED_BANNER) };
     let turn = match crop.as_ref().map(|c| c.rotate.rem_euclid(360)) {
@@ -700,21 +732,20 @@ async fn crop_gif(st: &AppState, gif: &[u8], crop: Option<Crop>, avatar: bool) -
     for (scale, quality, fps) in [(1.0, 75, ""), (0.75, 60, ",fps=20"), (0.5, 50, ",fps=15")] {
         // Never larger than the framed part.
         let filter = format!("{turn}{frame},scale=w=min({max_w}\\,iw)*{scale}:h=ow/{aspect}:flags=lanczos{fps}");
-        let run = tokio::process::Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-            .arg(&src)
-            .args(["-vf", &filter, "-an", "-c:v", "libwebp_anim", "-loop", "0", "-quality", &quality.to_string(), "-compression_level", "4"])
-            .arg(&out)
-            .kill_on_drop(true)
-            .output();
-        match tokio::time::timeout(std::time::Duration::from_secs(60), run).await {
-            Ok(Ok(o)) if o.status.success() => {}
-            Ok(Ok(o)) => {
+        let mut run = crate::media::ffmpeg_input(&src, "gif");
+        run.args(["-vf", &filter, "-an", "-c:v", "libwebp_anim", "-loop", "0", "-quality", &quality.to_string(), "-compression_level", "4"]).arg(&out);
+        match crate::media::run(run, std::time::Duration::from_secs(60)).await {
+            Ok(Some(o)) if o.status.success() => {}
+            Ok(Some(o)) => {
                 tracing::warn!(stderr = %String::from_utf8_lossy(&o.stderr), "gif crop failed");
                 break;
             }
-            _ => {
+            Ok(None) => {
                 result = Err(bad("that GIF took too long to process; try a shorter one"));
+                break;
+            }
+            Err(e) => {
+                result = Err(e);
                 break;
             }
         }
@@ -1014,7 +1045,8 @@ async fn delete_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     .execute(&st.db)
     .await?;
     sqlx::query("DELETE FROM user_notes WHERE user_id = $1 OR target_id = $1").bind(me).execute(&st.db).await?;
-    for table in ["sessions", "read_states", "user_settings", "custom_statuses", "favorite_games", "kass_plays", "profile_songs"] {
+    st.hub.close_user(me);
+    for table in ["sessions", "read_states", "user_settings", "custom_statuses", "favorite_games", "kass_plays", "profile_songs", "connections", "user_stats", "user_games"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1")).bind(me).execute(&st.db).await?;
     }
     for dir in ["avatars", "banners", "nameplates", "profile-songs"] {

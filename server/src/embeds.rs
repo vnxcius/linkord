@@ -87,10 +87,16 @@ async fn cached_embed(st: &AppState, url: &str) -> Option<Value> {
             return hit.1.clone();
         }
     }
+    // A few pages at a time, whatever people post; the others go without a preview rather than wait.
+    static FETCHES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+    let Ok(_turn) = FETCHES.try_acquire() else { return None };
     let e = fetch_embed(url).await;
     st.embed_cache.insert(url.to_string(), (Instant::now(), e.clone()));
     if st.embed_cache.len() > 5000 {
         st.embed_cache.retain(|_, v| v.0.elapsed() < CACHE_TTL);
+        if st.embed_cache.len() > 5000 {
+            st.embed_cache.clear();
+        }
     }
     e
 }
@@ -117,13 +123,15 @@ fn is_public(ip: IpAddr) -> bool {
                 return is_public(IpAddr::V4(v4));
             }
             let s = v6.segments();
-            !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80)
+            // Also the forms that wrap an IPv4 address: IPv4-compatible (::/96), NAT64, 6to4 and Teredo, and old site-local.
+            let wraps_v4 = s[..6] == [0; 6] || (s[0] == 0x64 && s[1] == 0xff9b) || s[0] == 0x2002 || (s[0] == 0x2001 && s[1] == 0);
+            !(wraps_v4 || v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || (s[0] & 0xffc0) == 0xfec0)
         }
     }
 }
 
 /// GET that follows up to 3 redirects, re-checking every hop resolves only to public addresses.
-async fn safe_get(url: &str) -> Option<reqwest::Response> {
+pub async fn safe_get(url: &str) -> Option<reqwest::Response> {
     let mut current = Url::parse(url).ok()?;
     for _ in 0..4 {
         if !matches!(current.scheme(), "http" | "https") {
@@ -305,7 +313,8 @@ fn attr(tag: &str, name: &str) -> Option<String> {
 }
 
 fn meta_content(html: &str, key: &str) -> Option<String> {
-    let lower = html.to_lowercase();
+    // ASCII only: other characters can change length when lowercased, and these offsets index `html` too.
+    let lower = html.to_ascii_lowercase();
     let mut from = 0;
     while let Some(pos) = lower[from..].find("<meta") {
         let start = from + pos;
@@ -320,7 +329,7 @@ fn meta_content(html: &str, key: &str) -> Option<String> {
 }
 
 fn tag_text(html: &str, tag: &str) -> Option<String> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let open = lower.find(&format!("<{tag}"))?;
     let start = open + lower[open..].find('>')? + 1;
     let end = start + lower[start..].find(&format!("</{tag}"))?;

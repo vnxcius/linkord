@@ -14,6 +14,7 @@ Nice=10
 IOSchedulingClass=idle
 CPUQuota=25%
 MemoryMax=256M
+NoNewPrivileges=true
 
 [Install]
 WantedBy=default.target

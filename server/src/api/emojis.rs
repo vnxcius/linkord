@@ -58,6 +58,9 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Path(gid): P
     }
     let name = name.ok_or_else(|| bad("missing name"))?;
     let (animated, bytes) = image.ok_or_else(|| bad("missing image"))?;
+    if uploads::image_ext(&bytes).is_none() {
+        return Err(bad("emoji must be a png, jpeg, gif or webp image"));
+    }
     uploads::reserve(&st, me, bytes.len()).await?;
     let id = Id::new();
     let path = st.cfg.uploads_dir().join("emojis").join(format!("{id}.{}", if animated { "gif" } else { "png" }));

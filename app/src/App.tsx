@@ -34,13 +34,14 @@ import { TitleBar } from './components/TitleBar';
 import { PickUsername } from './components/Username';
 import { Onboarding } from './components/Onboarding';
 import { Button } from './components/ui/button';
-
-const INVITE_KEY = 'linkord.pendingInvite';
+import { INVITE_KEY, LOGIN_PENDING_KEY } from './lib/api';
 
 function captureUrlState() {
-  // Web Discord login returns with the session token in the fragment.
+  // Web Discord login returns with the session token in the fragment. Only a login started in this tab counts: a
+  // link with someone else's token must not swap the session behind the user's back.
   const m = location.hash.match(/token=([\w-]+)/);
-  if (m) setToken(m[1]);
+  if (m && sessionStorage.getItem(LOGIN_PENDING_KEY)) setToken(m[1]);
+  sessionStorage.removeItem(LOGIN_PENDING_KEY);
   const code = parseInvite(location.pathname);
   if (code) sessionStorage.setItem(INVITE_KEY, code);
   if (m || code) history.replaceState(null, '', '/');

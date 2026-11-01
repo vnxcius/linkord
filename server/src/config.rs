@@ -17,6 +17,12 @@ pub struct Config {
     pub sounds_dir: PathBuf,
     pub discord_client_id: String,
     pub discord_client_secret: String,
+    /// Discord's addresses (tests point these at a mock).
+    pub discord_api_url: String,
+    pub discord_cdn_url: String,
+    /// Who can create an account: "invite" (a valid invite link, the default), "open" or "closed".
+    /// Existing accounts can always sign in.
+    pub signup: String,
     /// Enables passwordless username login for local testing. Never enable on a public server.
     pub dev_login: bool,
     /// Total bytes each user may upload.
@@ -68,6 +74,9 @@ impl Config {
             web_dir: opt("LINKORD_WEB_DIR").unwrap_or_else(|| "../app/dist".into()).into(),
             discord_client_id: opt("DISCORD_CLIENT_ID").unwrap_or_default(),
             discord_client_secret: opt("DISCORD_CLIENT_SECRET").unwrap_or_default(),
+            discord_api_url: opt("DISCORD_API_URL").unwrap_or_else(|| "https://discord.com".into()),
+            discord_cdn_url: opt("DISCORD_CDN_URL").unwrap_or_else(|| "https://cdn.discordapp.com".into()),
+            signup: opt("LINKORD_SIGNUP").unwrap_or_else(|| "invite".into()),
             dev_login: opt("LINKORD_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
             upload_quota: opt("LINKORD_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
             spotify_client_id: opt("SPOTIFY_CLIENT_ID").unwrap_or_default(),

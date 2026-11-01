@@ -223,8 +223,8 @@ async fn set_avatar(State(st): State<AppState>, AdminUser(_): AdminUser, mut mp:
     if !uploads::is_image(field.content_type().unwrap_or_default()) {
         return Err(bad("must be a png, jpeg, gif or webp image"));
     }
-    let name = field.file_name().unwrap_or("avatar").to_string();
     let bytes = uploads::read_field(field, MAX_AVATAR).await?;
+    let name = uploads::image_name("avatar", &bytes)?;
     let url = uploads::save(&st, "bots", &name, &bytes).await?;
     save_avatar(&st, &url).await
 }
@@ -299,6 +299,7 @@ fn target_for(query: &str) -> ApiResult<String> {
 
 /// Looks up a YouTube link or search (see [`target_for`]).
 async fn resolve(st: &AppState, target: String, requested_by: Id) -> ApiResult<Track> {
+    let _turn = crate::media::lookup_turn().await?;
     let run = ytdlp_cmd(st).args(["-j", "--no-playlist", "--no-warnings", "--", &target]).output();
     let out = match tokio::time::timeout(Duration::from_secs(30), run).await {
         Ok(Ok(out)) => out,
@@ -312,7 +313,9 @@ async fn resolve(st: &AppState, target: String, requested_by: Id) -> ApiResult<T
         .lines()
         .find_map(|l| serde_json::from_str(l).ok())
         .ok_or_else(|| {
-            tracing::warn!("yt-dlp found nothing for {target}: {}", String::from_utf8_lossy(&out.stderr).trim());
+            // What someone searched for stays out of the log.
+            let what = if target.starts_with("ytsearch") { "a search" } else { "a link" };
+            tracing::warn!("yt-dlp found nothing for {what}: {}", String::from_utf8_lossy(&out.stderr).trim());
             bad("couldn't find that video")
         })?;
     let s = |k: &str| info[k].as_str().map(str::to_string);
@@ -1055,7 +1058,8 @@ mod spotify {
         let mut link = parse(query);
         // Short links (spotify.link/...) redirect to open.spotify.com; only that host is fetched.
         if link.is_none() && query.trim().starts_with("https://spotify.link/") {
-            if let Ok(res) = st.http.get(query.trim()).send().await {
+            // Through the guarded client: a redirect must not reach this machine or the home network.
+            if let Some(res) = crate::embeds::safe_get(query.trim()).await {
                 link = parse(res.url().as_str());
             }
         }

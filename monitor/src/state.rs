@@ -18,6 +18,8 @@ pub struct Inner {
     pub http: reqwest::Client,
     pub db: PgPool,
     pub attempts: Attempts,
+    /// The random part of the session cookie's signing key (auth.rs).
+    pub session_secret: RwLock<String>,
     /// The latest system + app reading (sampler.rs).
     pub live: RwLock<Value>,
     pub checks: RwLock<Vec<CheckState>>,
@@ -45,6 +47,7 @@ impl Deref for AppState {
 impl AppState {
     pub fn new(cfg: Config) -> anyhow::Result<AppState> {
         let store = Store::open(&cfg.data_dir)?;
+        let session_secret = RwLock::new(crate::auth::load_secret(&cfg.data_dir)?);
         // Read only, small and impatient: a slow dashboard query is cancelled long before it could bother the app,
         // and the database refuses any write from this connection.
         let options = PgConnectOptions::from_str(&cfg.database_url)?.application_name("linkord-monitor").options([
@@ -66,6 +69,7 @@ impl AppState {
             http,
             db,
             attempts: Default::default(),
+            session_secret,
             live: RwLock::new(Value::Null),
             checks: RwLock::new(vec![]),
             certs: RwLock::new(Value::Array(vec![])),

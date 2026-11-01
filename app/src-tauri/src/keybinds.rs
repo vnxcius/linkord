@@ -44,6 +44,9 @@ pub struct Matcher {
     active: Vec<u32>,
 }
 
+/// More than anyone has actions for.
+pub const MAX_BINDS: usize = 64;
+
 impl Matcher {
     /// Replaces the binds; anything held is released.
     pub fn set_binds(&mut self, binds: Vec<Bind>) -> Vec<(u32, bool)> {

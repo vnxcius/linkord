@@ -18,8 +18,8 @@
 //! Screen shares are only forwarded to people watching them ("Watch Stream").
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{CloseFrame, Message as WsMsg, WebSocket, WebSocketUpgrade};
@@ -39,6 +39,7 @@ use crate::error::{bad, ApiError, ApiResult};
 use crate::id::Id;
 use crate::models::kind;
 use crate::perms;
+use crate::ratelimit::ClientIp;
 use crate::state::AppState;
 
 /// 1080p60 keyframes from a hardware encoder can approach a megabyte.
@@ -94,6 +95,43 @@ struct Peer {
     /// Set while the peer's media socket is connected.
     media: Mutex<Option<MediaTx>>,
     watching: Mutex<HashSet<Id>>,
+    /// What they may send right now. Permissions change during a call (`recheck`).
+    allowed: Arc<Allowed>,
+    /// The login behind this session, so signing out ends it.
+    token: Mutex<Vec<u8>>,
+}
+
+struct Allowed {
+    speak: AtomicBool,
+    stream: AtomicBool,
+}
+
+/// A voice frame is far smaller than this; only video needs MAX_FRAME.
+const MAX_VOICE_FRAME: usize = 4 * 1024;
+/// What one person can send per second, sustained (and in a burst): well above a 1080p60 stream with audio.
+const BYTES_PER_SEC: f64 = 8.0 * 1024.0 * 1024.0;
+const BYTES_BURST: f64 = 16.0 * 1024.0 * 1024.0;
+
+/// Limits how much a socket relays. Frames over the budget are dropped, as with a bad network.
+struct Budget {
+    bytes: f64,
+    at: Instant,
+}
+
+impl Budget {
+    fn new() -> Self {
+        Budget { bytes: BYTES_BURST, at: Instant::now() }
+    }
+
+    fn take(&mut self, n: usize) -> bool {
+        self.bytes = (self.bytes + self.at.elapsed().as_secs_f64() * BYTES_PER_SEC).min(BYTES_BURST);
+        self.at = Instant::now();
+        if self.bytes < n as f64 {
+            return false;
+        }
+        self.bytes -= n as f64;
+        true
+    }
 }
 
 /// A voice channel's call: it starts when the first person joins and ends when the last one leaves.
@@ -396,6 +434,46 @@ pub async fn leave(st: &AppState, user: Id) {
     }
 }
 
+/// A login was revoked: if the voice session belongs to it, that ends too.
+pub async fn close_token(st: &AppState, user: Id, token: &[u8]) {
+    let Some((conn, channel)) = st.voice.by_user.get(&user).and_then(|v| v.channel_id.map(|c| (v.conn, c))) else { return };
+    if st.voice.with_peer(channel, conn, |p| *p.token.lock().unwrap() == token) == Some(true) {
+        leave(st, user).await;
+    }
+}
+
+/// After a permission change: people in a call who may no longer be there are removed, and what the others may send
+/// is updated. Access to a call isn't only decided when joining it.
+pub async fn recheck(st: &AppState, ctx: &perms::GuildCtx) {
+    let guild = ctx.guild;
+    let afk: Option<Id> = sqlx::query_scalar("SELECT afk_channel_id FROM guilds WHERE id = $1").bind(guild).fetch_optional(&st.db).await.ok().flatten().flatten();
+    let bot = crate::music::bot_id(st);
+    for vs in st.voice.for_guilds(&[guild]) {
+        let Some(channel) = vs.channel_id else { continue };
+        if Some(vs.user_id) == bot {
+            continue;
+        }
+        if !ctx.can(vs.user_id, channel, perms::VIEW_CHANNEL | perms::CONNECT) {
+            tracing::info!(user = %vs.user_id, channel = %channel, "voice: lost access to the channel");
+            let msg = json!({ "op": "move", "channel_id": null, "reason": "disconnect" }).to_string();
+            st.voice.send_to(channel, vs.user_id, WsMsg::Text(msg.into()));
+            leave(st, vs.user_id).await;
+            continue;
+        }
+        let speak = ctx.can(vs.user_id, channel, perms::SPEAK) && afk != Some(channel);
+        let stream = speak && ctx.can(vs.user_id, channel, perms::STREAM);
+        st.voice.with_peer(channel, vs.conn, |p| {
+            p.allowed.speak.store(speak, Ordering::Relaxed);
+            p.allowed.stream.store(stream, Ordering::Relaxed);
+        });
+        if !speak && !vs.self_mute {
+            if let Some(after) = st.voice.update(vs.user_id, vs.conn, |v| v.self_mute = true) {
+                announce(st, &after).await;
+            }
+        }
+    }
+}
+
 /// A DM call nobody is in any more stops ringing.
 async fn end_dm_call_if_empty(st: &AppState, channel: Id) {
     let empty = st.voice.rooms.get(&channel).is_none_or(|r| r.is_empty());
@@ -418,6 +496,8 @@ pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self
         active: Mutex::new(Instant::now()),
         media: Mutex::new(None),
         watching: Mutex::new(HashSet::new()),
+        allowed: Arc::new(Allowed { speak: AtomicBool::new(true), stream: AtomicBool::new(true) }),
+        token: Mutex::new(Vec::new()),
     });
     let (started_at, status_cleared) = st.voice.join_call(channel, guild_id);
     // Whoever opens a DM's call started it (a call already going started earlier than this).
@@ -561,7 +641,22 @@ async fn move_member(State(st): State<AppState>, AuthUser(me): AuthUser, Path((g
     tracing::info!(user = %user, by = %me, channel = %to, "voice: moved by someone");
     let msg = json!({ "op": "move", "channel_id": to, "reason": "moved", "by": me }).to_string();
     st.voice.send_to(from, user, WsMsg::Text(msg.into()));
+    enforce_move(&st, user, from);
     Ok(())
+}
+
+/// A move is carried out by the client, which rejoins in the new channel. One that stays behind is disconnected.
+fn enforce_move(st: &AppState, user: Id, from: Id) {
+    let Some(conn) = st.voice.by_user.get(&user).filter(|v| v.channel_id == Some(from)).map(|v| v.conn) else { return };
+    let st = st.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let stayed = st.voice.by_user.get(&user).is_some_and(|v| v.conn == conn && v.channel_id == Some(from));
+        if stayed {
+            tracing::info!(user = %user, channel = %from, "voice: ignored a move, disconnecting");
+            leave(&st, user).await;
+        }
+    });
 }
 
 async fn announce_status(st: &AppState, status: &ChannelStatus) {
@@ -617,18 +712,21 @@ async fn ring_again(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id)
     if !kind::is_private(a.ch.kind) || st.voice.by_user.get(&me).and_then(|v| v.channel_id) != Some(id) {
         return Err(bad("join the call first"));
     }
+    st.limits.check(format!("ring:{me}"), 5.0, 0.1)?;
     let members = crate::api::dms::recipients(&st.db, id).await?;
     let users = body.user_ids.unwrap_or_else(|| members.clone()).into_iter().filter(|u| *u != me && members.contains(u)).collect();
     ring(&st, id, users).await;
     Ok(())
 }
 
-async fn voice_handler(State(st): State<AppState>, ws: WebSocketUpgrade) -> Response {
-    ws.max_message_size(MAX_FRAME).on_upgrade(move |socket| run_voice(st, socket))
+async fn voice_handler(State(st): State<AppState>, ClientIp(ip): ClientIp, ws: WebSocketUpgrade) -> ApiResult<Response> {
+    crate::security::socket_limit(&st, &ip)?;
+    Ok(ws.max_message_size(MAX_FRAME).on_upgrade(move |socket| run_voice(st, socket)))
 }
 
-async fn media_handler(State(st): State<AppState>, ws: WebSocketUpgrade) -> Response {
-    ws.max_message_size(MAX_FRAME).on_upgrade(move |socket| run_media(st, socket))
+async fn media_handler(State(st): State<AppState>, ClientIp(ip): ClientIp, ws: WebSocketUpgrade) -> ApiResult<Response> {
+    crate::security::socket_limit(&st, &ip)?;
+    Ok(ws.max_message_size(MAX_FRAME).on_upgrade(move |socket| run_media(st, socket)))
 }
 
 #[derive(Deserialize)]
@@ -667,6 +765,14 @@ struct CallAccess {
 /// in), and what they may do there.
 async fn call_access(st: &AppState, channel: Id, me: Id) -> Option<CallAccess> {
     let a = channel_for(st, channel, me).await.ok()?;
+    if a.ch.kind == kind::DM {
+        // A block covers calls too, not only messages.
+        for other in crate::api::dms::recipients(&st.db, channel).await.ok()? {
+            if other != me && crate::api::relationships::blocked_between(&st.db, me, other).await.ok()? {
+                return None;
+            }
+        }
+    }
     if kind::is_private(a.ch.kind) {
         return Some(CallAccess { guild: None, speak: true, stream: true, soundboard: true });
     }
@@ -684,6 +790,7 @@ async fn close(mut socket: WebSocket, code: u16, reason: &'static str) {
 }
 
 async fn identify(st: &AppState, socket: &mut WebSocket) -> Option<(Id, Identify)> {
+    // The first message is only the token and a channel id.
     let ident = match tokio::time::timeout(Duration::from_secs(15), socket.recv()).await {
         Ok(Some(Ok(WsMsg::Text(t)))) => serde_json::from_str::<Identify>(&t).ok()?,
         _ => return None,
@@ -723,9 +830,18 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
     let Some(access) = call_access(&st, channel, me).await else {
         return close(socket, 4004, "not a voice channel").await;
     };
-    let (guild_id, can_speak, can_stream) = (access.guild, access.speak, access.stream);
-    let (conn, mut rx) = join(&st, me, guild_id, channel, !can_speak, false).await;
-    let Some(tx) = st.voice.with_peer(channel, conn, |p| p.tx.clone()) else { return };
+    let guild_id = access.guild;
+    let (conn, mut rx) = join(&st, me, guild_id, channel, !access.speak, false).await;
+    let token = crate::auth::hash_token(&ident.token);
+    let Some((tx, allowed)) = st.voice.with_peer(channel, conn, |p| {
+        p.allowed.speak.store(access.speak, Ordering::Relaxed);
+        p.allowed.stream.store(access.stream, Ordering::Relaxed);
+        *p.token.lock().unwrap() = token;
+        (p.tx.clone(), p.allowed.clone())
+    }) else {
+        return;
+    };
+    let mut budget = Budget::new();
 
     let (mut sink, mut stream) = socket.split();
     let ready = sink.send(WsMsg::Text(json!({ "op": "ready" }).to_string().into())).await.is_ok();
@@ -752,7 +868,12 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                     Some(Ok(WsMsg::Binary(data))) => {
                         let kind = data.first().copied().unwrap_or(0);
                         // Without the Speak permission the server drops this peer's media; video also needs Video.
+                        let can_speak = allowed.speak.load(Ordering::Relaxed);
+                        let can_stream = allowed.stream.load(Ordering::Relaxed);
                         if data.len() < 2 || !(KIND_VOICE..=KIND_SCREEN_AUDIO).contains(&kind) || !can_speak || (kind != KIND_VOICE && !can_stream) {
+                            continue;
+                        }
+                        if (kind == KIND_VOICE && data.len() > MAX_VOICE_FRAME) || !budget.take(data.len()) {
                             continue;
                         }
                         if kind == KIND_VOICE {
@@ -770,7 +891,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                         Ok(ClientOp::State { self_mute, self_deaf }) => {
                             st.voice.with_peer(channel, conn, |p| *p.active.lock().unwrap() = Instant::now());
                             if let Some(vs) = st.voice.update(me, conn, |v| {
-                                v.self_mute = self_mute || !can_speak;
+                                v.self_mute = self_mute || !allowed.speak.load(Ordering::Relaxed);
                                 v.self_deaf = self_deaf;
                             }) {
                                 announce(&st, &vs).await;
@@ -801,7 +922,7 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                             if let Some(vs) = list.and_then(|l| st.voice.update(me, conn, |v| v.watching = l)) {
                                 announce(&st, &vs).await;
                             }
-                            if on {
+                            if on && st.limits.check(format!("keyframe:{me}"), 10.0, 2.0).is_ok() {
                                 crate::stats::bump(&st, me, "streams_watched");
                                 // A new viewer needs a keyframe to start decoding.
                                 let msg = json!({ "op": "keyframe", "source": "screen" }).to_string();
@@ -809,12 +930,16 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                             }
                         }
                         Ok(ClientOp::RequestKeyframe { user_id, source }) => {
+                            // Every keyframe costs the streamer a big frame: viewers ask on gaps, not constantly.
+                            if !matches!(source.as_str(), "camera" | "screen") || st.limits.check(format!("keyframe:{me}"), 10.0, 2.0).is_err() {
+                                continue;
+                            }
                             let msg = json!({ "op": "keyframe", "source": source }).to_string();
                             st.voice.send_to(channel, user_id, WsMsg::Text(msg.into()));
                         }
                         Ok(ClientOp::Sound { sound_id }) => {
                             // Spamming is part of the fun: 100 in a row, refilling at 100 a minute.
-                            if !access.soundboard || st.limits.check(format!("sound:{me}"), 100.0, 100.0 / 60.0).is_err() {
+                            if !access.soundboard || !allowed.speak.load(Ordering::Relaxed) || st.limits.check(format!("sound:{me}"), 100.0, 100.0 / 60.0).is_err() {
                                 continue;
                             }
                             if let Ok(sound) = crate::soundboard::find(&st, &sound_id, me).await {
@@ -886,6 +1011,7 @@ pub async fn afk_sweeper(st: AppState) {
                     tracing::info!(user = %user, channel = %ch, "voice: moved to the AFK channel");
                     let msg = json!({ "op": "move", "channel_id": afk, "reason": "afk" }).to_string();
                     st.voice.send_to(ch, user, WsMsg::Text(msg.into()));
+                    enforce_move(&st, user, ch);
                 }
             }
         }
@@ -927,11 +1053,17 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
         return close(socket, 4004, "not in this voice channel").await;
     };
     let conn = vs.conn;
-    let can_stream = call_access(&st, channel, me).await.is_some_and(|a| a.stream);
-    let (tx, mut rx) = mpsc::channel::<(Instant, WsMsg)>(MEDIA_QUEUE);
-    if st.voice.with_peer(channel, conn, |p| *p.media.lock().unwrap() = Some(tx)).is_none() {
+    if call_access(&st, channel, me).await.is_none() {
         return close(socket, 4004, "not in this voice channel").await;
     }
+    let (tx, mut rx) = mpsc::channel::<(Instant, WsMsg)>(MEDIA_QUEUE);
+    let Some(allowed) = st.voice.with_peer(channel, conn, |p| {
+        *p.media.lock().unwrap() = Some(tx);
+        p.allowed.clone()
+    }) else {
+        return close(socket, 4004, "not in this voice channel").await;
+    };
+    let mut budget = Budget::new();
 
     let (mut sink, mut stream) = socket.split();
     let ready = sink.send(WsMsg::Text(json!({ "op": "ready" }).to_string().into())).await.is_ok();
@@ -953,7 +1085,7 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
                 match inc {
                     Some(Ok(WsMsg::Binary(data))) => {
                         let kind = data.first().copied().unwrap_or(0);
-                        if data.len() >= 2 && (KIND_CAMERA..=KIND_SCREEN_AUDIO).contains(&kind) && can_stream {
+                        if data.len() >= 2 && (KIND_CAMERA..=KIND_SCREEN_AUDIO).contains(&kind) && allowed.stream.load(Ordering::Relaxed) && budget.take(data.len()) {
                             on_media(&st, me, conn, channel, &prefix, &data).await;
                         }
                     }

@@ -755,6 +755,10 @@ async fn game_info(
     axum::extract::Path(id): axum::extract::Path<String>,
     axum::extract::Query(q): axum::extract::Query<InfoQuery>,
 ) -> ApiResult<Json<Value>> {
+    st.limits.check(format!("game-info:{me}"), 30.0, 1.0)?;
+    if st.games.steam.len() > 5000 {
+        st.games.steam.clear();
+    }
     if let Some(title) = id.strip_prefix(WIKI_PREFIX) {
         return wiki_game_info(&st, me, &id, title, q.lang.as_deref().unwrap_or("en")).await;
     }

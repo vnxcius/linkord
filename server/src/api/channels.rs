@@ -290,6 +290,17 @@ struct Reorder {
 
 async fn reorder_channels(State(st): State<AppState>, AuthUser(me): AuthUser, Path(gid): Path<Id>, Json(body): Json<Reorder>) -> ApiResult<()> {
     guild_perms(&st.db, gid, me).await?.require(perms::MANAGE_CHANNELS)?;
+    // Only channels you can see and manage move: moving one can change who sees it.
+    let ctx = crate::perms::GuildCtx::load(&st.db, gid).await?;
+    if body.ids.iter().any(|id| !ctx.can(me, *id, perms::VIEW_CHANNEL)) {
+        return Err(ApiError::Forbidden);
+    }
+    if body.parents.keys().any(|id| !ctx.can(me, *id, perms::VIEW_CHANNEL | perms::MANAGE_CHANNELS)) {
+        return Err(ApiError::Forbidden);
+    }
+    if body.parents.values().flatten().any(|parent| !ctx.can(me, *parent, perms::VIEW_CHANNEL)) {
+        return Err(ApiError::Forbidden);
+    }
     let current: Vec<(Id, i32, i16, Option<Id>)> = sqlx::query_as("SELECT id, position, kind, parent_id FROM channels WHERE guild_id = $1 AND kind <> $2")
         .bind(gid)
         .bind(kind::THREAD)
@@ -325,7 +336,9 @@ async fn reorder_channels(State(st): State<AppState>, AuthUser(me): AuthUser, Pa
             None => own.is_empty(),
         };
         if was_synced {
-            resync.push((*id, load_overwrites(&st.db, new_parent).await?));
+            let new = load_overwrites(&st.db, new_parent).await?;
+            check_overwrite_change(&channel_for(&st, *id, me).await?.perms, &own, &new)?;
+            resync.push((*id, new));
         }
     }
     let before = if resync.is_empty() { None } else { Some(visibility(&st.db, gid).await?) };
@@ -464,6 +477,7 @@ async fn create_thread(
         return Err(bad("threads can only be started in text channels"));
     }
     a.require(perms::CREATE_THREADS)?;
+    a.require(perms::READ_MESSAGE_HISTORY)?;
     let msg = load_message(&st, id, mid).await?;
     if msg.thread_id.is_some() {
         return Err(bad("this message already has a thread"));

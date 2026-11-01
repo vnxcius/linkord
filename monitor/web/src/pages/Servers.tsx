@@ -75,7 +75,8 @@ function ServerDetail(p: { id: string; server: J }) {
                     <th class="r">Messages</th>
                     <th class="r">Roles</th>
                     <th class="r">Joined</th>
-                  </tr>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
                 </thead>
                 <tbody>
                   <For each={d()!.members as J[]}>
@@ -164,6 +165,16 @@ export function Servers() {
   onCleanup(() => clearTimeout(timer));
   const servers = usePoll<J>(() => api('GET', `/moderation/servers?q=${encodeURIComponent(debounced())}`), 60000);
   const accounts = usePoll<J>(() => api('GET', `/moderation/accounts?q=${encodeURIComponent(debounced())}`), 60000);
+  const setSuspended = async (u: J) => {
+    const suspend = !u.suspended_at;
+    if (suspend && !confirm(`Suspend ${u.username}? They're signed out everywhere and can't sign in until restored.`)) return;
+    try {
+      await api('POST', '/moderation/accounts/suspend', { user_id: u.id, suspended: suspend });
+      void accounts.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
   createEffect(
     on(
       debounced,
@@ -300,7 +311,7 @@ export function Servers() {
               </tr>
             </thead>
             <tbody>
-              <For each={(accounts.data()?.accounts ?? []) as J[]} fallback={<tr><td colspan="10" class="empty">{accounts.loading() ? 'Loading…' : 'No account matches that.'}</td></tr>}>
+              <For each={(accounts.data()?.accounts ?? []) as J[]} fallback={<tr><td colspan="11" class="empty">{accounts.loading() ? 'Loading…' : 'No account matches that.'}</td></tr>}>
                 {(u: J) => (
                   <tr>
                     <td>
@@ -314,6 +325,9 @@ export function Servers() {
                           </Show>
                           <Show when={u.deleted_at}>
                             <span class="tag">Deleted</span>
+                          </Show>
+                          <Show when={u.suspended_at}>
+                            <span class="tag">Suspended</span>
                           </Show>
                         </span>
                       </span>
@@ -329,6 +343,13 @@ export function Servers() {
                     <td class="r mono nowrap">{bytes(u.upload_bytes, 0)}</td>
                     <td class="r mono nowrap">{Math.round(u.voice_seconds / 3600)} h</td>
                     <td class="r mono nowrap">{u.last_message ? ago(u.last_message) : 'Never'}</td>
+                    <td class="r">
+                      <Show when={!u.bot && !u.deleted_at}>
+                        <button class="btn" classList={{ danger: !u.suspended_at }} onClick={() => setSuspended(u)}>
+                          {u.suspended_at ? 'Restore' : 'Suspend'}
+                        </button>
+                      </Show>
+                    </td>
                   </tr>
                 )}
               </For>

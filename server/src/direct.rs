@@ -88,9 +88,12 @@ pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
     let Some(bind) = cfg.direct_bind.clone() else { return Ok(()) };
     let addr: SocketAddr = bind.parse()?;
     let app = app.layer(middleware::from_fn_with_state(st.clone(), direct_request)).into_make_service_with_connect_info::<SocketAddr>();
+    let conns = ConnLimit::default();
     if !cfg.direct_tls {
         tracing::info!("direct access (plain HTTP) on {addr} for {}", cfg.direct_host);
-        axum_server::bind(addr).serve(app).await?;
+        let mut server = axum_server::bind(addr).acceptor(Limited { inner: axum_server::accept::DefaultAcceptor::new(), conns });
+        harden(server.http_builder());
+        server.serve(app).await?;
         return Ok(());
     }
     let token = cfg.cloudflare_token.clone().context("direct access needs CLOUDFLARE_API_TOKEN for its certificate (or LINKORD_DIRECT_TLS=off)")?;
@@ -123,8 +126,115 @@ pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
         }
     });
     tracing::info!("direct access on {addr} for https://{}", cfg.direct_host);
-    axum_server::bind_rustls(addr, tls).serve(app).await?;
+    let acceptor = axum_server::tls_rustls::RustlsAcceptor::new(tls);
+    let mut server = axum_server::bind(addr).acceptor(Limited { inner: acceptor, conns });
+    harden(server.http_builder());
+    server.serve(app).await?;
     Ok(())
+}
+
+// ---------- connections ----------
+// Nothing stands in front of this listener, unlike the tunnel: it has to shed slow and abandoned connections itself.
+
+/// Connections held open by one address, and in total.
+const MAX_CONNS_PER_IP: usize = 128;
+const MAX_CONNS: usize = 4096;
+const HEADER_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn harden(http: &mut hyper_util::server::conn::auto::Builder<hyper_util::rt::TokioExecutor>) {
+    use hyper_util::rt::TokioTimer;
+    http.http1().timer(TokioTimer::new()).header_read_timeout(HEADER_TIMEOUT);
+    http.http2().timer(TokioTimer::new()).keep_alive_interval(Duration::from_secs(30)).keep_alive_timeout(Duration::from_secs(20)).max_concurrent_streams(200);
+}
+
+#[derive(Clone, Default)]
+struct ConnLimit(Arc<dashmap::DashMap<std::net::IpAddr, usize>>, Arc<std::sync::atomic::AtomicUsize>);
+
+/// Lives as long as the connection.
+struct ConnSlot(ConnLimit, std::net::IpAddr);
+
+impl ConnLimit {
+    fn take(&self, ip: std::net::IpAddr) -> Option<ConnSlot> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.1.load(Relaxed) >= MAX_CONNS {
+            return None;
+        }
+        let mut n = self.0.entry(ip).or_insert(0);
+        if *n >= MAX_CONNS_PER_IP {
+            return None;
+        }
+        *n += 1;
+        drop(n);
+        self.1.fetch_add(1, Relaxed);
+        Some(ConnSlot(self.clone(), ip))
+    }
+}
+
+impl Drop for ConnSlot {
+    fn drop(&mut self) {
+        self.0 .1.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let empty = self.0 .0.get_mut(&self.1).is_some_and(|mut n| {
+            *n -= 1;
+            *n == 0
+        });
+        if empty {
+            self.0 .0.remove_if(&self.1, |_, n| *n == 0);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Limited<A> {
+    inner: A,
+    conns: ConnLimit,
+}
+
+/// The connection's service, which keeps its slot taken.
+#[derive(Clone)]
+struct Slotted<S> {
+    inner: S,
+    _slot: Arc<ConnSlot>,
+}
+
+impl<S, R> tower::Service<R> for Slotted<S>
+where
+    S: tower::Service<R>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: R) -> Self::Future {
+        self.inner.call(req)
+    }
+}
+
+impl<A, S> axum_server::accept::Accept<tokio::net::TcpStream, S> for Limited<A>
+where
+    A: axum_server::accept::Accept<tokio::net::TcpStream, S> + Clone + Send + 'static,
+    A::Future: Send + 'static,
+    A::Stream: Send + 'static,
+    A::Service: Send + 'static,
+    S: Send + 'static,
+{
+    type Stream = A::Stream;
+    type Service = Slotted<A::Service>;
+    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<(Self::Stream, Self::Service)>> + Send>>;
+
+    fn accept(&self, stream: tokio::net::TcpStream, service: S) -> Self::Future {
+        let inner = self.inner.clone();
+        let conns = self.conns.clone();
+        Box::pin(async move {
+            let ip = stream.peer_addr()?.ip().to_canonical();
+            let slot = conns.take(ip).ok_or_else(|| std::io::Error::other("too many connections"))?;
+            let (stream, service) = inner.accept(stream, service).await?;
+            Ok((stream, Slotted { inner: service, _slot: Arc::new(slot) }))
+        })
+    }
 }
 
 // ---------- certificate (ACME DNS-01 through Cloudflare) ----------

@@ -118,6 +118,20 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
             run: () => api('DELETE', `/guilds/${guildId}/members/${userId}`),
           }),
       });
+      items.push({
+        label: t('Ban {name}', { name: nameOf(userId, guildId) }),
+        danger: true,
+        run: () =>
+          setUi('modal', {
+            type: 'confirm',
+            title: t('Ban {name}', { name: nameOf(userId, guildId) }),
+            body: t(
+              "They're removed and can't come back, even with an invite, until you unban them in Server Settings.",
+            ),
+            action: t('Ban'),
+            run: () => api('PUT', `/guilds/${guildId}/bans/${userId}`),
+          }),
+      });
     }
   }
   if (state.users[userId]?.bot && state.admin) items.push('separator', ...botPictureItems());

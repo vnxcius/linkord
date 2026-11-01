@@ -1,5 +1,6 @@
 //! The dashboard's own login: one password, an HMAC-signed cookie, no database. It keeps working when Discord or the
-//! app are down, and changing the password signs everyone out.
+//! app are down. The signature's key is a random secret kept on disk plus the password, so a stolen cookie doesn't help
+//! guess the password, and changing the password or logging out signs everyone out.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -47,8 +48,60 @@ fn session_from(headers: &HeaderMap) -> Option<String> {
     cookies.split(';').find_map(|c| c.trim().strip_prefix(&format!("{COOKIE}=")).map(str::to_string))
 }
 
+fn signing_key(st: &AppState) -> String {
+    format!("{}:{}", st.session_secret.read().unwrap(), st.cfg.password)
+}
+
+/// The random part of the signing key, created on first use.
+pub fn load_secret(dir: &std::path::Path) -> anyhow::Result<String> {
+    let path = dir.join("session-secret");
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        if !s.trim().is_empty() {
+            return Ok(s.trim().to_string());
+        }
+    }
+    write_secret(&path)
+}
+
+fn write_secret(path: &std::path::Path) -> anyhow::Result<String> {
+    use std::io::Write;
+    let mut bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    let secret = hex::encode(bytes);
+    let _ = std::fs::remove_file(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    file.write_all(secret.as_bytes())?;
+    Ok(secret)
+}
+
 pub fn signed_in(st: &AppState, headers: &HeaderMap) -> bool {
-    session_from(headers).is_some_and(|v| valid_session(&st.cfg.password, &v, chrono::Utc::now().timestamp()))
+    session_from(headers).is_some_and(|v| valid_session(&signing_key(st), &v, chrono::Utc::now().timestamp()))
+}
+
+/// Which addresses this dashboard answers as. A web page can point its own hostname at 127.0.0.1 (DNS rebinding) and
+/// so reach a service on loopback, but it can't change the name the browser asks for. IP addresses and localhost are
+/// always fine; other names (a tunnel hostname) go in LINKORD_MONITOR_HOSTS.
+pub async fn check_host(State(st): State<AppState>, req: Request, next: Next) -> Response {
+    let host = req.headers().get(header::HOST).and_then(|v| v.to_str().ok()).map(str::to_owned).or_else(|| req.uri().authority().map(|a| a.to_string())).unwrap_or_default();
+    if host_allowed(&host, &st.cfg.allowed_hosts) {
+        next.run(req).await
+    } else {
+        tracing::warn!("refused a request for another host name");
+        (StatusCode::MISDIRECTED_REQUEST, "Unknown host. Add it to LINKORD_MONITOR_HOSTS to use this name.").into_response()
+    }
+}
+
+fn host_allowed(host: &str, allowed: &[String]) -> bool {
+    let name = match host.strip_prefix('[') {
+        Some(v6) => return v6.split(']').next().is_some_and(|ip| ip.parse::<std::net::Ipv6Addr>().is_ok()),
+        None => host.rsplit_once(':').map_or(host, |(n, _)| n),
+    }
+    .to_ascii_lowercase();
+    name == "localhost" || name.parse::<std::net::Ipv4Addr>().is_ok() || allowed.iter().any(|a| a.eq_ignore_ascii_case(&name))
 }
 
 /// API calls need the session; anything that changes something also needs a header no cross-site form can send.
@@ -98,11 +151,18 @@ pub async fn login(State(st): State<AppState>, headers: HeaderMap, Json(body): J
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Wrong password." }))).into_response();
     }
     let expires = chrono::Utc::now().timestamp() + SESSION_DAYS * 86400;
-    let value = session_value(&st.cfg.password, expires);
+    let value = session_value(&signing_key(&st), expires);
     ([(header::SET_COOKIE, cookie(&headers, &value, SESSION_DAYS * 86400))], Json(json!({ "ok": true }))).into_response()
 }
 
-pub async fn logout(headers: HeaderMap) -> Response {
+pub async fn logout(State(st): State<AppState>, headers: HeaderMap) -> Response {
+    // There's one account: a new secret ends every session, including a cookie someone copied.
+    if signed_in(&st, &headers) {
+        match write_secret(&st.cfg.data_dir.join("session-secret")) {
+            Ok(secret) => *st.session_secret.write().unwrap() = secret,
+            Err(e) => tracing::warn!("couldn't renew the session secret: {e}"),
+        }
+    }
     ([(header::SET_COOKIE, cookie(&headers, "", 0))], Json(json!({ "ok": true }))).into_response()
 }
 
@@ -113,6 +173,17 @@ pub async fn session(State(st): State<AppState>, headers: HeaderMap) -> Json<ser
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_addresses_and_known_names() {
+        let allowed = vec!["monitor.example.com".to_string()];
+        for ok in ["localhost:7710", "LOCALHOST", "127.0.0.1:7710", "192.168.0.50:7710", "[::1]:7710", "monitor.example.com", "Monitor.Example.com:443"] {
+            assert!(host_allowed(ok, &allowed), "{ok}");
+        }
+        for no in ["evil.example", "evil.example:7710", "localhost.evil.example", "", "[evil]:7710"] {
+            assert!(!host_allowed(no, &allowed), "{no}");
+        }
+    }
 
     #[test]
     fn sessions_expire_and_depend_on_the_password() {

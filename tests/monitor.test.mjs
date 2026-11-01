@@ -41,6 +41,11 @@ async function app(token, method, path, body) {
   }
   const res = await fetch(`${APP}/api${path}`, { method, headers, body: payload });
   const text = await res.text();
+  // Like the real client: wait out a rate limit (the API tests may have just used up the dev login's).
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, JSON.parse(text).retry_after * 1000 + 20));
+    return app(token, method, path, body);
+  }
   assert.ok(res.ok, `${method} ${path}: ${res.status} ${text}`);
   return text ? JSON.parse(text) : null;
 }
@@ -358,6 +363,45 @@ test('diagnostics: every group reports, and the tools work', async () => {
 });
 
 let browser;
+test('a page that points its own name at this address gets nothing', async () => {
+  // fetch can't send another Host, http can.
+  const asHost = (host) =>
+    new Promise((resolve, reject) => {
+      const u = new URL(`${MON}/api/session`);
+      http.get({ hostname: u.hostname, port: u.port, path: u.pathname, headers: { host } }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      }).on('error', reject);
+    });
+  assert.equal(await asHost('evil.example'), 421);
+  assert.equal(await asHost('evil.example:7705'), 421);
+  assert.equal(await asHost('localhost:7705'), 200);
+  assert.equal(await asHost('127.0.0.1:7705'), 200);
+});
+
+test('suspending an account ends its sessions; restoring lets it back', async () => {
+  const name = `suspended.${run}`;
+  const { token } = await app(null, 'POST', '/auth/dev', { username: name });
+  const me = await app(token, 'GET', '/users/@me');
+  await monOk('POST', '/moderation/accounts/suspend', { user_id: me.id, suspended: true });
+  const status = (t) => fetch(`${APP}/api/users/@me`, { headers: { authorization: `Bearer ${t}` } }).then((r) => r.status);
+  assert.equal(await status(token), 401);
+  const listed = (await monOk('GET', `/moderation/accounts?q=${name}`)).accounts[0];
+  assert.ok(listed.suspended_at);
+  await monOk('POST', '/moderation/accounts/suspend', { user_id: me.id, suspended: false });
+  const again = await app(null, 'POST', '/auth/dev', { username: name });
+  assert.equal(await status(again.token), 200);
+});
+
+test('logging out ends the session even for a copy of the cookie', async () => {
+  const copy = cookie;
+  await monOk('POST', '/logout');
+  const res = await fetch(`${MON}/api/session`, { headers: { cookie: copy } });
+  assert.equal((await res.json()).signed_in, false);
+  const good = await mon('POST', '/login', { password: PASSWORD });
+  cookie = good.res.headers.get('set-cookie').split(';')[0];
+});
+
 after(async () => browser?.close());
 
 test('in a browser: sign in, every tab, a removal, live logs', { skip: !process.env.CHROMIUM }, async () => {

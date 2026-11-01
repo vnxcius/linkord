@@ -17,7 +17,7 @@ import {
   type JSX,
 } from 'solid-js';
 import { api, media } from '../lib/api';
-import { logout } from '../lib/actions';
+import { logout, logoutEverywhere } from '../lib/actions';
 import { autostartEnabled, checkForUpdates, setAutostart, update, updating } from '../lib/desktop';
 import { normalizePath } from '../lib/game-match';
 import {
@@ -211,6 +211,20 @@ export function Settings(p: { tab?: string }) {
         <div class="settings-foot">
           <button class="settings-logout" onClick={() => void logout()}>
             <I.Logout size={17} /> {t('Log Out')}
+          </button>
+          <button
+            class="settings-logout"
+            onClick={() =>
+              setUi('modal', {
+                type: 'confirm',
+                title: t('Log out everywhere'),
+                body: t('Every device signed in to this account is signed out, including this one.'),
+                action: t('Log out everywhere'),
+                run: logoutEverywhere,
+              })
+            }
+          >
+            <I.Logout size={17} /> {t('Log out everywhere')}
           </button>
           {/* One link per line: side by side they wrapped mid-row in this narrow column. */}
           <nav class="settings-links">

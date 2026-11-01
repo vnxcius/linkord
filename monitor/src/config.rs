@@ -5,6 +5,8 @@ use anyhow::{bail, Context};
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// Host names the dashboard answers to, besides IP addresses and localhost.
+    pub allowed_hosts: Vec<String>,
     pub bind: String,
     pub password: String,
     pub data_dir: PathBuf,
@@ -95,6 +97,7 @@ impl Config {
         };
         Ok(Config {
             bind: opt("LINKORD_MONITOR_BIND").unwrap_or_else(|| "127.0.0.1:7710".into()),
+            allowed_hosts: opt("LINKORD_MONITOR_HOSTS").map(|v| v.split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()).unwrap_or_default(),
             password,
             data_dir: opt("LINKORD_MONITOR_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
             web_dir: opt("LINKORD_MONITOR_WEB_DIR").unwrap_or_else(|| "./web/dist".into()).into(),

@@ -396,6 +396,11 @@ export const friendRequestByName = (username: string) => api('POST', '/users/@me
 export const removeRelationship = (userId: string) => api('DELETE', `/users/@me/relationships/${userId}`);
 export const blockUser = (userId: string) => api('PUT', `/users/@me/relationships/${userId}`, { type: 2 });
 
+export async function logoutEverywhere() {
+  await api('POST', '/auth/logout-all');
+  await logout();
+}
+
 export async function logout() {
   await api('POST', '/auth/logout').catch(() => {});
   setToken(null);

@@ -9,11 +9,13 @@ mod gateway;
 mod id;
 mod internal;
 mod logs;
+mod media;
 mod models;
 mod music;
 mod perms;
 mod previews;
 mod ratelimit;
+mod security;
 mod soundboard;
 mod spotify;
 mod state;
@@ -27,9 +29,11 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::extract::DefaultBodyLimit;
+use axum::middleware::from_fn;
 use axum::routing::get;
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
+use tower::Layer as _;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
@@ -60,6 +64,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "server starting");
     if cfg.dev_login {
         tracing::warn!("LINKORD_DEV_LOGIN is enabled: anyone can sign in as any username. Do not use on a public server.");
+    }
+    let names: Vec<&String> = cfg.admins.iter().filter(|a| a.parse::<u64>().is_err()).collect();
+    if !names.is_empty() {
+        tracing::warn!("LINKORD_ADMINS has names in it: a Discord username can be taken by someone else after it's released. Use numeric Discord ids.");
     }
     if !cfg.discord_enabled() {
         tracing::warn!("DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET not set: Discord login disabled");
@@ -120,18 +128,20 @@ async fn main() -> anyhow::Result<()> {
         .merge(previews::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
-        .layer(DefaultBodyLimit::max(uploads::MAX_FILE * 4));
+        // The real limit per route is in security::api_limit.
+        .layer(DefaultBodyLimit::max(uploads::MESSAGE_BODY))
+        .layer(axum::middleware::from_fn_with_state(st.clone(), security::api_limit));
 
     let web = ServeDir::new(&cfg.web_dir).fallback(ServeFile::new(cfg.web_dir.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
         // Uploads live under random paths and nameplates rarely change: let browsers keep them, so long lists
         // (member list, nameplate picker) don't fetch every file again.
-        .nest_service("/uploads", cached(ServeDir::new(cfg.uploads_dir()), "public, max-age=604800"))
-        .nest_service("/nameplates", cached(ServeDir::new(&cfg.nameplates_dir), "public, max-age=86400"))
-        .nest_service("/soundboard", cached(ServeDir::new(&cfg.sounds_dir), "public, max-age=86400"))
-        .nest_service("/api/updates/download", ServeDir::new(cfg.data_dir.join("updates")))
-        .fallback_service(web)
+        .nest_service("/uploads", from_fn(security::upload_headers).layer(cached(ServeDir::new(cfg.uploads_dir()), "public, max-age=604800")))
+        .nest_service("/nameplates", from_fn(security::upload_headers).layer(cached(ServeDir::new(&cfg.nameplates_dir), "public, max-age=86400")))
+        .nest_service("/soundboard", from_fn(security::upload_headers).layer(cached(ServeDir::new(&cfg.sounds_dir), "public, max-age=86400")))
+        .nest_service("/api/updates/download", from_fn(security::upload_headers).layer(ServeDir::new(cfg.data_dir.join("updates"))))
+        .fallback_service(from_fn(security::web_headers).layer(web))
         .layer(axum::middleware::from_fn(logs::access_log))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

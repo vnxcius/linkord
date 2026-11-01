@@ -33,3 +33,30 @@ test("Kass's /queue lines", () => {
   assert.ok(html.includes(a('https://www.youtube.com/watch?v=def', 'Lost Woods (Saria&#39;s Song)')), html);
   assert.ok(!html.includes('](') && !html.includes('&lt;http') && !html.includes('\\'), html);
 });
+
+test('nothing breaks out of a link', () => {
+  const inputs = [
+    'https://a.b/[link](<https://x/autofocus/onfocus=alert(1)//>)',
+    'https://a.b/[link](https://x/onmouseover=alert(1)//)',
+    'https://a.b/`c" onmouseover="alert(1)`',
+    '[x](<https://a.b/`c" onfocus="alert(1)`>)',
+    '<https://a.b/\\" onfocus=alert(1)>',
+    'https://a.b/<@1>',
+    'https://a.b/\u00000\u0000[l](https://x/ onfocus=alert(1))',
+    '\u00000\u0000 [a](https://x/)',
+  ];
+  for (const input of inputs) {
+    const html = render(input);
+    // Every attribute value is closed before the next tag or attribute starts: drop them, and only known tags remain.
+    const bare = html.replace(/"[^"]*"/g, '""');
+    assert.ok(!/<[^>]*\son\w+=/i.test(bare), html);
+    for (const [, tag, attrs] of bare.matchAll(/<(\w+)([^>]*)>/g)) {
+      if (tag === 'a') assert.equal(attrs.trim(), 'href="" target="" rel="" title=""', html);
+    }
+    for (const [, href] of html.matchAll(/href="([^"]*)"/g)) assert.ok(!/[<>\u0000]/.test(href), html);
+  }
+});
+
+test('a URL stops at the markup that follows it', () => {
+  assert.equal(render('https://a.b/`c`'), `${a('https://a.b/', 'https://a.b/')}<code class="md-inline">c</code>`);
+});

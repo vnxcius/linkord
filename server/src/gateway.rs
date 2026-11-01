@@ -32,9 +32,17 @@ const BUFFER: usize = 2000;
 const RESUME_WINDOW: Duration = Duration::from_secs(180);
 /// How long a user stays "online" after their last connection drops (covers reconnects).
 const PRESENCE_GRACE: Duration = Duration::from_secs(20);
+const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Told to a session's socket through its queue: the session ended, close with 4001.
+const CLOSE: &str = "\0close";
+/// One person's open sessions; a new one past this ends their oldest.
+const MAX_SESSIONS: usize = 16;
 
 struct Session {
     user: Id,
+    /// The login this session belongs to; ending the login ends the session.
+    token: Vec<u8>,
     tx: Option<Tx>,
     /// Bumped on every attach so a stale socket can't detach a newer one.
     attach: u64,
@@ -58,17 +66,47 @@ impl Hub {
         (self.sessions.len(), attached, self.announced.len())
     }
 
-    fn create(&self, user: Id, tx: Tx) -> String {
+    fn create(&self, user: Id, token: Vec<u8>, tx: Tx) -> String {
         let id = random_token(16);
-        self.sessions.insert(id.clone(), Session { user, tx: Some(tx), attach: 0, seq: 0, buffer: VecDeque::new(), detached_at: None });
-        self.by_user.entry(user).or_default().push(id.clone());
+        self.sessions.insert(id.clone(), Session { user, token, tx: Some(tx), attach: 0, seq: 0, buffer: VecDeque::new(), detached_at: None });
+        let oldest = {
+            let mut ids = self.by_user.entry(user).or_default();
+            ids.push(id.clone());
+            (ids.len() > MAX_SESSIONS).then(|| ids[0].clone())
+        };
+        if let Some(oldest) = oldest {
+            self.end(|s, sid| s.user == user && sid == oldest);
+        }
         id
     }
 
+    /// Ends the sessions that match, closing their sockets.
+    fn end(&self, matches: impl Fn(&Session, &str) -> bool) {
+        let ids: Vec<String> = self.sessions.iter().filter(|e| matches(e.value(), e.key())).map(|e| e.key().clone()).collect();
+        for id in ids {
+            let Some((_, s)) = self.sessions.remove(&id) else { continue };
+            if let Some(tx) = &s.tx {
+                let _ = tx.send(CLOSE.into());
+            }
+            if let Some(mut list) = self.by_user.get_mut(&s.user) {
+                list.retain(|other| *other != id);
+            }
+        }
+    }
+
+    /// The login was revoked: its sessions end now, not when the socket happens to drop.
+    pub fn close_token(&self, token: &[u8]) {
+        self.end(|s, _| s.token == token);
+    }
+
+    pub fn close_user(&self, user: Id) {
+        self.end(|s, _| s.user == user);
+    }
+
     /// Reattaches a disconnected session and returns the events after `seq`, or None if they're gone.
-    fn resume(&self, id: &str, user: Id, seq: u64, tx: Tx) -> Option<(u64, Vec<Arc<str>>)> {
+    fn resume(&self, id: &str, user: Id, token: &[u8], seq: u64, tx: Tx) -> Option<(u64, Vec<Arc<str>>)> {
         let mut s = self.sessions.get_mut(id)?;
-        if s.user != user || seq > s.seq || s.buffer.front().is_some_and(|(first, _)| *first > seq + 1) {
+        if s.user != user || s.token != token || seq > s.seq || s.buffer.front().is_some_and(|(first, _)| *first > seq + 1) {
             return None;
         }
         let missed = s.buffer.iter().filter(|(n, _)| *n > seq).map(|(_, m)| m.clone()).collect();
@@ -212,6 +250,7 @@ pub async fn announce_visibility(st: &AppState, guild: Id, before: HashMap<Id, H
             st.hub.send(&[user], "CHANNEL_DELETE", &serde_json::json!({ "id": id, "guild_id": guild, "hidden": true }));
         }
     }
+    crate::voice::recheck(st, &ctx).await;
     Ok(())
 }
 
@@ -352,8 +391,10 @@ enum ClientOp {
     Resume { token: String, session_id: String, seq: u64 },
 }
 
-pub async fn ws_handler(State(st): State<AppState>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| run(st, socket))
+pub async fn ws_handler(State(st): State<AppState>, crate::ratelimit::ClientIp(ip): crate::ratelimit::ClientIp, ws: WebSocketUpgrade) -> ApiResult<Response> {
+    crate::security::socket_limit(&st, &ip)?;
+    // Clients only ever send identify or resume here.
+    Ok(ws.max_message_size(16 * 1024).max_frame_size(16 * 1024).on_upgrade(move |socket| run(st, socket)))
 }
 
 async fn run(st: AppState, mut socket: WebSocket) {
@@ -375,9 +416,10 @@ async fn run(st: AppState, mut socket: WebSocket) {
         }
     };
 
+    let token_hash = auth::hash_token(&token);
     let (tx, mut rx) = mpsc::unbounded_channel::<Arc<str>>();
     let resumed = match &op {
-        ClientOp::Resume { session_id, seq, .. } => st.hub.resume(session_id, user_id, *seq, tx.clone()).map(|r| (session_id.clone(), r)),
+        ClientOp::Resume { session_id, seq, .. } => st.hub.resume(session_id, user_id, &token_hash, *seq, tx.clone()).map(|r| (session_id.clone(), r)),
         ClientOp::Identify { .. } => None,
     };
     let (session_id, attach) = match resumed {
@@ -393,7 +435,7 @@ async fn run(st: AppState, mut socket: WebSocket) {
             (id, attach)
         }
         None => {
-            let id = st.hub.create(user_id, tx);
+            let id = st.hub.create(user_id, token_hash, tx);
             let sent = match build_ready(&st, user_id, &id).await {
                 Ok(r) => socket.send(WsMsg::Text(r.into())).await.is_ok(),
                 Err(e) => {
@@ -414,7 +456,15 @@ async fn run(st: AppState, mut socket: WebSocket) {
     loop {
         tokio::select! {
             out = rx.recv() => match out {
-                Some(m) => if sink.send(WsMsg::Text(m.as_ref().into())).await.is_err() { break },
+                Some(m) if m.as_ref() == CLOSE => {
+                    let _ = sink.send(WsMsg::Close(Some(CloseFrame { code: 4001, reason: "signed out".into() }))).await;
+                    break;
+                }
+                // A client that stopped reading loses the socket rather than filling memory; it can resume.
+                Some(m) => match tokio::time::timeout(SEND_TIMEOUT, sink.send(WsMsg::Text(m.as_ref().into()))).await {
+                    Ok(Ok(())) => {}
+                    _ => break,
+                },
                 None => break,
             },
             inc = stream.next() => match inc {

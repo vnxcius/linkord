@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { api, emojiUrl, media } from '../lib/api';
@@ -44,8 +45,18 @@ export function formatTime(iso: string, withDate = true) {
   return `${d.toLocaleDateString(dateLocale())} ${time}`;
 }
 
+// A second lock on everything rendered from messages: only what the markdown renderer itself writes gets through.
+DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'style' && !/^--role:#[0-9a-f]{6}$/.test(data.attrValue)) data.keepAttr = false;
+});
+const SANITIZE = {
+  ALLOWED_TAGS: ['a', 'span', 'img', 'strong', 'em', 'u', 's', 'code', 'pre', 'blockquote', 'br', 'div'],
+  ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'class', 'data-user', 'style', 'src', 'alt', 'draggable'],
+  ALLOW_DATA_ATTR: false,
+};
+
 export function renderContent(content: string, guildId?: string | null) {
-  return renderMarkdown(content, {
+  const html = renderMarkdown(content, {
     userName: (id) => nameOf(id, guildId),
     meId: state.me?.id,
     role: (id) => {
@@ -54,6 +65,7 @@ export function renderContent(content: string, guildId?: string | null) {
     },
     emojiUrl,
   });
+  return DOMPurify.sanitize(html, SANITIZE);
 }
 
 /** Click handling for rendered markdown: spoilers, mentions and external links. */

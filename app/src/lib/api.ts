@@ -1,6 +1,11 @@
 import { serverError, t } from './i18n';
 import { isTauri } from './platform';
 
+/** A web login started in this tab (see App.tsx captureUrlState). */
+export const LOGIN_PENDING_KEY = 'linkord.loginPending';
+/** The invite link this person arrived through; it lets Discord login create their account. */
+export const INVITE_KEY = 'linkord.pendingInvite';
+
 const SERVER_KEY = 'linkord.server';
 const TOKEN_KEY = 'linkord.token';
 

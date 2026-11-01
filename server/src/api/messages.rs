@@ -204,6 +204,7 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
 
     let multipart = req.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("multipart/"));
     let mut attachments = Vec::new();
+    let mut saved = uploads::SavedFiles::new(&st, me);
     let body = if multipart {
         a.require(perms::ATTACH_FILES)?;
         let mut mp = Multipart::from_request(req, &st).await.map_err(|e| bad(e.body_text()))?;
@@ -223,6 +224,7 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
                 let bytes = uploads::read_field(field, uploads::MAX_FILE).await?;
                 uploads::reserve(&st, me, bytes.len()).await?;
                 let url = uploads::save(&st, &format!("attachments/{}", a.ch.id), &filename, &bytes).await?;
+                saved.add(&url, bytes.len() as u64);
                 attachments.push(Attachment {
                     id: Id::new(),
                     filename: uploads::sanitize_filename(&filename),
@@ -252,12 +254,16 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
         return Err(bad(format!("message must be at most {MAX_CONTENT} characters")));
     }
     let reply_to = match body.reply_to {
+        // The reply shows the message it answers.
+        Some(_) if !a.has(perms::READ_MESSAGE_HISTORY) => None,
         Some(r) => load_message(&st, a.ch.id, r).await.ok().map(|m| m.id),
         None => None,
     };
     let mention_everyone = mentions_everyone(&a, &content);
     let draft = Draft { content, reply_to, attachments, mention_everyone, nonce: body.nonce, ..Default::default() };
-    Ok(Json(post_message(&st, &a, me, draft).await?))
+    let message = post_message(&st, &a, me, draft).await?;
+    saved.keep();
+    Ok(Json(message))
 }
 
 /// No DMs between people where one blocked the other.
@@ -379,6 +385,7 @@ async fn forward_message(
 ) -> ApiResult<Json<Vec<Message>>> {
     st.limits.check(format!("forward:{me}"), 5.0, 0.5)?;
     let src = channel_for(&st, id, me).await?;
+    src.require(perms::READ_MESSAGE_HISTORY)?;
     let row = load_message(&st, id, mid).await?;
     let snapshot = match row.forwarded {
         Some(f) => f.0,
@@ -447,6 +454,7 @@ struct EditMessage {
 }
 
 async fn edit_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, mid)): Path<(Id, Id)>, Json(body): Json<EditMessage>) -> ApiResult<Json<Message>> {
+    st.limits.check(format!("edit:{me}"), 10.0, 1.0)?;
     let a = channel_for(&st, id, me).await?;
     let row = load_message(&st, id, mid).await?;
     if row.author_id != me {

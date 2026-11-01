@@ -1554,6 +1554,9 @@ button.viewers:hover { background: rgba(255, 255, 255, 0.12); }
 .settings-foot { width: 236px; padding: 12px 10px 14px 14px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); }
 .conn-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: rgba(227, 179, 65, 0.12); color: var(--glow); flex: none; }
 .conn-icon.big { width: 44px; height: 44px; border-radius: 12px; }
+.ban-title { margin: 24px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-3); }
+.ban-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.ban-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-logout { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--danger); font-size: 14px; font-weight: 500; }
 .settings-logout:hover { background: rgba(229, 72, 77, 0.1); }
 .settings-version { font: 400 11px var(--font-mono); color: var(--text-3); padding: 0 10px; font-variant-numeric: tabular-nums; }

@@ -42,6 +42,11 @@ pub struct SelfUser<'a> {
 }
 
 impl User {
+    /// What someone with no connection to this person sees.
+    pub fn outline(self) -> User {
+        User { banner: None, nameplate: None, accent_color: None, bio: String::new(), pronouns: String::new(), birthday: None, ..self }
+    }
+
     pub fn me(&self) -> SelfUser<'_> {
         SelfUser { user: self, status: &self.status, needs_username: self.needs_username }
     }

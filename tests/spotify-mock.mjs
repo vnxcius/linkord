@@ -32,6 +32,16 @@ createServer(async (req, res) => {
       { id: '42', name: 'Launcher Only', icon_hash: null, executables: [{ os: 'win32', name: 'launcher.exe', is_launcher: true }] },
     ]);
   }
+  // Discord's OAuth: the code names the person ("user-<name>"), and their id follows from it.
+  if (url.pathname === '/api/oauth2/token' && req.method === 'POST') {
+    const form = new URLSearchParams(await body(req));
+    return json(res, 200, { access_token: `dc-${form.get('code')}`, token_type: 'Bearer' });
+  }
+  if (url.pathname === '/api/v10/users/@me') {
+    const name = req.headers.authorization?.replace('Bearer dc-user-', '') ?? 'nobody';
+    const id = [...name].reduce((n, c) => (n * 31n + BigInt(c.charCodeAt(0))) % 9007199254740881n, 7n);
+    return json(res, 200, { id: id.toString(), username: name, global_name: null, avatar: null, banner: null, accent_color: null });
+  }
   if (url.pathname === '/authorize') {
     const back = new URL(url.searchParams.get('redirect_uri'));
     back.searchParams.set('code', `code${++codes}`);

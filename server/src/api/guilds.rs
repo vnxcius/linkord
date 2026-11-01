@@ -1,5 +1,5 @@
 use axum::extract::{Multipart, Path, State};
-use axum::routing::{delete, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -29,6 +29,8 @@ pub fn routes() -> Router<AppState> {
             post(|st, me, id, mp| upload_member_image(st, me, id, mp, "banner")).delete(|st, me, id| clear_member_image(st, me, id, "banner")),
         )
         .route("/guilds/{id}/members/{user}", delete(kick).patch(update_member))
+        .route("/guilds/{id}/bans", get(bans))
+        .route("/guilds/{id}/bans/{user}", put(ban).delete(unban))
 }
 
 #[derive(sqlx::FromRow)]
@@ -294,8 +296,8 @@ async fn upload_icon(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id
     if !uploads::is_image(&ct) {
         return Err(bad("must be a png, jpeg, gif or webp image"));
     }
-    let name = field.file_name().unwrap_or("icon").to_string();
     let bytes = uploads::read_field(field, uploads::MAX_IMAGE).await?;
+    let name = uploads::image_name("icon", &bytes)?;
     uploads::reserve(&st, me, bytes.len()).await?;
     let url = uploads::save(&st, &format!("icons/{id}"), &name, &bytes).await?;
     sqlx::query("UPDATE guilds SET icon = $2 WHERE id = $1").bind(id).bind(url).execute(&st.db).await?;
@@ -309,8 +311,8 @@ async fn upload_banner(State(st): State<AppState>, AuthUser(me): AuthUser, Path(
     if !uploads::is_image(field.content_type().unwrap_or_default()) {
         return Err(bad("must be a png, jpeg, gif or webp image"));
     }
-    let name = field.file_name().unwrap_or("banner").to_string();
     let bytes = uploads::read_field(field, 8 * 1024 * 1024).await?;
+    let name = uploads::image_name("banner", &bytes)?;
     uploads::reserve(&st, me, bytes.len()).await?;
     let url = uploads::save(&st, &format!("banners/{id}"), &name, &bytes).await?;
     sqlx::query("UPDATE guilds SET banner = $2 WHERE id = $1").bind(id).bind(url).execute(&st.db).await?;
@@ -379,6 +381,43 @@ async fn kick(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, user
         crate::music::removed_from(&st, id).await;
     }
     remove_member(&st, id, user).await
+}
+
+/// Removes someone and keeps them out: invites stop working for them until they're unbanned.
+async fn ban(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, user)): Path<(Id, Id)>) -> ApiResult<()> {
+    guild_perms(&st.db, id, me).await?.require(perms::KICK_MEMBERS)?;
+    if user == me {
+        return Err(bad("you cannot ban yourself"));
+    }
+    if crate::music::bot_id(&st) == Some(user) {
+        return Err(bad("Kass can't be banned; remove him from the server instead"));
+    }
+    let member: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM members WHERE guild_id = $1 AND user_id = $2)").bind(id).bind(user).fetch_one(&st.db).await?;
+    if member {
+        outranks(&st.db, id, me, user).await?;
+    }
+    sqlx::query("INSERT INTO guild_bans (guild_id, user_id, banned_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING").bind(id).bind(user).bind(me).execute(&st.db).await?;
+    tracing::info!(guild = %id, user = %user, by = %me, "banned from a server");
+    if member {
+        remove_member(&st, id, user).await?;
+    }
+    Ok(())
+}
+
+async fn unban(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, user)): Path<(Id, Id)>) -> ApiResult<()> {
+    guild_perms(&st.db, id, me).await?.require(perms::KICK_MEMBERS)?;
+    sqlx::query("DELETE FROM guild_bans WHERE guild_id = $1 AND user_id = $2").bind(id).bind(user).execute(&st.db).await?;
+    Ok(())
+}
+
+async fn bans(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<Vec<crate::models::User>>> {
+    guild_perms(&st.db, id, me).await?.require(perms::KICK_MEMBERS)?;
+    let ids: Vec<Id> = sqlx::query_scalar("SELECT user_id FROM guild_bans WHERE guild_id = $1 ORDER BY created_at DESC LIMIT 500").bind(id).fetch_all(&st.db).await?;
+    let mut users = Vec::with_capacity(ids.len());
+    for user in ids {
+        users.push(crate::models::User::get(&st.db, user).await?);
+    }
+    Ok(Json(users))
 }
 
 fn nickname(n: Option<String>) -> ApiResult<Option<String>> {

@@ -100,11 +100,34 @@ pub fn filter_lines(text: &str, q: &DayQuery) -> (Vec<Value>, bool, Vec<String>)
     (out, more, areas.into_iter().collect())
 }
 
+/// The most this process reads of one day's file: this service has a small memory limit, and it matters most on the
+/// day someone floods the log.
+const MAX_READ: u64 = 16 * 1024 * 1024;
+
+/// A day's log, or its latest part when it's large (starting at a whole line).
+async fn read_tail(path: &std::path::Path) -> String {
+    let Ok(mut file) = tokio::fs::File::open(path).await else { return String::new() };
+    let Ok(meta) = file.metadata().await else { return String::new() };
+    let from = meta.len().saturating_sub(MAX_READ);
+    if from > 0 && file.seek(SeekFrom::Start(from)).await.is_err() {
+        return String::new();
+    }
+    let mut buf = Vec::with_capacity((meta.len() - from) as usize);
+    if file.read_to_end(&mut buf).await.is_err() {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    if from == 0 {
+        return text.into_owned();
+    }
+    text.split_once('\n').map_or(String::new(), |(_, rest)| rest.to_string())
+}
+
 pub async fn read_day(State(st): State<AppState>, Query(q): Query<DayQuery>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if !valid_day(&q.day) {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "Unknown day." }))));
     }
-    let text = tokio::fs::read_to_string(day_file(&st, &q.day)).await.unwrap_or_default();
+    let text = read_tail(&day_file(&st, &q.day)).await;
     let (lines, more, areas) = tokio::task::spawn_blocking(move || filter_lines(&text, &q)).await.unwrap_or_default();
     Ok(Json(json!({ "lines": lines, "more": more, "areas": areas })))
 }
@@ -184,7 +207,7 @@ pub async fn stats(State(st): State<AppState>, Query(q): Query<StatsQuery>) -> R
     if !valid_day(&day) {
         return Err((StatusCode::BAD_REQUEST, Json(json!({ "error": "Unknown day." }))));
     }
-    let text = tokio::fs::read_to_string(day_file(&st, &day)).await.unwrap_or_default();
+    let text = read_tail(&day_file(&st, &day)).await;
     let v = tokio::task::spawn_blocking(move || summarize(&text)).await.unwrap_or(Value::Null);
     Ok(Json(v))
 }
@@ -194,7 +217,7 @@ pub async fn recent_problems(st: &AppState, limit: usize) -> Vec<Value> {
     let now = chrono::Utc::now();
     let mut out = vec![];
     for day in [now, now - chrono::Duration::days(1)] {
-        let text = tokio::fs::read_to_string(day_file(st, &day.format("%Y-%m-%d").to_string())).await.unwrap_or_default();
+        let text = read_tail(&day_file(st, &day.format("%Y-%m-%d").to_string())).await;
         let q = DayQuery { day: String::new(), level: Some("warn".into()), q: None, target: None, before: 0, limit: Some(limit) };
         let (lines, _, _) = filter_lines(&text, &q);
         out.extend(lines);
@@ -209,10 +232,14 @@ pub async fn recent_problems(st: &AppState, limit: usize) -> Vec<Value> {
 /// Counts problems in the last `seconds` from today's file.
 pub async fn count_recent(st: &AppState, seconds: i64) -> (u64, u64) {
     let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(seconds)).to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let text = tokio::fs::read_to_string(day_file(st, &today())).await.unwrap_or_default();
+    let text = read_tail(&day_file(st, &today())).await;
     let (mut errors, mut warns) = (0, 0);
     for line in text.lines().rev() {
         let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        // Anyone with an account can report a client error: those are in Logs, but say nothing about the server's health.
+        if v["target"] == "client" {
+            continue;
+        }
         if v["t"].as_str().unwrap_or("") < cutoff.as_str() {
             break;
         }

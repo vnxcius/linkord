@@ -9,6 +9,10 @@ use crate::state::AppState;
 
 pub const MAX_FILE: usize = 25 * 1024 * 1024;
 pub const MAX_IMAGE: usize = 8 * 1024 * 1024;
+/// A whole request with attachments (10 files of up to 25 MB, plus overhead).
+pub const MESSAGE_BODY: usize = 260 * 1024 * 1024;
+/// A whole request with one picture, sound or song.
+pub const UPLOAD_BODY: usize = 32 * 1024 * 1024;
 
 pub fn sanitize_filename(name: &str) -> String {
     let base = Path::new(name).file_name().and_then(|n| n.to_str()).unwrap_or("file");
@@ -29,6 +33,46 @@ pub async fn save(st: &AppState, dir: &str, filename: &str, bytes: &[u8]) -> std
     Ok(format!("/uploads/{rel}"))
 }
 
+/// Attachments saved for a message that isn't posted yet. If the request fails before it is, they go, and the space
+/// counted for them comes back: nothing would ever point at them.
+pub struct SavedFiles {
+    st: AppState,
+    user: Id,
+    files: Vec<(String, u64)>,
+}
+
+impl SavedFiles {
+    pub fn new(st: &AppState, user: Id) -> Self {
+        SavedFiles { st: st.clone(), user, files: Vec::new() }
+    }
+
+    pub fn add(&mut self, url: &str, size: u64) {
+        self.files.push((url.to_string(), size));
+    }
+
+    pub fn keep(mut self) {
+        self.files.clear();
+    }
+}
+
+impl Drop for SavedFiles {
+    fn drop(&mut self) {
+        let files = std::mem::take(&mut self.files);
+        if files.is_empty() {
+            return;
+        }
+        let (st, user) = (self.st.clone(), self.user);
+        tokio::spawn(async move {
+            for (url, size) in files {
+                if let Some(dir) = url.strip_prefix("/uploads/").and_then(|rel| rel.rsplit_once('/')).map(|(dir, _)| dir.to_string()) {
+                    let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(dir)).await;
+                }
+                release(&st, user, size).await;
+            }
+        });
+    }
+}
+
 /// Reads a multipart field up to `limit` bytes.
 pub async fn read_field(mut field: Field<'_>, limit: usize) -> ApiResult<Vec<u8>> {
     let mut buf = Vec::new();
@@ -43,6 +87,23 @@ pub async fn read_field(mut field: Field<'_>, limit: usize) -> ApiResult<Vec<u8>
 
 pub fn is_image(content_type: &str) -> bool {
     matches!(content_type, "image/png" | "image/jpeg" | "image/gif" | "image/webp")
+}
+
+/// The extension for an image, from its first bytes. The name and type a client declares decide nothing: the type a
+/// file is served with comes from its extension.
+pub fn image_ext(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, ..] => Some("png"),
+        [0xff, 0xd8, 0xff, ..] => Some("jpg"),
+        [b'G', b'I', b'F', b'8', ..] => Some("gif"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("webp"),
+        _ => None,
+    }
+}
+
+/// `stem.ext` for an uploaded image, or an error if the bytes aren't one of the allowed formats.
+pub fn image_name(stem: &str, bytes: &[u8]) -> ApiResult<String> {
+    image_ext(bytes).map(|ext| format!("{stem}.{ext}")).ok_or_else(|| bad("must be a png, jpeg, gif or webp image"))
 }
 
 /// Downloads a remote image (Discord avatar/banner) into local storage.
@@ -95,15 +156,13 @@ pub async fn remux_voice(st: &AppState, user: Id, att: &mut crate::models::Attac
     let Some(rel) = att.url.strip_prefix("/uploads/") else { return };
     let src = st.cfg.uploads_dir().join(rel);
     let dst = src.with_file_name("voice-message.ogg");
-    let ok = tokio::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(&src)
-        .args(["-vn", "-c:a", "copy", "-f", "ogg"])
-        .arg(&dst)
-        .kill_on_drop(true)
-        .status()
-        .await
-        .is_ok_and(|s| s.success());
+    // Only what a recorder makes: the name and declared type are the client's word, the file itself isn't.
+    if crate::media::audio_format_of(&src).await != Some("matroska") {
+        return;
+    }
+    let mut ff = crate::media::ffmpeg_input(&src, "matroska");
+    ff.args(["-vn", "-c:a", "copy", "-f", "ogg"]).arg(&dst);
+    let ok = matches!(crate::media::run(ff, std::time::Duration::from_secs(30)).await, Ok(Some(o)) if o.status.success());
     let size = if ok { tokio::fs::metadata(&dst).await.ok().map(|m| m.len()) } else { None };
     let Some(new) = size else {
         let _ = tokio::fs::remove_file(&dst).await;

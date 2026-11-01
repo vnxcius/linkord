@@ -169,6 +169,9 @@ async fn remove_recipient(State(st): State<AppState>, AuthUser(me): AuthUser, Pa
 
 /// Removes `user` from a group DM, handing ownership on or deleting the group when it empties.
 pub async fn leave_group(st: &AppState, id: Id, owner: Option<Id>, user: Id) -> ApiResult<()> {
+    if crate::voice::channel_of(st, user).is_some_and(|(_, ch)| ch == id) {
+        crate::voice::leave(st, user).await;
+    }
     sqlx::query("DELETE FROM dm_recipients WHERE channel_id = $1 AND user_id = $2").bind(id).bind(user).execute(&st.db).await?;
     let rest = recipients(&st.db, id).await?;
     if rest.is_empty() {

@@ -1,7 +1,8 @@
 use std::time::{Duration, Instant};
 
 use axum::extract::{FromRequestParts, Query, State};
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE};
+use axum::http::{HeaderMap, HeaderValue};
 use axum::http::request::Parts;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -18,7 +19,7 @@ use crate::error::{bad, ApiError, ApiResult};
 use crate::id::Id;
 use crate::models::validate_username;
 use crate::ratelimit::ClientIp;
-use crate::state::{AppState, OAuthState, PendingLogin};
+use crate::state::{AppState, DesktopLogin, OAuthState, PendingLogin};
 use crate::uploads;
 
 const SESSION_DAYS: i64 = 90;
@@ -83,12 +84,15 @@ pub fn random_token(bytes: usize) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
 }
 
-fn hash_token(token: &str) -> Vec<u8> {
+pub fn hash_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
 pub async fn user_from_token(st: &AppState, token: &str) -> ApiResult<Option<Id>> {
-    Ok(sqlx::query_scalar::<_, Id>("SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > now()")
+    Ok(sqlx::query_scalar::<_, Id>(
+        "SELECT s.user_id FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = $1 AND s.expires_at > now() AND u.suspended_at IS NULL",
+    )
         .bind(hash_token(token))
         .fetch_optional(&st.db)
         .await?)
@@ -111,9 +115,10 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/config", get(auth_config))
         .route("/auth/discord/start", get(discord_start))
         .route("/auth/discord/callback", get(discord_callback))
-        .route("/auth/poll", get(poll))
+        .route("/auth/exchange", post(exchange))
         .route("/auth/dev", post(dev_login))
         .route("/auth/logout", post(logout))
+        .route("/auth/logout-all", post(logout_all))
 }
 
 async fn auth_config(State(st): State<AppState>) -> Json<serde_json::Value> {
@@ -122,29 +127,56 @@ async fn auth_config(State(st): State<AppState>) -> Json<serde_json::Value> {
 
 #[derive(Deserialize)]
 struct StartQuery {
-    /// Set by the desktop app, which then polls /auth/poll with the same nonce.
+    /// Desktop apps before the local callback, which got their session by polling. Whoever chose the nonce got the
+    /// session of whoever opened the link, so that way of signing in is gone.
     nonce: Option<String>,
+    /// The desktop app's local callback (see `DesktopLogin`).
+    port: Option<u16>,
+    state: Option<String>,
+    challenge: Option<String>,
+    invite: Option<String>,
 }
 
-async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, Query(q): Query<StartQuery>) -> ApiResult<Redirect> {
+const LOGIN_COOKIE: &str = "linkord_login";
+
+async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, Query(q): Query<StartQuery>) -> ApiResult<Response> {
     st.limits.check(format!("login:{ip}"), 10.0, 0.2)?;
     if !st.cfg.discord_enabled() {
         return Err(bad("Discord login is not configured on this server"));
     }
-    if let Some(n) = &q.nonce {
-        if !(32..=128).contains(&n.len()) {
-            return Err(bad("invalid nonce"));
-        }
+    if q.nonce.is_some() {
+        return Ok(result_page("This version of Linkord can't sign in any more. Restart it to update, then try again.").into_response());
     }
+    let long_enough = |v: &str| (32..=128).contains(&v.len()) && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let desktop = match (q.port, q.state, q.challenge) {
+        (None, None, None) => None,
+        (Some(port), Some(state), Some(challenge)) if port >= 1024 && long_enough(&state) && long_enough(&challenge) => {
+            Some(DesktopLogin { port, state, challenge })
+        }
+        _ => return Err(bad("invalid sign-in request")),
+    };
     let state = random_token(24);
-    st.oauth_states.insert(state.clone(), OAuthState { nonce: q.nonce, created: Instant::now() });
+    // Only people already signed in to Linkord on Discord skip the consent screen, and only in the browser client:
+    // the desktop flow always shows it.
+    let prompt = if desktop.is_some() { "" } else { "&prompt=none" };
+    let invite = q.invite.filter(|c| c.len() <= 64);
+    st.oauth_states.insert(state.clone(), OAuthState { desktop, invite, created: Instant::now() });
     let url = format!(
-        "https://discord.com/oauth2/authorize?client_id={}&response_type=code&scope=identify&prompt=none&redirect_uri={}&state={}",
+        "https://discord.com/oauth2/authorize?client_id={}&response_type=code&scope=identify{prompt}&redirect_uri={}&state={}",
         st.cfg.discord_client_id,
         urlencoding::encode(&redirect_uri(&base)),
         state
     );
-    Ok(Redirect::to(&url))
+    // The callback must come back to the browser that started this.
+    let secure = if base.to_string().starts_with("https:") { "; Secure" } else { "" };
+    let cookie = format!("{LOGIN_COOKIE}={state}; Path=/api/auth; Max-Age={}; HttpOnly; SameSite=Lax{secure}", LOGIN_TTL.as_secs());
+    let mut res = Redirect::to(&url).into_response();
+    res.headers_mut().insert(SET_COOKIE, HeaderValue::from_str(&cookie).map_err(anyhow::Error::from)?);
+    Ok(res)
+}
+
+fn login_cookie(headers: &HeaderMap) -> Option<&str> {
+    headers.get(COOKIE)?.to_str().ok()?.split(';').find_map(|c| c.trim().strip_prefix(LOGIN_COOKIE)?.strip_prefix('='))
 }
 
 /// Discord sends people back to the address they started from (the tunnel or direct access, see direct.rs);
@@ -175,9 +207,23 @@ struct DiscordUser {
     accent_color: Option<i32>,
 }
 
-async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, Query(q): Query<CallbackQuery>) -> Response {
+/// Why a sign-in was refused, in words for the person.
+#[derive(Debug, thiserror::Error)]
+enum Refused {
+    #[error("Linkord is invite-only. Open an invite link from a friend in this browser, then sign in.")]
+    NotInvited,
+    #[error("New accounts aren't being created right now.")]
+    Closed,
+    #[error("This account has been suspended.")]
+    Suspended,
+}
+
+async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, headers: HeaderMap, Query(q): Query<CallbackQuery>) -> Response {
     if st.limits.check(format!("login:{ip}"), 10.0, 0.2).is_err() {
         return result_page("Too many sign-in attempts. Please wait a minute and try again.").into_response();
+    }
+    if q.state.is_none() || q.state.as_deref() != login_cookie(&headers) {
+        return result_page("This login link expired. Please try again from Linkord.").into_response();
     }
     let oauth = match q.state.as_deref().and_then(|s| st.oauth_states.remove(s)) {
         Some((_, o)) if o.created.elapsed() < LOGIN_TTL => o,
@@ -186,26 +232,34 @@ async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp
     let Some(code) = q.code.filter(|_| q.error.is_none()) else {
         return result_page("Discord login was cancelled.").into_response();
     };
-    let token = match finish_discord_login(&st, &code, &base).await {
-        Ok(t) => t,
+    let user = match finish_discord_login(&st, &code, &base, oauth.invite.as_deref()).await {
+        Ok(u) => u,
         Err(e) => {
+            if let Some(refused) = e.downcast_ref::<Refused>() {
+                return result_page(&refused.to_string()).into_response();
+            }
             tracing::warn!("discord login failed: {e:#}");
             return result_page("Could not sign in with Discord. Please try again.").into_response();
         }
     };
-    match oauth.nonce {
-        Some(nonce) => {
-            st.pending_logins.insert(nonce, PendingLogin { token, created: Instant::now() });
-            result_page("You're signed in. You can close this tab and return to Linkord.").into_response()
+    match oauth.desktop {
+        // Only the app listening on this computer gets the code, so a link someone else sends can't sign them in.
+        Some(d) => {
+            let code = random_token(32);
+            st.pending_logins.insert(code.clone(), PendingLogin { user, challenge: d.challenge, created: Instant::now() });
+            Redirect::to(&format!("http://127.0.0.1:{}/login?code={code}&state={}", d.port, d.state)).into_response()
         }
-        None => Redirect::to(&format!("{base}/#token={token}")).into_response(),
+        None => match create_session(&st, user).await {
+            Ok(token) => Redirect::to(&format!("{base}/#token={token}")).into_response(),
+            Err(_) => result_page("Could not sign in with Discord. Please try again.").into_response(),
+        },
     }
 }
 
-async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> anyhow::Result<String> {
+async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase, invite: Option<&str>) -> anyhow::Result<Id> {
     let tok: DiscordToken = st
         .http
-        .post("https://discord.com/api/oauth2/token")
+        .post(format!("{}/api/oauth2/token", st.cfg.discord_api_url))
         .form(&[
             ("client_id", st.cfg.discord_client_id.as_str()),
             ("client_secret", st.cfg.discord_client_secret.as_str()),
@@ -220,7 +274,7 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
         .await?;
     let du: DiscordUser = st
         .http
-        .get("https://discord.com/api/v10/users/@me")
+        .get(format!("{}/api/v10/users/@me", st.cfg.discord_api_url))
         .bearer_auth(&tok.access_token)
         .send()
         .await?
@@ -228,6 +282,7 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
         .json()
         .await?;
 
+    check_signup(st, &du.id, invite).await?;
     let (id, inserted) = sign_up_or_in(&st.db, &du.id, &normalize_username(&du.username), Some(&du.username)).await?;
     if inserted {
         sqlx::query("UPDATE users SET display_name = $2, accent_color = $3 WHERE id = $1")
@@ -242,16 +297,16 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
     if inserted {
         let ext = |h: &str| if h.starts_with("a_") { "gif" } else { "png" };
         let avatar_url = match &du.avatar {
-            Some(h) => format!("https://cdn.discordapp.com/avatars/{}/{h}.{}?size=256", du.id, ext(h)),
+            Some(h) => format!("{}/avatars/{}/{h}.{}?size=256", st.cfg.discord_cdn_url, du.id, ext(h)),
             None => {
                 let idx = du.id.parse::<u64>().map(|i| (i >> 22) % 6).unwrap_or(0);
-                format!("https://cdn.discordapp.com/embed/avatars/{idx}.png")
+                format!("{}/embed/avatars/{idx}.png", st.cfg.discord_cdn_url)
             }
         };
         let avatar = uploads::mirror(st, &avatar_url, &format!("avatars/{id}")).await;
         let banner = match &du.banner {
             Some(h) => {
-                let url = format!("https://cdn.discordapp.com/banners/{}/{h}.{}?size=600", du.id, ext(h));
+                let url = format!("{}/banners/{}/{h}.{}?size=600", st.cfg.discord_cdn_url, du.id, ext(h));
                 uploads::mirror(st, &url, &format!("banners/{id}")).await
             }
             None => None,
@@ -263,7 +318,25 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
             .execute(&st.db)
             .await?;
     }
-    Ok(create_session(st, id).await?)
+    Ok(id)
+}
+
+/// Whether this Discord account may sign in: existing accounts unless suspended, new ones per LINKORD_SIGNUP.
+async fn check_signup(st: &AppState, discord_id: &str, invite: Option<&str>) -> anyhow::Result<()> {
+    let existing: Option<Option<chrono::DateTime<chrono::Utc>>> =
+        sqlx::query_scalar("SELECT suspended_at FROM users WHERE discord_id = $1").bind(discord_id).fetch_optional(&st.db).await?;
+    match existing {
+        Some(Some(_)) => Err(Refused::Suspended.into()),
+        Some(None) => Ok(()),
+        None => match st.cfg.signup.as_str() {
+            "open" => Ok(()),
+            "closed" => Err(Refused::Closed.into()),
+            _ => match invite {
+                Some(code) if crate::api::invites::is_valid(st, code).await? => Ok(()),
+                _ => Err(Refused::NotInvited.into()),
+            },
+        },
+    }
 }
 
 /// Someone other than `except` (deleted accounts don't count) already has this username.
@@ -352,13 +425,19 @@ pub fn result_page(message: &str) -> Html<String> {
 }
 
 #[derive(Deserialize)]
-struct PollQuery {
-    nonce: String,
+struct Exchange {
+    code: String,
+    verifier: String,
 }
 
-async fn poll(State(st): State<AppState>, ClientIp(ip): ClientIp, Query(q): Query<PollQuery>) -> ApiResult<Json<serde_json::Value>> {
-    st.limits.check(format!("poll:{ip}"), 30.0, 2.0)?;
-    let token = st.pending_logins.remove(&q.nonce).filter(|(_, p)| p.created.elapsed() < LOGIN_TTL).map(|(_, p)| p.token);
+/// The desktop app swaps the code its local callback received, plus the secret behind the sign-in's challenge, for a
+/// session.
+async fn exchange(State(st): State<AppState>, ClientIp(ip): ClientIp, Json(b): Json<Exchange>) -> ApiResult<Json<serde_json::Value>> {
+    st.limits.check(format!("exchange:{ip}"), 10.0, 0.5)?;
+    let pending = st.pending_logins.remove(&b.code).filter(|(_, p)| p.created.elapsed() < LOGIN_TTL).map(|(_, p)| p);
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(b.verifier.as_bytes()));
+    let pending = pending.filter(|p| p.challenge == challenge).ok_or(ApiError::Unauthorized)?;
+    let token = create_session(&st, pending.user).await?;
     Ok(Json(json!({ "token": token })))
 }
 
@@ -381,8 +460,27 @@ async fn dev_login(State(st): State<AppState>, ClientIp(ip): ClientIp, Json(body
 
 async fn logout(State(st): State<AppState>, parts: Parts) -> ApiResult<()> {
     if let Some(token) = parts.headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")) {
-        sqlx::query("DELETE FROM sessions WHERE token_hash = $1").bind(hash_token(token)).execute(&st.db).await?;
+        let hash = hash_token(token);
+        let user: Option<Id> = sqlx::query_scalar("DELETE FROM sessions WHERE token_hash = $1 RETURNING user_id").bind(&hash).fetch_optional(&st.db).await?;
+        // What this session has open ends with it.
+        st.hub.close_token(&hash);
+        if let Some(user) = user {
+            crate::voice::close_token(&st, user, &hash).await;
+        }
     }
+    Ok(())
+}
+
+/// Signs the user out everywhere, for when a device or a session was lost.
+async fn logout_all(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<()> {
+    end_sessions(&st, me).await
+}
+
+/// Deletes every session of the user and closes what they have open.
+pub async fn end_sessions(st: &AppState, user: Id) -> ApiResult<()> {
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1").bind(user).execute(&st.db).await?;
+    st.hub.close_user(user);
+    crate::voice::leave(st, user).await;
     Ok(())
 }
 

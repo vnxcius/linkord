@@ -1,7 +1,7 @@
 {
   "name": "linkord-app",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -33,6 +33,7 @@
     "dictionary-en": "^4.0.0",
     "dictionary-es": "^4.0.0",
     "dictionary-pt": "^4.0.0",
+    "dompurify": "3.2.6",
     "heroicons": "^2.2.0",
     "hunspell-asm": "4.0.2",
     "libopus-wasm": "0.4.1",

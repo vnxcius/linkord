@@ -26,6 +26,53 @@ fn tray_image(state: &str) -> Option<Image<'static>> {
     Image::from_bytes(bytes).ok()
 }
 
+/// The code in a local sign-in callback (`GET /login?code=...&state=... HTTP/1.1`), if its state is the one this
+/// sign-in started with: other programs and web pages can reach this port too.
+fn login_code(request_line: &str, state: &str) -> Option<String> {
+    let query = request_line.strip_prefix("GET /login?")?.split(' ').next()?;
+    let param = |name: &str| query.split('&').find_map(|p| p.strip_prefix(name)?.strip_prefix('='));
+    let code = param("code")?;
+    let safe = !code.is_empty() && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    (safe && param("state") == Some(state)).then(|| code.to_string())
+}
+
+/// Listens on a free local port for the browser to come back from signing in, and returns the port. The code goes to
+/// the window as a `login-code` event. Gives up after 10 minutes, like the sign-in itself.
+#[tauri::command]
+fn login_listen(app: AppHandle, state: String) -> Result<u16, String> {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        while std::time::Instant::now() < deadline {
+            let Ok((mut sock, _)) = listener.accept() else {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            };
+            let _ = sock.set_nonblocking(false);
+            let _ = sock.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let mut buf = [0u8; 2048];
+            let n = sock.read(&mut buf).unwrap_or(0);
+            let text = String::from_utf8_lossy(&buf[..n]);
+            let code = login_code(text.lines().next().unwrap_or(""), &state);
+            let (status, body) = if code.is_some() {
+                ("200 OK", "You're signed in. You can close this tab and return to Linkord.")
+            } else {
+                ("404 Not Found", "Not found")
+            };
+            let _ = write!(sock, "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            if let Some(code) = code {
+                let _ = app.emit_to("main", "login-code", code);
+                show_main(&app);
+                return;
+            }
+        }
+    });
+    Ok(port)
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -88,7 +135,9 @@ fn set_start_minimized(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 /// The global keybinds the native hook should report (Windows; elsewhere the client listens in-window).
 #[tauri::command]
-fn set_keybinds(binds: Vec<keybinds::Bind>) {
+fn set_keybinds(mut binds: Vec<keybinds::Bind>) {
+    // A keyboard's worth of binds would turn the hook into a keylogger for anything that got to call this.
+    binds.truncate(keybinds::MAX_BINDS);
     #[cfg(windows)]
     keybinds::set_binds(binds);
     #[cfg(not(windows))]
@@ -104,6 +153,8 @@ async fn save_download(app: AppHandle, request: tauri::ipc::Request<'_>) -> Resu
     };
     let name = request.headers().get("x-filename").and_then(|v| v.to_str().ok()).map(percent_decode).unwrap_or_default();
     let name = std::path::Path::new(&name).file_name().and_then(|n| n.to_str()).unwrap_or("download").to_string();
+    // ":" would write to an alternate data stream on Windows, past whatever scans the visible file.
+    let name = if name.contains(':') { name.replace(':', "_") } else { name };
     let dir = app.path().download_dir().map_err(|e| e.to_string())?;
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
@@ -117,6 +168,13 @@ async fn save_download(app: AppHandle, request: tauri::ipc::Request<'_>) -> Resu
         path = dir.join(format!("{stem} ({n}){ext}"));
     }
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    // Mark of the Web, as a browser download gets: Windows warns before running it, and Office opens it protected.
+    #[cfg(windows)]
+    {
+        let mut stream = path.clone().into_os_string();
+        stream.push(":Zone.Identifier");
+        let _ = std::fs::write(&stream, "[ZoneTransfer]\r\nZoneId=3\r\n");
+    }
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -247,6 +305,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(window_state_flags()).build())
         .manage(Tray(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            login_listen,
             set_tray_state,
             set_tray_menu,
             set_close_to_tray,
