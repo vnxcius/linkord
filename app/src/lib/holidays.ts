@@ -10,6 +10,14 @@ export type Holiday = 'christmas' | 'new-year';
 
 const DAY_MS = 86_400_000;
 
+/** The season the Christmas greeting belongs to ('2026' from November 2026 to January 6, 2027), or null outside it. */
+export function christmasSeason(now: Date): string | null {
+  const month = now.getMonth();
+  if (month >= 10) return String(now.getFullYear());
+  if (month === 0 && now.getDate() <= 6) return String(now.getFullYear() - 1);
+  return null;
+}
+
 /** The next midnight that starts this holiday, or `now` itself if it hasn't passed. */
 export function nextDate(holiday: Holiday, now: Date): Date {
   const [month, day] = holiday === 'christmas' ? [11, 25] : [0, 1];

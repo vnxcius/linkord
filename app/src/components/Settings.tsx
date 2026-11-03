@@ -76,7 +76,7 @@ import * as I from './Icons';
 import { accentCss } from './Profile';
 import { StatsPage } from './StatsPage';
 import { KassPage } from './KassPage';
-import { showRelease, startTour } from './Onboarding';
+import { showChristmas, showRelease, startTour } from './Onboarding';
 import { parseBirthday } from './Birthday';
 import { brandOf } from '../lib/brand-icons';
 import { linkHost, type ProfileLink, type ProfileSong, SongPlayer } from './ProfileWidgets';
@@ -224,6 +224,7 @@ export function Settings(p: { tab?: string }) {
           <nav class="settings-links">
             <button onClick={() => (close(), openPage('changelog'))}>{t('Patch notes')}</button>
             <button onClick={() => (close(), showRelease())}>{t("What's new in 1.0")}</button>
+            <button onClick={() => (close(), showChristmas())}>{t('Christmas greeting')}</button>
             <button onClick={() => (close(), startTour())}>{t('Take the tour')}</button>
           </nav>
           <div class="settings-version">

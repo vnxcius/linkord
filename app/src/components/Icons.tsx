@@ -263,14 +263,15 @@ export const Rejoin = hero(arrowPath);
 export const ArrowRight = hero(arrowRight);
 
 /** The app icon (assets/icon.png): the Triforce on its dark tile, the same everywhere (window, tray, the app). */
-export function Emblem(p: { size?: number }) {
+export function Emblem(p: { size?: number; christmas?: boolean }) {
+  const festive = () => p.christmas || isChristmas();
   const w = () => p.size ?? 28;
   return (
     <img
       class="emblem"
-      src={isChristmas() ? emblemChristmasUrl : emblemUrl}
+      src={festive() ? emblemChristmasUrl : emblemUrl}
       width={w()}
-      height={isChristmas() ? w() : Math.round((w() * 621) / 827)}
+      height={festive() ? w() : Math.round((w() * 621) / 827)}
       alt="Linkord"
       draggable={false}
     />

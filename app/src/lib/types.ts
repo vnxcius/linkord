@@ -259,6 +259,8 @@ export interface Settings {
   tour_done?: boolean;
   /** The last release whose "what's new" dialog was seen. */
   release_seen?: string;
+  /** The Christmas season whose greeting was seen ('2026'). */
+  christmas_seen?: string;
 }
 
 export const displayName = (u?: Pick<User, 'username' | 'display_name'> | null) =>

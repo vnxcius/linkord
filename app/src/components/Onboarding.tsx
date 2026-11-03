@@ -7,6 +7,8 @@ import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show
 import { patchSettings, selectView } from '../lib/actions';
 import { msg, t } from '../lib/i18n';
 import { confetti } from '../lib/confetti';
+import { christmasSeason } from '../lib/holidays';
+import { prefs, setPrefs } from '../lib/prefs';
 import { page } from '../lib/route';
 import { sounds } from '../lib/sounds';
 import { displayName } from '../lib/types';
@@ -14,6 +16,7 @@ import { state } from '../lib/store';
 import { isMobile, ui } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
+import { Snow } from './Christmas';
 import shotLook from '../assets/whats-new/look.webp';
 import shotCall from '../assets/whats-new/call.webp';
 import shotWatch from '../assets/whats-new/watch.webp';
@@ -21,29 +24,44 @@ import shotKass from '../assets/whats-new/kass.webp';
 import shotSoundboard from '../assets/whats-new/soundboard.webp';
 import shotDmCall from '../assets/whats-new/dm-call.webp';
 import shotStats from '../assets/whats-new/stats.webp';
+import shotXmasLook from '../assets/whats-new/christmas-look.webp';
+import shotXmasSnowball from '../assets/whats-new/christmas-snowball.webp';
+import shotXmasSanta from '../assets/whats-new/christmas-santa.webp';
+import shotXmasToys from '../assets/whats-new/christmas-toys.webp';
+import shotXmasCountdown from '../assets/whats-new/christmas-countdown.webp';
+import shotXmasMusic from '../assets/whats-new/christmas-music.webp';
 
 /** The release whose "what's new" dialog existing accounts see once. */
 export const RELEASE = '1.0.0';
 
-const [mode, setMode] = createSignal<'tour' | 'release' | null>(null);
+const [mode, setMode] = createSignal<'tour' | 'release' | 'christmas' | null>(null);
 /** Settings → "Take the tour" / "What's new in 1.0". */
 export const startTour = () => setMode('tour');
 export const showRelease = () => setMode('release');
+export const showChristmas = () => setMode('christmas');
 
-/** Decides once per launch, after the app has settled: the tour, the 1.0 dialog or nothing. */
+/** What this launch should show, if anything. One at a time: the Christmas greeting waits its turn for the next launch. */
+function dueNow(): 'tour' | 'release' | 'christmas' | null {
+  const s = state.settings;
+  if (!s.tour_done) return 'tour';
+  if (s.release_seen !== RELEASE) return 'release';
+  const season = christmasSeason(new Date());
+  return season && s.christmas_seen !== season ? 'christmas' : null;
+}
+
+/** Decides once per launch, after the app has settled: the tour, a greeting or nothing. */
 export function Onboarding() {
   let decided = false;
   let timer: number | undefined;
   createEffect(() => {
     if (decided || !state.ready || !state.me || state.me.needs_username || ui.modal || page()) return;
-    const s = state.settings;
-    if (s.tour_done && s.release_seen === RELEASE) return void (decided = true);
+    if (!dueNow()) return void (decided = true);
     // A moment for the layout (and an invite dialog after login) before taking over the window.
     clearTimeout(timer);
     timer = window.setTimeout(() => {
       if (decided || ui.modal || page()) return;
       decided = true;
-      setMode(state.settings.tour_done ? 'release' : 'tour');
+      setMode(dueNow());
     }, 700);
   });
   onCleanup(() => clearTimeout(timer));
@@ -54,6 +72,9 @@ export function Onboarding() {
       </Show>
       <Show when={mode() === 'release'}>
         <Release />
+      </Show>
+      <Show when={mode() === 'christmas'}>
+        <ChristmasGreeting />
       </Show>
     </>
   );
@@ -136,26 +157,35 @@ const feature = (id: string) => FEATURES.find((f) => f.id === id)!;
 
 const SLIDE_MS = 7000;
 
-function Release() {
+/** The dialog itself: confetti, the fanfare and slides that move on by themselves until you pick one. */
+function Showcase(p: {
+  features: Feature[];
+  more: string[];
+  kicker: string;
+  title: string;
+  intro: string;
+  emblem: JSX.Element;
+  onClose: () => void;
+  footer: JSX.Element;
+  /** Drawn over the dialog, and a class that dresses it up. */
+  decor?: JSX.Element;
+  class?: string;
+}) {
   const [index, setIndex] = createSignal(0);
   /** Slides move on by themselves until you pick one. */
   const [auto, setAuto] = createSignal(true);
   const [paused, setPaused] = createSignal(false);
-  const current = () => FEATURES[index()];
-  const close = (tour = false) => {
-    void patchSettings({ release_seen: RELEASE }).catch(() => {});
-    setMode(tour ? 'tour' : null);
-  };
+  const current = () => p.features[index()];
   const pick = (i: number) => {
     setAuto(false);
-    setIndex((i + FEATURES.length) % FEATURES.length);
+    setIndex((i + p.features.length) % p.features.length);
   };
 
   let stopConfetti: (() => void) | undefined;
   let stopFanfare: (() => void) | undefined;
   onMount(() => {
     // Preload every screenshot so switching slides never shows an empty frame.
-    for (const f of FEATURES) new Image().src = f.shot;
+    for (const f of p.features) new Image().src = f.shot;
     stopFanfare = sounds.fanfare();
     stopConfetti = confetti();
   });
@@ -168,14 +198,14 @@ function Release() {
   createEffect(
     on([index, auto, paused], () => {
       clearTimeout(timer);
-      if (auto() && !paused()) timer = window.setTimeout(() => setIndex((i) => (i + 1) % FEATURES.length), SLIDE_MS);
+      if (auto() && !paused()) timer = window.setTimeout(() => setIndex((i) => (i + 1) % p.features.length), SLIDE_MS);
     }),
   );
   onCleanup(() => clearTimeout(timer));
 
   const onKey = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return;
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') p.onClose();
     else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') pick(index() + 1);
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') pick(index() - 1);
     else return;
@@ -185,28 +215,25 @@ function Release() {
   onCleanup(() => window.removeEventListener('keydown', onKey));
 
   return (
-    <div class="modal-backdrop release-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div class="modal release" role="dialog" aria-modal="true" aria-label={t('Version 1.0 is here!')}>
-        <button class="icon-btn modal-close" aria-label={t('Close')} onClick={() => close()}>
+    <div
+      class={`modal-backdrop release-backdrop ${p.class ?? ''}`}
+      onMouseDown={(e) => e.target === e.currentTarget && p.onClose()}
+    >
+      <div class="modal release" role="dialog" aria-modal="true" aria-label={p.title}>
+        <button class="icon-btn modal-close" aria-label={t('Close')} onClick={() => p.onClose()}>
           <I.Close size={18} />
         </button>
         <header class="release-head">
-          <div class="release-emblem">
-            <Emblem size={52} />
-          </div>
+          <div class="release-emblem">{p.emblem}</div>
           <div>
-            <p class="showcase-kicker">{t('Linkord {version}', { version: '1.0' })}</p>
-            <h2>{t('Version 1.0 is here!')}</h2>
-            <p class="muted">
-              {t('Thanks for being here since the early days, {name}. This is what came with it.', {
-                name: displayName(state.me),
-              })}
-            </p>
+            <p class="showcase-kicker">{p.kicker}</p>
+            <h2>{p.title}</h2>
+            <p class="muted">{p.intro}</p>
           </div>
         </header>
         <div class="release-body" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
           <ol class="release-list" role="tablist" aria-label={t("What's new")}>
-            <For each={FEATURES}>
+            <For each={p.features}>
               {(f, i) => (
                 <li>
                   <button
@@ -255,9 +282,33 @@ function Release() {
         </div>
         <div class="release-more">
           <span class="kicker">{t('And also')}</span>
-          <For each={MORE}>{(m) => <span class="release-chip">{t(m)}</span>}</For>
+          <For each={p.more}>{(m) => <span class="release-chip">{t(m)}</span>}</For>
         </div>
-        <div class="modal-footer release-foot">
+        <div class="modal-footer release-foot">{p.footer}</div>
+      </div>
+      {p.decor}
+    </div>
+  );
+}
+
+function Release() {
+  const close = (tour = false) => {
+    void patchSettings({ release_seen: RELEASE }).catch(() => {});
+    setMode(tour ? 'tour' : null);
+  };
+  return (
+    <Showcase
+      features={FEATURES}
+      more={MORE}
+      kicker={t('Linkord {version}', { version: '1.0' })}
+      title={t('Version 1.0 is here!')}
+      intro={t('Thanks for being here since the early days, {name}. This is what came with it.', {
+        name: displayName(state.me),
+      })}
+      emblem={<Emblem size={52} />}
+      onClose={() => close()}
+      footer={
+        <>
           <button class="btn ghost" onClick={() => close(true)}>
             <I.Compass size={16} /> {t('Take the tour')}
           </button>
@@ -265,9 +316,118 @@ function Release() {
           <button class="btn primary" onClick={() => close()}>
             {t("Let's go")}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
+  );
+}
+
+// ---------- the Christmas greeting ----------
+
+const CHRISTMAS: Feature[] = [
+  {
+    id: 'christmas-look',
+    title: msg('Linkord in evergreen'),
+    text: msg(
+      'A Christmas theme with falling snow, string lights, a tree, Santa hats on everyone and snow that slowly piles up behind the message box. Click the snow to clear it.',
+    ),
+    shot: shotXmasLook,
+  },
+  {
+    id: 'christmas-snowball',
+    title: msg('Snowball fights'),
+    text: msg(
+      'Type /snowball @name or right-click a message to hit someone with a snowball. Everyone in the channel sees it land, and the score goes on your profile.',
+    ),
+    shot: shotXmasSnowball,
+  },
+  {
+    id: 'christmas-santa',
+    title: msg('Santa flies by'),
+    text: msg('Every so often Santa crosses the window. Click him if you can: every catch counts.'),
+    shot: shotXmasSanta,
+  },
+  {
+    id: 'christmas-toys',
+    title: msg('Things to click'),
+    text: msg(
+      'Gifts hop and burst into confetti, ornaments swing, the star spins and the tree sheds its snow. There is a snowman on every full profile, too.',
+    ),
+    shot: shotXmasToys,
+  },
+  {
+    id: 'christmas-countdown',
+    title: msg('Counting down'),
+    text: msg(
+      'See the time left until Christmas and New Year above every chat, with fireworks when midnight arrives wherever you are.',
+    ),
+    shot: shotXmasCountdown,
+  },
+  {
+    id: 'christmas-music',
+    title: msg('Carols while you chat'),
+    text: msg(
+      'Christmas songs play softly and pause for calls, videos and other windows. Skip one from above the tree, or change the volume or turn them off in Appearance.',
+    ),
+    shot: shotXmasMusic,
+  },
+];
+
+const CHRISTMAS_MORE = [
+  msg('Festive app icon'),
+  msg('Winter call sounds'),
+  msg('Bells on the soundboard'),
+  msg('Works for New Year too'),
+];
+
+function ChristmasGreeting() {
+  const close = () => {
+    const season = christmasSeason(new Date());
+    if (season) void patchSettings({ christmas_seen: season }).catch(() => {});
+    setMode(null);
+  };
+  return (
+    <Showcase
+      features={CHRISTMAS}
+      more={CHRISTMAS_MORE}
+      kicker={t('Happy holidays from Linkord')}
+      title={t('Merry Christmas, {name}!', { name: displayName(state.me) })}
+      intro={t('Linkord dressed up for the season. Here is everything that came with it.')}
+      emblem={<Emblem size={64} christmas />}
+      class="xmas-modal"
+      decor={
+        <Show when={!matchMedia('(prefers-reduced-motion: reduce)').matches}>
+          <Snow awake />
+        </Show>
+      }
+      onClose={close}
+      footer={
+        <>
+          <span class="grow" />
+          <Show
+            when={prefs.theme !== 'christmas'}
+            fallback={
+              <button class="btn primary" onClick={close}>
+                {t("Let's go")}
+              </button>
+            }
+          >
+            <button class="btn ghost" onClick={close}>
+              {t('Maybe later')}
+            </button>
+            <button
+              class="btn primary xmas-theme-on"
+              onClick={() => {
+                setPrefs({ theme: 'christmas' });
+                close();
+              }}
+            >
+              <I.Snowflake size={16} /> {t('Turn on the Christmas theme')}
+            </button>
+          </Show>
+        </>
+      }
+    />
   );
 }
 
@@ -370,7 +530,12 @@ function Tour() {
   const anchored = () => !isMobile() && !!rect();
 
   const finish = () => {
-    void patchSettings({ tour_done: true, release_seen: RELEASE }).catch(() => {});
+    // Someone who just took the tour has had enough dialogs: no greeting on top of it this season.
+    void patchSettings({
+      tour_done: true,
+      release_seen: RELEASE,
+      ...(christmasSeason(new Date()) ? { christmas_seen: christmasSeason(new Date())! } : {}),
+    }).catch(() => {});
     setMode(null);
   };
   const go = (d: number) => {

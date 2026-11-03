@@ -25,6 +25,8 @@ const KEYS: &[&str] = &[
     // Onboarding (1.0): the guided tour was finished or skipped; the last release whose "what's new" dialog was seen.
     "tour_done",
     "release_seen",
+    // The Christmas season whose greeting was seen.
+    "christmas_seen",
 ];
 
 pub fn routes() -> Router<AppState> {

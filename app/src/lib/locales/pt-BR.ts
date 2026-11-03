@@ -1521,6 +1521,35 @@ export const UI: Record<string, string> = {
   'Rests while Linkord is in the background or showing a call, so it never takes anything from a game.':
     'Para quando o Linkord está em segundo plano ou mostrando uma chamada, então nunca pesa nos jogos.',
   'Christmas sounds': 'Sons de Natal',
+  'Christmas greeting': 'Mensagem de Natal',
+  'Happy holidays from Linkord': 'Boas festas do Linkord',
+  'Merry Christmas, {name}!': 'Feliz Natal, {name}!',
+  'Linkord dressed up for the season. Here is everything that came with it.':
+    'O Linkord se arrumou para as festas. Veja tudo o que veio junto.',
+  'Maybe later': 'Talvez depois',
+  'Turn on the Christmas theme': 'Ativar o tema de Natal',
+  'Linkord in evergreen': 'Linkord em verde-pinheiro',
+  'A Christmas theme with falling snow, string lights, a tree, Santa hats on everyone and snow that slowly piles up behind the message box. Click the snow to clear it.':
+    'Um tema de Natal com neve caindo, pisca-pisca, uma árvore, gorros de Papai Noel em todo mundo e neve que se acumula aos poucos atrás da caixa de mensagem. Clique na neve para limpar.',
+  'Type /snowball @name or right-click a message to hit someone with a snowball. Everyone in the channel sees it land, and the score goes on your profile.':
+    'Digite /snowball @nome ou clique com o botão direito em uma mensagem para acertar alguém com uma bola de neve. Todo mundo no canal vê, e o placar vai para o seu perfil.',
+  'Snowball fights': 'Guerras de bolas de neve',
+  'Santa flies by': 'O Papai Noel passa voando',
+  'Every so often Santa crosses the window. Click him if you can: every catch counts.':
+    'De vez em quando o Papai Noel atravessa a janela. Clique nele se conseguir: cada captura conta.',
+  'Things to click': 'Coisas para clicar',
+  'Gifts hop and burst into confetti, ornaments swing, the star spins and the tree sheds its snow. There is a snowman on every full profile, too.':
+    'Os presentes pulam e soltam confete, as bolinhas balançam, a estrela gira e a árvore solta neve. E tem um boneco de neve em todo perfil completo.',
+  'Counting down': 'Contagem regressiva',
+  'See the time left until Christmas and New Year above every chat, with fireworks when midnight arrives wherever you are.':
+    'Veja quanto falta para o Natal e o Ano-Novo acima de cada chat, com fogos quando der meia-noite onde você estiver.',
+  'Carols while you chat': 'Canções de Natal enquanto você conversa',
+  'Christmas songs play softly and pause for calls, videos and other windows. Skip one from above the tree, or change the volume or turn them off in Appearance.':
+    'Músicas de Natal tocam baixinho e pausam em chamadas, vídeos e outras janelas. Pule uma acima da árvore, ou mude o volume ou desative em Aparência.',
+  'Festive app icon': 'Ícone festivo',
+  'Winter call sounds': 'Sons de inverno nas chamadas',
+  'Bells on the soundboard': 'Sinos na mesa de sons',
+  'Works for New Year too': 'Vale para o Ano-Novo também',
   'Santa hats': 'Gorros de Papai Noel',
   "On everyone's picture, only on your screen.": 'Na foto de todo mundo, só na sua tela.',
   'Santa flyover': 'Voo do Papai Noel',

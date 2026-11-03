@@ -21,7 +21,7 @@ interface Flake {
   phase: number;
 }
 
-function Snow(p: { awake: boolean }) {
+export function Snow(p: { awake: boolean }) {
   let canvas!: HTMLCanvasElement;
   let raf = 0;
   let last = 0;

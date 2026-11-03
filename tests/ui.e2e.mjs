@@ -1444,6 +1444,20 @@ await step('sidebars: drag the handles to resize, remembered, double-click reset
   await pg.context().close();
 });
 
+await step('christmas greeting: opens from Settings with confetti and slides, and can turn the theme on', async () => {
+  const { page: pg } = await user('noel', { language: 'en', theme: 'dark', christmasMusic: false });
+  await pg.click('[aria-label="Settings"]');
+  await pg.click('.settings-links button:has-text("Christmas greeting")');
+  await pg.waitForSelector('.release h2:has-text("Merry Christmas")');
+  await pg.waitForSelector('canvas.confetti');
+  await pg.click('.release-list button:has-text("Snowball fights")');
+  await pg.waitForSelector('.release-slide h3:has-text("Snowball fights")');
+  await pg.click('.xmas-theme-on');
+  await pg.waitForSelector('.release', { state: 'detached' });
+  assert.equal(await pg.evaluate(() => document.documentElement.dataset.theme), 'christmas');
+  await pg.context().close();
+});
+
 await step('christmas theme: its look and snow come from the pref, its options show in Appearance, and it comes off', async () => {
   const { page: pg } = await user('holly', { theme: 'christmas', language: 'en' });
   const htmlTheme = () => pg.evaluate(() => document.documentElement.dataset.theme);

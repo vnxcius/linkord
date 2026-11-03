@@ -3552,7 +3552,8 @@ img.emblem { display: inline-block; flex: none; object-fit: contain; user-select
    decorations so it never reads as an error. Lights and snow are backgrounds on pseudo-elements: nothing to lay out,
    no effect on clicks, and the only animation is opacity, which rests with the snow (components/Christmas.tsx).
    ====================================================================== */
-:root[data-theme='christmas'] {
+:root[data-theme='christmas'],
+.xmas-modal {
   --bg-0: #09130f;
   --bg-1: #0f1e18;
   --bg-2: #13251d;
@@ -4052,3 +4053,13 @@ img.emblem { display: inline-block; flex: none; object-fit: contain; user-select
   letter-spacing: 0.2em;
   color: var(--gold-hi);
 }
+
+/* The Christmas greeting is dressed up whatever theme you're on: the tokens above apply to it too. */
+.xmas-modal { color: var(--text); background: rgba(5, 14, 10, 0.78); }
+.xmas-modal .xmas-snow { z-index: 2; }
+.xmas-modal .modal.release { position: relative; padding-top: 30px; background: var(--bg-2); border-color: var(--line-strong); color: var(--text); }
+.xmas-modal .modal.release::before,
+.xmas-modal .modal.release::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 24px; pointer-events: none; z-index: 1; border-radius: 15px 15px 0 0; }
+.xmas-modal .modal.release::before { background: var(--xmas-drift) 0 0 repeat-x, var(--xmas-lights) repeat-x; }
+.xmas-modal .modal.release::after { background: var(--xmas-glow) repeat-x; animation: xmas-twinkle 2.6s ease-in-out infinite; }
+.xmas-modal .modal-close { z-index: 2; }
