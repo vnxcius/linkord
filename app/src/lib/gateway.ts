@@ -4,7 +4,7 @@ import { produce, reconcile } from 'solid-js/store';
 import { getToken, media, serverUrl, setToken } from './api';
 import { loadMessages, maybeAck, receiveMessage, trimHistory } from './actions';
 import { cmpId } from './ids';
-import { notify } from './platform';
+import { isTauri, notify } from './platform';
 import { prefs } from './prefs';
 import { sounds } from './sounds';
 import { report } from './report';
@@ -42,10 +42,12 @@ export function connectGateway() {
   ws = sock;
   sock.onopen = () => {
     // Resume where we left off if the session is still alive server-side; otherwise start fresh.
+    // `client` is for Settings -> Sessions: a browser can't tell the app apart from the Edge it runs on.
+    const client = isTauri ? 'desktop' : 'web';
     const msg =
       state.sessionId && state.ready
-        ? { op: 'resume', token, session_id: state.sessionId, seq }
-        : { op: 'identify', token };
+        ? { op: 'resume', token, session_id: state.sessionId, seq, client }
+        : { op: 'identify', token, client };
     sock.send(JSON.stringify(msg));
   };
   sock.onmessage = (e) => {
@@ -255,8 +257,12 @@ function onReady(d: Ready) {
       'voiceStatus',
       reconcile(Object.fromEntries((d.voice_channel_statuses ?? []).map((s) => [s.channel_id, s.status]))),
     );
-    // Messages may have been missed while disconnected; refetch lazily.
-    setState('messages', reconcile({}));
+    // Messages may have been missed while disconnected: each channel refreshes when it's opened, and keeps showing
+    // what it has until then. Ones showing older history start over, like channels that are gone.
+    for (const id of Object.keys(state.messages)) {
+      if (!state.channels[id] || state.messages[id].hasNewer) setState('messages', id, undefined as never);
+      else setState('messages', id, 'loaded', false);
+    }
     if (state.view !== '@me' && !state.guilds[state.view]) setState('view', '@me');
     setState('connection', 'open');
     setState('ready', true);

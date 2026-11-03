@@ -143,7 +143,7 @@ export function SoundboardButton(p: { class: string; label?: boolean; size?: num
 
 const SOUND_SECONDS = 5.2;
 /** Per server, like the server's limit (soundboard.rs MAX_PER_GUILD). */
-const MAX_SOUNDS = 50;
+const MAX_SOUNDS = 100;
 const MAX_SOURCE = 8 * 1024 * 1024;
 
 let decodeCtx: AudioContext | null = null;

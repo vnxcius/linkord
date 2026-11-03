@@ -88,6 +88,7 @@ export function GuildBanner() {
   const banner = () => (state.view !== '@me' ? media(state.guilds[state.view]?.banner) : undefined);
   const [height, setHeight] = createSignal(0);
   let el!: HTMLDivElement;
+  // The top of the panel, down to the end of the server's name.
   const measure = () => {
     const pane = el?.parentElement;
     const head = pane?.querySelector('.guild-header');
@@ -101,7 +102,7 @@ export function GuildBanner() {
       if (!pane) return;
       ro.disconnect();
       ro.observe(pane);
-      pane.querySelectorAll('.rail, .guild-header').forEach((x) => ro.observe(x));
+      pane.querySelectorAll('.guild-header').forEach((x) => ro.observe(x));
       measure();
     });
   });

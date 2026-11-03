@@ -9,7 +9,7 @@ import { prefs } from '../lib/prefs';
 import { setState, state } from '../lib/store';
 import { attempt, setUi } from '../lib/ui';
 import * as I from './Icons';
-import { duration, num, ReactionEmoji } from './StatsPage';
+import { Duration, num, ReactionEmoji } from './StatsPage';
 
 export interface ProfileLink {
   label: string;
@@ -256,14 +256,14 @@ export function StatsCard(p: { stats: PublicStats; isMe: boolean; shown?: boolea
   const c = (k: string) => p.stats.counters?.[k] ?? 0;
   const tiles = () =>
     [
-      [t('Time in voice'), duration(p.stats.voice_seconds)],
+      [t('Time in voice'), <Duration seconds={p.stats.voice_seconds} />],
       [t('Messages sent'), num(p.stats.messages)],
       [t('Days active'), num(p.stats.active_days)],
-      [t('Longest call'), duration(c('longest_voice_seconds'))],
-      [t('Time streaming'), duration(c('stream_seconds'))],
+      [t('Longest call'), <Duration seconds={c('longest_voice_seconds')} />],
+      [t('Time streaming'), <Duration seconds={c('stream_seconds')} />],
       [t('Sounds played'), num(c('sounds_played'))],
       [t('Songs queued for Kass'), num(c('songs_queued'))],
-      [t('Time playing games'), duration(c('game_seconds'))],
+      [t('Time playing games'), <Duration seconds={c('game_seconds')} />],
     ] as const;
   return (
     <section class="widget-card" aria-label={t('Stats')}>
@@ -288,7 +288,9 @@ export function StatsCard(p: { stats: PublicStats; isMe: boolean; shown?: boolea
             <span class="grow">
               <strong>{g().name}</strong>
             </span>
-            <span class="mono">{duration(g().seconds)}</span>
+            <span class="mono">
+              <Duration seconds={g().seconds} />
+            </span>
           </div>
         )}
       </Show>

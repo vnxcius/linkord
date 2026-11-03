@@ -1,14 +1,16 @@
 // Watch together in a call: share a YouTube, Twitch or Kick link and everyone who opens it watches the same
 // moment (YouTube follows play, pause and seeks; streams are live for everyone). Volume stays each person's own.
 // Opening it is a choice, like watching a stream: the call shows it as a tile, and only a click plays it.
-import { createEffect, createSignal, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { api } from '../lib/api';
 import { selectChannel } from '../lib/actions';
 import { t } from '../lib/i18n';
 import { isTauri, openExternal } from '../lib/platform';
 import { nameOf, state } from '../lib/store';
+import { theme } from '../lib/theme';
 import { attempt, isMobile, setUi, toast, type MenuEntry } from '../lib/ui';
+import { twitchChatFrames, watchChat } from '../lib/video-links';
 import { setMediaPlaying, setVoiceUi, voiceUi } from '../lib/voice';
 import { controlWatch, expectedPosition, serverOffset, startWatch, stopWatch, watches, type Watch } from '../lib/watch';
 import * as I from './Icons';
@@ -27,6 +29,16 @@ const showing = (channelId: string) => !!opened()[channelId] && !!watches[channe
 /** The shared video is the call's focused tile (it fills the call). */
 export const watchExpanded = (channelId: string) => voiceUi.focus === WATCH_KEY && showing(channelId);
 export const watchTheater = (channelId: string) => !!theater()[channelId] && watchExpanded(channelId);
+/** Channels with the stream's chat turned on (per session, like opening the video). */
+const [chatOn, setChatOn] = createSignal<Record<string, boolean>>({});
+/** The chat of this call's shared video, if it has one. */
+const chatFor = (w: Watch | undefined) =>
+  w ? watchChat(w, location.hostname, !isTauri && twitchChatFrames(location), theme() === 'dark') : null;
+/** A chat in the page needs the room of the focused video; one in its own window only has to be on. */
+function chatShown(channelId: string) {
+  const chat = chatFor(watches[channelId]);
+  return !!chat && !!chatOn()[channelId] && showing(channelId) && (!chat.framed || watchExpanded(channelId));
+}
 /** Where the player sits in the call view, when the call view is on screen. */
 const [slot, setSlot] = createSignal<HTMLElement | null>(null);
 /** The Document Picture-in-Picture window the player was popped out to (web). */
@@ -50,6 +62,7 @@ export function setWatchOpen(channelId: string, on: boolean) {
   setOpened({ ...opened(), [channelId]: on });
   if (!on) {
     setTheater({ ...theater(), [channelId]: false });
+    setChatOn({ ...chatOn(), [channelId]: false });
     if (voiceUi.focus === WATCH_KEY) setVoiceUi('focus', null);
   }
   void api('PUT', `/channels/${channelId}/watch/view`, { on }).catch(() => {});
@@ -65,6 +78,16 @@ function setTheaterMode(channelId: string, on: boolean) {
   setTheater({ ...theater(), [channelId]: on });
   // Theater: the video alone. Leaving it keeps the video large, with the people strip back.
   setVoiceUi({ focus: WATCH_KEY, hideStrip: on });
+}
+
+function toggleChat(channelId: string) {
+  const chat = chatFor(watches[channelId]);
+  if (!chat) return;
+  // A browser on the direct address, where Twitch's chat can't be framed and the app has no window to give it.
+  if (!chat.framed && !isTauri) return void openExternal(chat.src);
+  const on = !chatShown(channelId);
+  setChatOn({ ...chatOn(), [channelId]: on });
+  if (on && chat.framed) setVoiceUi('focus', WATCH_KEY);
 }
 
 let hostEl: HTMLDivElement | undefined;
@@ -191,7 +214,9 @@ function watchPopOutClosed(): () => void {
   let gone = false;
   if (!strayChecked) {
     strayChecked = true;
-    void import('@tauri-apps/api/core').then(({ invoke }) => invoke('watch_popout_close')).catch(() => {});
+    void import('@tauri-apps/api/core')
+      .then(({ invoke }) => Promise.all([invoke('watch_popout_close'), invoke('watch_chat_close')]))
+      .catch(() => {});
   }
   void import('@tauri-apps/api/event')
     .then(({ listen }) => listen('watch-popout-closed', () => setNativePopped(false)))
@@ -200,6 +225,48 @@ function watchPopOutClosed(): () => void {
     gone = true;
     off?.();
   };
+}
+
+/**
+ * Desktop: Twitch's chat lives in a window of its own (lib.rs watch_chat_open), open while it's on and the video is
+ * open, wherever you are in the app. Closing that window turns the chat off.
+ */
+function nativeChatWindow(src: () => string | null) {
+  if (!isTauri) return;
+  let open = false;
+  let closing = false;
+  const invoke = (cmd: string, args?: Record<string, unknown>) =>
+    import('@tauri-apps/api/core').then((m) => m.invoke(cmd, args));
+  createEffect(() => {
+    const url = src();
+    if (url) {
+      open = true;
+      invoke('watch_chat_open', { url, title: `${t('Stream chat')} · Linkord` }).catch((e) => {
+        console.warn('watch chat', e);
+        toast(t("Couldn't open the pop-out window"));
+      });
+    } else if (open) {
+      open = false;
+      closing = true;
+      void invoke('watch_chat_close').catch(() => {});
+    }
+  });
+  let off: (() => void) | undefined;
+  let gone = false;
+  void import('@tauri-apps/api/event')
+    .then(({ listen }) =>
+      listen('watch-chat-closed', () => {
+        if (closing) return void (closing = false);
+        open = false;
+        const ch = voiceUi.channelId;
+        if (ch) setChatOn({ ...chatOn(), [ch]: false });
+      }),
+    )
+    .then((f) => (gone ? f() : (off = f)));
+  onCleanup(() => {
+    gone = true;
+    off?.();
+  });
 }
 
 async function copyLink(url: string) {
@@ -271,6 +338,13 @@ export function WatchHost() {
   // Its sound reaches the mic: the voice gate takes that into account while it plays.
   createEffect(() => setMediaPlaying(visible() && !!w()?.playing && !w()?.ended && !mutedForStream()));
   onCleanup(() => setMediaPlaying(false));
+  nativeChatWindow(
+    createMemo(() => {
+      const ch = channel();
+      const chat = ch && chatShown(ch) ? chatFor(watches[ch]) : null;
+      return chat && !chat.framed ? chat.src : null;
+    }),
+  );
   // After a reload we're still on the server's list of who's watching, without the player open: fix that.
   const corrected = new Set<string>();
   createEffect(() => {
@@ -389,6 +463,8 @@ export function watchMenuItems(channelId: string): MenuEntry[] {
         checked: watchTheater(channelId),
         run: () => setTheaterMode(channelId, !watchTheater(channelId)),
       });
+    if (chatFor(w))
+      items.push({ label: t('Stream chat'), checked: chatShown(channelId), run: () => toggleChat(channelId) });
     if (canPopOutWatch())
       items.push({
         label: poppedOut() ? t('Bring it back') : t('Pop out'),
@@ -448,6 +524,10 @@ export function WatchTile(p: {
   const inCall = () => voiceUi.channelId === p.channelId;
   const open = () => !!opened()[p.channelId] && inCall();
   const viewers = () => (w()?.viewers ?? []).filter((id) => state.voice[id]?.channel_id === p.channelId);
+  const chatInPage = () => {
+    const chat = chatFor(w());
+    return chat?.framed && chatShown(p.channelId) ? chat.src : null;
+  };
   return (
     <Show when={w()}>
       {(watch) => (
@@ -486,21 +566,33 @@ export function WatchTile(p: {
               </div>
             }
           >
-            <div
-              class="watch-slot"
-              ref={(el) => {
-                setSlot(el);
-                onCleanup(() => slot() === el && setSlot(null));
-              }}
-            >
-              <Show when={poppedOut()}>
-                <div class="popped-out">
-                  <I.PopOut size={26} />
-                  <span>{t('Playing in the pop-out window')}</span>
-                  <button class="btn small-btn" onClick={closePopOutWatch}>
-                    {t('Bring it back')}
-                  </button>
-                </div>
+            <div class="watch-body">
+              <div
+                class="watch-slot"
+                ref={(el) => {
+                  setSlot(el);
+                  onCleanup(() => slot() === el && setSlot(null));
+                }}
+              >
+                <Show when={poppedOut()}>
+                  <div class="popped-out">
+                    <I.PopOut size={26} />
+                    <span>{t('Playing in the pop-out window')}</span>
+                    <button class="btn small-btn" onClick={closePopOutWatch}>
+                      {t('Bring it back')}
+                    </button>
+                  </div>
+                </Show>
+              </div>
+              <Show when={chatInPage()} keyed>
+                {(src) => (
+                  <iframe
+                    class="watch-chat"
+                    title={t('Stream chat')}
+                    src={src}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-storage-access-by-user-activation"
+                  />
+                )}
               </Show>
             </div>
             <Show when={!p.small}>
@@ -520,6 +612,17 @@ export function WatchTile(p: {
                   </span>
                 </Show>
                 <span class="grow" />
+                <Show when={chatFor(watch())}>
+                  <button
+                    class="vp-btn"
+                    classList={{ on: chatShown(p.channelId) }}
+                    data-tip={chatShown(p.channelId) ? t('Hide stream chat') : t('Show stream chat')}
+                    aria-label={chatShown(p.channelId) ? t('Hide stream chat') : t('Show stream chat')}
+                    onClick={() => toggleChat(p.channelId)}
+                  >
+                    <I.StreamChat size={16} />
+                  </button>
+                </Show>
                 <button
                   class="vp-btn"
                   data-tip={t('Copy Link')}

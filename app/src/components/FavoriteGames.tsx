@@ -11,7 +11,7 @@ import { state } from '../lib/store';
 import { setUi, toast } from '../lib/ui';
 import { Avatar } from './Avatar';
 import * as I from './Icons';
-import { duration } from './StatsPage';
+import { Duration, duration } from './StatsPage';
 
 export const MAX_FAVORITE_GAMES = 20;
 
@@ -77,6 +77,8 @@ export function FavoriteGamesCard(p: {
   games: FavoriteGame[];
   isMe: boolean;
   bare?: boolean;
+  /** Their list hasn't arrived: no "no games" yet. */
+  loading?: boolean;
 }) {
   const [open, setOpen] = createSignal<number | null>(null);
   // A new person's profile (or their list changing) goes back to the grid.
@@ -97,7 +99,13 @@ export function FavoriteGamesCard(p: {
           <header class="games-card-head">
             <div class="grow">
               <span class="label">{t('Favorite games')}</span>
-              <h3>{p.games.length ? plural(p.games.length, '{n} game', '{n} games') : t('No games yet')}</h3>
+              <h3>
+                {p.loading
+                  ? '\u00a0'
+                  : p.games.length
+                    ? plural(p.games.length, '{n} game', '{n} games')
+                    : t('No games yet')}
+              </h3>
             </div>
             <Show when={p.isMe && p.games.length}>
               <button
@@ -113,10 +121,22 @@ export function FavoriteGamesCard(p: {
           <Show
             when={p.games.length}
             fallback={
-              <button class="widget-empty" onClick={editGames}>
-                <I.Gamepad size={22} />
-                {t('Add the games you love')}
-              </button>
+              <Show when={!p.loading}>
+                <Show
+                  when={p.isMe}
+                  fallback={
+                    <div class="widget-empty">
+                      <I.Gamepad size={22} />
+                      {t("{name} hasn't added any favorite games yet.", { name: p.name })}
+                    </div>
+                  }
+                >
+                  <button class="widget-empty" onClick={editGames}>
+                    <I.Gamepad size={22} />
+                    {t('Add the games you love')}
+                  </button>
+                </Show>
+              </Show>
             }
           >
             <div class="games-card-grid">
@@ -262,7 +282,9 @@ function GameCard(p: {
           <Show when={p.game.seconds && p.game.seconds >= 60}>
             <div>
               <dt>{t('{name} played', { name: p.owner })}</dt>
-              <dd>{duration(p.game.seconds)}</dd>
+              <dd>
+                <Duration seconds={p.game.seconds} />
+              </dd>
             </div>
           </Show>
           <Show when={d()?.release_date}>

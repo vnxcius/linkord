@@ -2453,6 +2453,7 @@ dependencies = [
  "windows",
  "windows-capture",
  "windows-core",
+ "windows-numerics",
  "xcap",
 ]
 

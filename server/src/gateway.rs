@@ -99,6 +99,12 @@ impl Hub {
         self.end(|s, _| s.token == token);
     }
 
+    /// The logins of this user with a socket open right now.
+    pub fn live_tokens(&self, user: Id) -> Vec<Vec<u8>> {
+        let Some(ids) = self.by_user.get(&user) else { return Vec::new() };
+        ids.iter().filter_map(|id| self.sessions.get(id)).filter(|s| s.tx.is_some()).map(|s| s.token.clone()).collect()
+    }
+
     pub fn close_user(&self, user: Id) {
         self.end(|s, _| s.user == user);
     }
@@ -387,17 +393,31 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum ClientOp {
-    Identify { token: String },
-    Resume { token: String, session_id: String, seq: u64 },
+    Identify {
+        token: String,
+        #[serde(default)]
+        client: Option<String>,
+    },
+    Resume {
+        token: String,
+        session_id: String,
+        seq: u64,
+        #[serde(default)]
+        client: Option<String>,
+    },
 }
 
-pub async fn ws_handler(State(st): State<AppState>, crate::ratelimit::ClientIp(ip): crate::ratelimit::ClientIp, ws: WebSocketUpgrade) -> ApiResult<Response> {
+/// The longest browser description kept for Settings -> Sessions.
+const MAX_USER_AGENT: usize = 256;
+
+pub async fn ws_handler(State(st): State<AppState>, crate::ratelimit::ClientIp(ip): crate::ratelimit::ClientIp, headers: axum::http::HeaderMap, ws: WebSocketUpgrade) -> ApiResult<Response> {
     crate::security::socket_limit(&st, &ip)?;
+    let agent = headers.get(axum::http::header::USER_AGENT).and_then(|v| v.to_str().ok()).map(|v| v.chars().take(MAX_USER_AGENT).collect::<String>());
     // Clients only ever send identify or resume here.
-    Ok(ws.max_message_size(16 * 1024).max_frame_size(16 * 1024).on_upgrade(move |socket| run(st, socket)))
+    Ok(ws.max_message_size(16 * 1024).max_frame_size(16 * 1024).on_upgrade(move |socket| run(st, socket, agent)))
 }
 
-async fn run(st: AppState, mut socket: WebSocket) {
+async fn run(st: AppState, mut socket: WebSocket, agent: Option<String>) {
     let op = match tokio::time::timeout(Duration::from_secs(15), socket.recv()).await {
         Ok(Some(Ok(WsMsg::Text(t)))) => match serde_json::from_str::<ClientOp>(&t) {
             Ok(op) => op,
@@ -406,7 +426,11 @@ async fn run(st: AppState, mut socket: WebSocket) {
         _ => return,
     };
     let token = match &op {
-        ClientOp::Identify { token } | ClientOp::Resume { token, .. } => token.clone(),
+        ClientOp::Identify { token, .. } | ClientOp::Resume { token, .. } => token.clone(),
+    };
+    // Only these two, so a client can't write whatever it likes into its sessions list.
+    let client = match &op {
+        ClientOp::Identify { client, .. } | ClientOp::Resume { client, .. } => client.as_deref().filter(|c| matches!(*c, "desktop" | "web")),
     };
     let user_id = match auth::user_from_token(&st, &token).await {
         Ok(Some(u)) => u,
@@ -417,6 +441,8 @@ async fn run(st: AppState, mut socket: WebSocket) {
     };
 
     let token_hash = auth::hash_token(&token);
+    auth::touch_session(&st, &token_hash, Some((agent.as_deref(), client))).await;
+    let login = token_hash.clone();
     let (tx, mut rx) = mpsc::unbounded_channel::<Arc<str>>();
     let resumed = match &op {
         ClientOp::Resume { session_id, seq, .. } => st.hub.resume(session_id, user_id, &token_hash, *seq, tx.clone()).map(|r| (session_id.clone(), r)),
@@ -479,4 +505,5 @@ async fn run(st: AppState, mut socket: WebSocket) {
     }
     // Voice has its own socket and presence has a grace period, so a brief reconnect changes nothing visible.
     st.hub.detach(&session_id, attach);
+    auth::touch_session(&st, &login, None).await;
 }

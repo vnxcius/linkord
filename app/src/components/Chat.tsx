@@ -42,6 +42,7 @@ import {
   type MenuEntry,
 } from '../lib/ui';
 import { Avatar } from './Avatar';
+import { DmProfile } from './Profile';
 import { Composer } from './Composer';
 import { Members } from './Members';
 import { PrivateBadge } from './PrivateBadge';
@@ -169,6 +170,20 @@ export function ChatHeader(p: { channel: Channel }) {
             onClick={() => togglePanel('pins')}
           >
             <I.Pin size={20} />
+          </button>
+        </Show>
+        <Show when={p.channel.kind === Kind.Dm && !isNarrow()}>
+          <button
+            class="icon-btn"
+            classList={{ on: ui.showMembers && !ui.panel }}
+            aria-label={t('User profile')}
+            data-tip={t('User profile')}
+            onClick={() => {
+              if (ui.panel) return setUi({ panel: null, showMembers: true });
+              setUi('showMembers', !ui.showMembers);
+            }}
+          >
+            <I.UserCircle size={20} />
           </button>
         </Show>
         <Show when={(p.channel.guild_id && p.channel.kind === Kind.Text) || p.channel.kind === Kind.GroupDm}>
@@ -426,17 +441,20 @@ export type MarginTab = 'people' | 'pins' | 'search';
 export function marginTab(c: Channel): MarginTab | null {
   if (c.kind === Kind.Voice) return null;
   if (ui.panel) return ui.panel;
-  const people = (c.guild_id && c.kind === Kind.Text) || c.kind === Kind.GroupDm;
+  const people = (c.guild_id && c.kind === Kind.Text) || c.kind === Kind.GroupDm || c.kind === Kind.Dm;
   return people && ui.showMembers && !isNarrow() ? 'people' : null;
 }
 
 /** The column right of the chat: people, pinned messages and search results, one tab at a time. */
 export function Margin(p: { channel: Channel; tab: MarginTab }) {
   const people = () =>
-    ((!!p.channel.guild_id && p.channel.kind === Kind.Text) || p.channel.kind === Kind.GroupDm) && !isNarrow();
+    ((!!p.channel.guild_id && p.channel.kind === Kind.Text) ||
+      p.channel.kind === Kind.GroupDm ||
+      p.channel.kind === Kind.Dm) &&
+    !isNarrow();
   const tabs = () =>
     [
-      people() && (['people', t('People')] as const),
+      people() && (['people', p.channel.kind === Kind.Dm ? t('Profile') : t('People')] as const),
       ['pins', t('Pins')] as const,
       (ui.search.query || p.tab === 'search') && (['search', t('Search')] as const),
     ].filter((x): x is readonly [MarginTab, string] => !!x);
@@ -464,6 +482,9 @@ export function Margin(p: { channel: Channel; tab: MarginTab }) {
         </button>
       </div>
       <Switch>
+        <Match when={p.tab === 'people' && p.channel.kind === Kind.Dm && dmRecipient(p.channel)}>
+          {(u) => <DmProfile userId={u().id} />}
+        </Match>
         <Match when={p.tab === 'people' && p.channel.kind === Kind.GroupDm}>
           <GroupMembers channel={p.channel} />
         </Match>
@@ -993,10 +1014,10 @@ function MessageList(p: { channel: Channel }) {
       </Show>
       <div class="messages" ref={scroller} onScroll={onScroll}>
         <div class="messages-inner">
-          <Show when={bucket()?.loaded && !bucket()?.hasMore}>
+          <Show when={(bucket()?.loaded || list().length) && !bucket()?.hasMore}>
             <ChannelWelcome channel={p.channel} />
           </Show>
-          <Show when={!bucket()?.loaded || (bucket()?.loading && bucket()?.hasMore)}>
+          <Show when={(!bucket()?.loaded && !list().length) || (bucket()?.loading && bucket()?.hasMore)}>
             <div class="loading-messages">
               <div class="spinner" />
             </div>

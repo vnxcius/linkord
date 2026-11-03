@@ -119,6 +119,9 @@ export interface Attachment {
   /** Voice messages only. */
   duration_secs?: number;
   waveform?: string;
+  /** Images: pixels, to keep their place before they load. Older servers and unreadable files leave them out. */
+  width?: number;
+  height?: number;
 }
 
 export interface Embed {

@@ -240,6 +240,11 @@ pub struct Attachment {
     pub duration_secs: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waveform: Option<String>,
+    /// Images: size in pixels, so clients can keep their place in the chat before the picture loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Clone, FromRow)]

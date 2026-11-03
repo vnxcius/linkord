@@ -1,7 +1,7 @@
 // Settings -> Stats: everything Linkord measures about you (GET /users/@me/stats, server/src/api/users.rs stats).
 // Most numbers are counted from what's stored (messages, reactions...); time streaming, sounds, songs and the like
 // are measured as they happen, since 0.2.15 (stats.rs).
-import { createResource, For, Show, type JSX } from 'solid-js';
+import { createResource, createSignal, For, Show, type JSX } from 'solid-js';
 import { api, emojiUrl } from '../lib/api';
 import { dateLocale, msg, t } from '../lib/i18n';
 import { dmName, state } from '../lib/store';
@@ -57,15 +57,34 @@ const shortDate = (d: string) =>
 const longDate = (d: string) =>
   new Date(d).toLocaleDateString(dateLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
 
-/** "3 h 12 min", "45 min", "12 d 4 h" for long ones. */
+/** "76 h 12 min", "45 min": always hours, however long (owner, 2026-11-03). <Duration> offers days on click. */
 export function duration(seconds: number | undefined) {
   const s = Math.max(0, Math.floor(seconds ?? 0));
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (d >= 2) return t('{d} d {h} h', { d: num(d), h });
   const hours = Math.floor(s / 3600);
   return hours ? t('{h} h {m} min', { h: num(hours), m }) : t('{m} min', { m });
+}
+
+/** A time on screen: in hours, and from a day up, clicking it switches between hours and days. */
+export function Duration(p: { seconds: number | undefined }) {
+  const [days, setDays] = createSignal(false);
+  const s = () => Math.max(0, Math.floor(p.seconds ?? 0));
+  const inDays = () => t('{d} d {h} h', { d: num(Math.floor(s() / 86400)), h: Math.floor((s() % 86400) / 3600) });
+  return (
+    <Show when={s() >= 86400} fallback={duration(s())}>
+      <button
+        type="button"
+        class="duration-toggle"
+        data-tip={t('Switch between hours and days')}
+        onClick={(e) => {
+          e.stopPropagation();
+          setDays(!days());
+        }}
+      >
+        {days() ? inDays() : duration(s())}
+      </button>
+    </Show>
+  );
 }
 
 function Tile(p: { label: string; value: JSX.Element; hint?: string }) {
@@ -175,7 +194,7 @@ function Ranked<T>(p: {
   items: T[];
   value: (x: T) => number;
   label: (x: T) => JSX.Element;
-  format?: (n: number) => string;
+  format?: (n: number) => JSX.Element;
 }) {
   const top = () => Math.max(1, ...p.items.map(p.value));
   return (
@@ -218,7 +237,9 @@ export function StatsPage() {
             </div>
             <div>
               <span class="stat-label">{t('Time in voice')}</span>
-              <strong>{duration(s().voice_seconds)}</strong>
+              <strong>
+                <Duration seconds={s().voice_seconds} />
+              </strong>
             </div>
             <div>
               <span class="stat-label">{t('Messages sent')}</span>
@@ -283,29 +304,29 @@ export function StatsPage() {
 
           <Block title={t('Voice & video')}>
             <div class="stat-grid">
-              <Tile label={t('Time in voice')} value={duration(s().voice_seconds)} />
-              <Tile label={t('Longest call')} value={duration(c('longest_voice_seconds'))} />
+              <Tile label={t('Time in voice')} value={<Duration seconds={s().voice_seconds} />} />
+              <Tile label={t('Longest call')} value={<Duration seconds={c('longest_voice_seconds')} />} />
               <Tile label={t('Times you joined voice')} value={num(c('voice_sessions'))} />
               <Tile label={t('Calls started')} value={num(c('calls_started'))} />
-              <Tile label={t('Time streaming')} value={duration(c('stream_seconds'))} />
+              <Tile label={t('Time streaming')} value={<Duration seconds={c('stream_seconds')} />} />
               <Tile label={t('Streams started')} value={num(c('streams_started'))} />
-              <Tile label={t('Time watching streams')} value={duration(c('stream_watch_seconds'))} />
+              <Tile label={t('Time watching streams')} value={<Duration seconds={c('stream_watch_seconds')} />} />
               <Tile label={t('Streams watched')} value={num(c('streams_watched'))} />
-              <Tile label={t('Time on camera')} value={duration(c('camera_seconds'))} />
-              <Tile label={t('Time muted')} value={duration(c('muted_seconds'))} />
-              <Tile label={t('Time deafened')} value={duration(c('deafened_seconds'))} />
+              <Tile label={t('Time on camera')} value={<Duration seconds={c('camera_seconds')} />} />
+              <Tile label={t('Time muted')} value={<Duration seconds={c('muted_seconds')} />} />
+              <Tile label={t('Time deafened')} value={<Duration seconds={c('deafened_seconds')} />} />
             </div>
           </Block>
 
           <Block title={t('Fun')}>
             <div class="stat-grid">
-              <Tile label={t('Watching together')} value={duration(c('watch_together_seconds'))} />
+              <Tile label={t('Watching together')} value={<Duration seconds={c('watch_together_seconds')} />} />
               <Tile label={t('Videos shared')} value={num(c('videos_shared'))} />
               <Tile label={t('Sounds played')} value={num(c('sounds_played'))} />
               <Tile label={t('Songs queued for Kass')} value={num(c('songs_queued'))} />
               <Tile label={t('Kass commands')} value={num(c('kass_commands'))} />
               <Tile label={t('Statuses set')} value={num(c('statuses_set'))} />
-              <Tile label={t('Time playing games')} value={duration(c('game_seconds'))} />
+              <Tile label={t('Time playing games')} value={<Duration seconds={c('game_seconds')} />} />
               <Tile label={t('Games played')} value={num(c('games_started'))} />
             </div>
           </Block>
@@ -315,7 +336,7 @@ export function StatsPage() {
               <Ranked
                 items={s().games!}
                 value={(g) => g.seconds}
-                format={duration}
+                format={(n) => <Duration seconds={n} />}
                 label={(g) => (
                   <span class="stats-game">
                     <Show

@@ -16,7 +16,8 @@ import {
   on,
   type JSX,
 } from 'solid-js';
-import { api, media } from '../lib/api';
+import { api, apiBlob, media } from '../lib/api';
+import { describeDevice } from '../lib/device';
 import { logout, logoutEverywhere } from '../lib/actions';
 import { autostartEnabled, checkForUpdates, setAutostart, update, updating } from '../lib/desktop';
 import { normalizePath } from '../lib/game-match';
@@ -80,6 +81,7 @@ import { type Draft, SoundEditor } from './Soundboard';
 
 type Page =
   | 'account'
+  | 'sessions'
   | 'profile'
   | 'stats'
   | 'kass'
@@ -117,6 +119,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
       ['profile', msg('Profile'), I.EditProfile],
       ['favorite-games', msg('Favorite Games'), I.Gamepad],
       ['stats', msg('Stats'), I.Chart],
+      ['sessions', msg('Sessions'), I.Desktop],
       ['kass', msg('Kass'), I.Music],
       ...(SHOW_CONNECTIONS
         ? [['connections', msg('Connections'), I.Link] as [Page, string, (p: { size?: number }) => JSX.Element]]
@@ -143,6 +146,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
 
 const TITLES: Record<Page, string> = {
   account: msg('My Account'),
+  sessions: msg('Sessions'),
   profile: msg('Profile'),
   stats: msg('Stats'),
   kass: msg('Kass'),
@@ -161,6 +165,7 @@ export function Settings(p: { tab?: string }) {
   const legacy: Record<string, Page> = {
     connections: SHOW_CONNECTIONS ? 'connections' : 'account',
     profile: 'profile',
+    sessions: 'sessions',
     stats: 'stats',
     kass: 'kass',
     voice: 'voice',
@@ -211,20 +216,6 @@ export function Settings(p: { tab?: string }) {
         <div class="settings-foot">
           <button class="settings-logout" onClick={() => void logout()}>
             <I.Logout size={17} /> {t('Log Out')}
-          </button>
-          <button
-            class="settings-logout"
-            onClick={() =>
-              setUi('modal', {
-                type: 'confirm',
-                title: t('Log out everywhere'),
-                body: t('Every device signed in to this account is signed out, including this one.'),
-                action: t('Log out everywhere'),
-                run: logoutEverywhere,
-              })
-            }
-          >
-            <I.Logout size={17} /> {t('Log out everywhere')}
           </button>
           {/* One link per line: side by side they wrapped mid-row in this narrow column. */}
           <nav class="settings-links">
@@ -292,6 +283,9 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'language'}>
               <LanguagePage />
+            </Match>
+            <Match when={page() === 'sessions'}>
+              <SessionsPage />
             </Match>
             <Match when={page() === 'app'}>
               <AppPage />
@@ -1141,16 +1135,106 @@ function LinksEditor(p: { links: ProfileLink[]; onChange: (l: ProfileLink[]) => 
 const MAX_SONG_SECONDS = 30;
 const MAX_SONG_SOURCE = 15 * 1024 * 1024;
 
+interface SongHit {
+  id: string;
+  title: string;
+  uploader?: string | null;
+  duration: number;
+  thumbnail: string;
+}
+
+const songLength = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, '0')}`;
+
+/** Finds a song to use instead of a file. Picking one hands its audio to the same trim editor a file goes to. */
+function SongSearch(p: { onPick: (f: File) => void; onClose: () => void }) {
+  const [query, setQuery] = createSignal('');
+  const [hits, setHits] = createSignal<SongHit[] | null>(null);
+  const [searching, setSearching] = createSignal(false);
+  const [getting, setGetting] = createSignal<string | null>(null);
+  const search = () => {
+    const q = query().trim();
+    if (q.length < 2 || searching()) return;
+    setSearching(true);
+    void attempt(async () => {
+      try {
+        setHits(await api<SongHit[]>('GET', `/users/@me/profile-song/search?q=${encodeURIComponent(q)}`));
+      } finally {
+        setSearching(false);
+      }
+    });
+  };
+  const use = (hit: SongHit) => {
+    setGetting(hit.id);
+    void attempt(async () => {
+      try {
+        const audio = await apiBlob('POST', '/users/@me/profile-song/audio', { id: hit.id });
+        // The editor offers the file's name as the title.
+        p.onPick(
+          new File([audio], `${hit.title.replace(/[\\/:*?"<>|]/g, ' ').slice(0, 76)}.mp3`, { type: 'audio/mpeg' }),
+        );
+      } finally {
+        setGetting(null);
+      }
+    });
+  };
+  return (
+    <div class="song-search">
+      <div class="song-search-bar">
+        <input
+          type="search"
+          value={query()}
+          maxLength={100}
+          placeholder={t('Search for a song')}
+          aria-label={t('Search for a song')}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+          ref={(el) => queueMicrotask(() => el.focus())}
+        />
+        <button class="btn small-btn" disabled={searching() || query().trim().length < 2} onClick={search}>
+          {searching() ? t('Searching…') : t('Search')}
+        </button>
+        <button class="icon-btn" aria-label={t('Close')} data-tip={t('Close')} onClick={p.onClose}>
+          <I.Close size={16} />
+        </button>
+      </div>
+      <Show when={hits()}>
+        {(list) => (
+          <div class="song-search-results">
+            <For each={list()} fallback={<p class="empty-hint">{t('Nothing found.')}</p>}>
+              {(hit) => (
+                <div class="song-hit">
+                  <img src={hit.thumbnail} alt="" loading="lazy" />
+                  <div class="grow">
+                    <strong>{hit.title}</strong>
+                    <span class="muted small">
+                      {[hit.uploader, songLength(hit.duration)].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                  <button class="btn small-btn" disabled={!!getting()} onClick={() => use(hit)}>
+                    {getting() === hit.id ? t('Getting it…') : t('Use')}
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
+}
+
 /** Pick an audio file and the part of it (up to 30 s) your profile plays; later trim it again or remove it. */
 function ProfileSongEditor(p: { song: ProfileSong | null; onChange: (s: ProfileSong | null) => void }) {
   const [file, setFile] = createSignal<File | null>(null);
   const [editing, setEditing] = createSignal(false);
+  const [searching, setSearching] = createSignal(false);
   let input!: HTMLInputElement;
   const pick = (f?: File) => {
     input.value = '';
     if (!f) return;
     if (f.size > MAX_SONG_SOURCE) return toast(t('Pick a file up to 15 MB; you choose the part that plays next'));
     setEditing(false);
+    setSearching(false);
     setFile(f);
   };
   const upload = (f: File, d: Draft) =>
@@ -1199,9 +1283,14 @@ function ProfileSongEditor(p: { song: ProfileSong | null; onChange: (s: ProfileS
             when={p.song}
             keyed
             fallback={
-              <button class="btn small-btn" onClick={() => input.click()}>
-                <I.Music size={14} /> {t('Choose a song')}
-              </button>
+              <div class="profile-song-choose">
+                <button class="btn small-btn" onClick={() => input.click()}>
+                  <I.Music size={14} /> {t('Choose a song')}
+                </button>
+                <button class="btn small-btn" onClick={() => setSearching(true)}>
+                  <I.Search size={14} /> {t('Search for a song')}
+                </button>
+              </div>
             }
           >
             {(s) => (
@@ -1223,6 +1312,14 @@ function ProfileSongEditor(p: { song: ProfileSong | null; onChange: (s: ProfileS
                     onClick={() => input.click()}
                   >
                     <I.Music size={16} />
+                  </button>
+                  <button
+                    class="icon-btn"
+                    aria-label={t('Search for a song')}
+                    data-tip={t('Search for a song')}
+                    onClick={() => setSearching(!searching())}
+                  >
+                    <I.Search size={16} />
                   </button>
                   <button
                     class="icon-btn danger"
@@ -1267,7 +1364,117 @@ function ProfileSongEditor(p: { song: ProfileSong | null; onChange: (s: ProfileS
           />
         )}
       </Show>
+      <Show when={searching() && !file()}>
+        <SongSearch onPick={pick} onClose={() => setSearching(false)} />
+      </Show>
     </div>
+  );
+}
+
+// ---------- Sessions ----------
+
+interface Session {
+  id: string;
+  current: boolean;
+  online: boolean;
+  client: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+/** "3 days ago", in the app's language. */
+function timeAgo(date: string): string {
+  const format = new Intl.RelativeTimeFormat(dateLocale(), { numeric: 'auto' });
+  const minutes = Math.round((new Date(date).getTime() - Date.now()) / 60000);
+  if (Math.abs(minutes) < 60) return format.format(minutes, 'minute');
+  if (Math.abs(minutes) < 1440) return format.format(Math.round(minutes / 60), 'hour');
+  return format.format(Math.round(minutes / 1440), 'day');
+}
+
+function SessionRow(p: { session: Session; onEnd: () => void }) {
+  const device = () => describeDevice(p.session.client, p.session.user_agent);
+  const name = () => (device().app ? t('Linkord app') : (device().browser ?? t('Unknown device')));
+  const lastUsed = () => {
+    if (p.session.current || p.session.online) return t('Active now');
+    return t('Last active {when}', { when: timeAgo(p.session.last_seen_at ?? p.session.created_at) });
+  };
+  const signedIn = () =>
+    t('Signed in {date}', {
+      date: new Date(p.session.created_at).toLocaleDateString(dateLocale(), {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
+    });
+  return (
+    <div class="session-row">
+      <span class="session-icon">{device().mobile ? <I.MobileDevice size={22} /> : <I.Desktop size={22} />}</span>
+      <div class="grow">
+        <strong>{[name(), device().os].filter(Boolean).join(' · ')}</strong>
+        <span class="muted small">
+          {lastUsed()} · {signedIn()}
+        </span>
+      </div>
+      <button class="btn small-btn" onClick={p.onEnd}>
+        {t('Log Out')}
+      </button>
+    </div>
+  );
+}
+
+function SessionsPage() {
+  const [sessions, { refetch }] = createResource(() => api<Session[]>('GET', '/auth/sessions').catch(() => null));
+  const current = () => sessions()?.find((s) => s.current);
+  const others = () => sessions()?.filter((s) => !s.current) ?? [];
+  const end = (s: Session) =>
+    void attempt(async () => {
+      await api('DELETE', `/auth/sessions/${s.id}`);
+      await refetch();
+    }, t('Device logged out'));
+  return (
+    <>
+      <Show when={sessions() === null}>
+        <p class="empty-hint">{t("Couldn't load your devices.")}</p>
+      </Show>
+      <Show when={current()}>
+        {(s) => (
+          <Section title={t('This device')}>
+            <div class="set-card">
+              <SessionRow session={s()} onEnd={() => void logout()} />
+            </div>
+          </Section>
+        )}
+      </Show>
+      <Show when={sessions()}>
+        <Section title={t('Other devices')}>
+          <div class="set-card">
+            <For each={others()} fallback={<p class="empty-hint">{t('No other devices are signed in.')}</p>}>
+              {(s) => <SessionRow session={s} onEnd={() => end(s)} />}
+            </For>
+          </div>
+        </Section>
+        <Section
+          title={t('Log out everywhere')}
+          description={t('Every device signed in to this account is signed out, including this one.')}
+        >
+          <button
+            class="btn danger-ghost session-everywhere"
+            onClick={() =>
+              setUi('modal', {
+                type: 'confirm',
+                title: t('Log out everywhere'),
+                body: t('Every device signed in to this account is signed out, including this one.'),
+                action: t('Log out everywhere'),
+                run: logoutEverywhere,
+              })
+            }
+          >
+            <I.Logout size={17} /> {t('Log out everywhere')}
+          </button>
+        </Section>
+      </Show>
+    </>
   );
 }
 
@@ -2132,6 +2339,44 @@ function NotificationsPage() {
 
 // ---------- Appearance ----------
 
+/** Linkord itself in miniature, in one theme's colours whichever theme is on: server strip, channels, chat, people. */
+function ThemeMock(p: { mode: 'dark' | 'light'; half?: boolean }) {
+  return (
+    <span class={`tm tm-${p.mode}`} classList={{ 'tm-half': p.half }}>
+      <span class="tm-side">
+        <span class="tm-rail">
+          <i class="on" />
+          <i />
+          <i />
+        </span>
+        <span class="tm-panel tm-nav">
+          <i class="on" />
+          <i />
+          <i />
+          <b />
+        </span>
+      </span>
+      <span class="tm-panel tm-chat">
+        <em />
+        <span class="tm-msg">
+          <u />
+          <i />
+        </span>
+        <span class="tm-msg">
+          <u class="gold" />
+          <i class="long" />
+        </span>
+        <span class="tm-box" />
+      </span>
+      <span class="tm-panel tm-people">
+        <u />
+        <u class="gold" />
+        <u />
+      </span>
+    </span>
+  );
+}
+
 function AppearancePage() {
   const options = (): [typeof prefs.theme, string, string, (p: { size?: number }) => JSX.Element][] => [
     [
@@ -2152,14 +2397,18 @@ function AppearancePage() {
           {([id, name, sub, Icon]) => (
             <label class="theme-card" classList={{ on: prefs.theme === id }}>
               <input type="radio" name="theme" checked={prefs.theme === id} onChange={() => setPrefs({ theme: id })} />
-              <span class={`theme-swatch ${id}`} aria-hidden="true">
-                <i />
-                <i />
-                <i />
+              <span class="theme-preview" aria-hidden="true">
+                <ThemeMock mode={id === 'light' ? 'light' : 'dark'} />
+                <Show when={id === 'system'}>
+                  <ThemeMock mode="light" half />
+                </Show>
               </span>
               <span class="theme-card-text">
                 <strong>
                   <Icon size={15} /> {name}
+                  <Show when={prefs.theme === id}>
+                    <I.Check size={15} class="theme-card-check" />
+                  </Show>
                 </strong>
                 <Show when={sub}>
                   <small>{sub}</small>
@@ -2288,6 +2537,46 @@ function AppPage() {
           </Show>
         </div>
       </Section>
+      <Show when={nativeKeybinds}>
+        <Section title={t('Game overlay')}>
+          <div class="set-card">
+            <SwitchRow
+              label={t('Show the overlay in games')}
+              hint={t(
+                "During a call, shows who's there and who's talking over games in borderless mode. Nothing is added to the game itself, and it stays out of your streams.",
+              )}
+              checked={prefs.overlay}
+              onChange={(v) => setPrefs({ overlay: v })}
+            />
+            <Show when={prefs.overlay}>
+              <SwitchRow
+                label={t('Only show who is talking')}
+                hint={t('Leaves the screen clear when nobody is talking.')}
+                checked={prefs.overlayOnlySpeaking}
+                onChange={(v) => setPrefs({ overlayOnlySpeaking: v })}
+              />
+              <label class="field device-field">
+                <span>{t('Position')}</span>
+                <div class="select-wrap">
+                  <select
+                    value={prefs.overlayCorner}
+                    onChange={(e) => setPrefs({ overlayCorner: e.currentTarget.value as typeof prefs.overlayCorner })}
+                  >
+                    <option value="top-left">{t('Top left')}</option>
+                    <option value="top-right">{t('Top right')}</option>
+                    <option value="bottom-left">{t('Bottom left')}</option>
+                    <option value="bottom-right">{t('Bottom right')}</option>
+                  </select>
+                  <I.Chevron size={16} />
+                </div>
+              </label>
+              <p class="muted small">
+                {t("It can't appear over a game in exclusive fullscreen: set the game to borderless.")}
+              </p>
+            </Show>
+          </div>
+        </Section>
+      </Show>
       <Section title={t('Updates')}>
         <div class="set-card update-card">
           <div class="grow">

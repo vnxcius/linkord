@@ -1,9 +1,18 @@
 import DOMPurify from 'dompurify';
-import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch, type JSX } from 'solid-js';
+import { createEffect, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { api, emojiUrl, media } from '../lib/api';
 import { filenameFromUrl } from '../lib/download';
-import { jumpToMessage, retryMessage, selectChannel, startThread, togglePin, toggleReaction } from '../lib/actions';
+import {
+  dismissMessage,
+  failedFileNames,
+  jumpToMessage,
+  retryMessage,
+  selectChannel,
+  startThread,
+  togglePin,
+  toggleReaction,
+} from '../lib/actions';
 import { dateLocale, msg, plural, t } from '../lib/i18n';
 import { isJumbo, renderMarkdown } from '../lib/markdown';
 import { can, P } from '../lib/perms';
@@ -80,6 +89,64 @@ export function onContentClick(e: MouseEvent, guildId?: string | null) {
     e.preventDefault();
     if (!openAppLink(a.href)) void openExternal(a.href);
   }
+}
+
+/** How far from the newest message a picture still loads right away, since opening the channel shows it. */
+const NEAR_LATEST = 20;
+
+function nearLatest(channelId: string, id: string) {
+  const list = state.messages[channelId]?.list ?? [];
+  for (let i = list.length - 1; i >= 0 && i >= list.length - NEAR_LATEST; i--) if (list[i].id === id) return true;
+  return false;
+}
+
+/** Sizes of pictures seen this session whose size the server doesn't know (link previews, some older files). */
+const seenSizes = new Map<string, { width: number; height: number }>();
+const SEEN_SIZES = 3000;
+
+/**
+ * A picture in the chat, in its final size from the first frame when that's known, so nothing jumps while it loads. The
+ * newest ones are fetched straight away and painted with the message, which is what opening a channel needs.
+ */
+function ChatImage(p: {
+  class: string;
+  src: string;
+  alt: string;
+  eager: boolean;
+  /** On another site: it doesn't need to know where it's shown. */
+  external?: boolean;
+  size?: { width: number; height: number };
+  max: [number, number];
+  onClick: () => void;
+}) {
+  const style = () => {
+    const s = p.size ?? seenSizes.get(p.src);
+    if (!s) return undefined;
+    const scale = Math.min(1, p.max[0] / s.width, p.max[1] / s.height);
+    // "auto": once it has loaded its real shape wins, if this was wrong (a rotated photo).
+    return {
+      width: `${Math.round(s.width * scale)}px`,
+      'aspect-ratio': `auto ${s.width} / ${s.height}`,
+      height: 'auto',
+    };
+  };
+  return (
+    <img
+      class={p.class}
+      loading={p.eager ? 'eager' : 'lazy'}
+      decoding={p.eager ? 'sync' : 'async'}
+      referrerpolicy={p.external ? 'no-referrer' : undefined}
+      style={style()}
+      src={p.src}
+      alt={p.alt}
+      onLoad={(e) => {
+        if (p.size || seenSizes.has(p.src)) return;
+        if (seenSizes.size >= SEEN_SIZES) seenSizes.delete(seenSizes.keys().next().value!);
+        seenSizes.set(p.src, { width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight });
+      }}
+      onClick={p.onClick}
+    />
+  );
 }
 
 /** Renders a reaction emoji: unicode as text, custom (`name:id`) as an image. */
@@ -278,6 +345,22 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   const copy = (text: string, done: string) => navigator.clipboard.writeText(text).then(() => toast(done));
 
   const menu = (e: MouseEvent): MenuEntry[] => {
+    // It never reached the server: nothing else on the menu could work on it.
+    if (m().failed)
+      return [
+        { label: t('Retry'), icon: () => <I.Rejoin size={16} />, run: () => void retryMessage(m()) },
+        {
+          label: t('Copy Text'),
+          icon: () => <I.Copy size={16} />,
+          run: () => copy(m().content, t('Text copied')),
+        },
+        {
+          label: t('Delete Message'),
+          danger: true,
+          icon: () => <I.Trash size={16} />,
+          run: () => dismissMessage(m()),
+        },
+      ];
     const items: MenuEntry[] = [];
     // Right-clicked a link: its own actions first, like a browser.
     const link = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
@@ -360,8 +443,10 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   };
 
   // Bulk delete: while selecting, a click (anywhere on the message) toggles it; shift-click picks a range.
+  // Decided once, as the message appears: the newest ones are what opening a channel shows.
+  const eager = nearLatest(m().channel_id, m().id);
   const selecting = () => ui.selection?.channelId === m().channel_id;
-  const selectable = () => !m().pending && (mine() || canManage());
+  const selectable = () => !m().pending && !m().failed && (mine() || canManage());
   const selected = () => selecting() && ui.selection!.ids.includes(m().id);
   const onSelectClick = (e: MouseEvent) => {
     if (!selecting()) return;
@@ -526,12 +611,12 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                     messageId={m().id}
                   />
                 ) : (
-                  <AttachmentView a={a} />
+                  <AttachmentView a={a} eager={eager} />
                 )
               }
             </For>
             <For each={inviteCodes(m().content)}>{(code) => <InviteCard code={code} mine={mine()} />}</For>
-            <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
+            <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} eager={eager} />}</For>
             <Show when={m().thread_id ? state.channels[m().thread_id!] : undefined}>
               {(th) => (
                 <button class="thread-chip" onClick={() => selectChannel(th().id)}>
@@ -543,9 +628,15 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
             </Show>
             <Show when={m().failed}>
               <div class="failed-note">
-                {t('Failed to send.')}{' '}
+                {failedFileNames(m()).length
+                  ? t('Failed to send {files}.', { files: failedFileNames(m()).join(', ') })
+                  : t('Failed to send.')}{' '}
                 <button class="link-btn" onClick={() => retryMessage(m())}>
                   {t('Retry')}
+                </button>{' '}
+                ·{' '}
+                <button class="link-btn" onClick={() => dismissMessage(m())}>
+                  {t('Delete')}
                 </button>
               </div>
             </Show>
@@ -636,7 +727,7 @@ function toggleSelected(m: Message, range: boolean, deletable: (m: Message) => b
     const [a, b] = [list.findIndex((x) => x.id === sel.anchor), list.findIndex((x) => x.id === m.id)].sort(
       (x, y) => x - y,
     );
-    const span = a < 0 ? [m] : list.slice(a, b + 1).filter((x) => !x.pending && deletable(x));
+    const span = a < 0 ? [m] : list.slice(a, b + 1).filter((x) => !x.pending && !x.failed && deletable(x));
     ids = [...new Set([...sel.ids, ...span.map((x) => x.id)])];
   } else {
     ids = sel.ids.includes(m.id) ? sel.ids.filter((id) => id !== m.id) : [...sel.ids, m.id];
@@ -671,12 +762,12 @@ function ForwardedView(p: { f: Forwarded; m: Message }) {
           a.waveform ? (
             <VoiceMessage a={a} src={media(a.url)!} author={p.m.author} channelId={p.m.channel_id} messageId={p.m.id} />
           ) : (
-            <AttachmentView a={a} />
+            <AttachmentView a={a} eager={false} />
           )
         }
       </For>
       <For each={inviteCodes(p.f.content)}>{(code) => <InviteCard code={code} mine={false} />}</For>
-      <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} />}</For>
+      <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} eager={false} />}</For>
       <div class="forwarded-origin">
         <Show when={origin()}>
           {(ch) => (
@@ -702,39 +793,91 @@ export function formatSize(n: number) {
   return `${num(n / 1024 ** 3)} GB`;
 }
 
-function AttachmentView(p: { a: Attachment }) {
+/** Any file: its name and size, click to open or save. */
+function FileCard(p: { a: Attachment }) {
+  const url = () => media(p.a.url)!;
+  return (
+    <a
+      class="file-card"
+      href={url()}
+      onClick={(e) => {
+        e.preventDefault();
+        void openExternal(url());
+      }}
+    >
+      <I.Paperclip size={22} />
+      <span class="file-info">
+        <span class="file-name">{p.a.filename}</span>
+        <span class="small muted">{formatSize(p.a.size)}</span>
+      </span>
+      <I.Download size={18} />
+    </a>
+  );
+}
+
+/** How much of a text file is previewed in the chat. */
+const TEXT_PREVIEW_BYTES = 16 * 1024;
+
+/** A .txt file, like the one long messages turn into: the start of it in the chat, fetched once it's on screen. */
+function TextFileView(p: { a: Attachment }) {
+  const [text, setText] = createSignal<string | null>(null);
+  const [open, setOpen] = createSignal(false);
+  let el!: HTMLDivElement;
+  onMount(() => {
+    const seen = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      seen.disconnect();
+      void fetch(media(p.a.url)!, { headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } })
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+        .then((b) => setText(new TextDecoder().decode(b.slice(0, TEXT_PREVIEW_BYTES))))
+        .catch(() => setText(''));
+    });
+    seen.observe(el);
+    onCleanup(() => seen.disconnect());
+  });
+  const long = () => (text() ?? '').length > 600 || (text() ?? '').split('\n').length > 8;
+  return (
+    <div class="text-file" ref={el}>
+      <FileCard a={p.a} />
+      <Show when={text() !== ''}>
+        <pre class="text-file-body" classList={{ open: open() }}>
+          {text() ?? ''}
+        </pre>
+        <Show when={long()}>
+          <div class="text-file-more">
+            <button class="link-btn" onClick={() => setOpen(!open())}>
+              {open() ? t('Show less') : t('Show more')}
+            </button>
+            <Show when={open() && p.a.size > TEXT_PREVIEW_BYTES}>
+              <span class="muted small">{t('Open the file to read the rest.')}</span>
+            </Show>
+          </div>
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+function AttachmentView(p: { a: Attachment; eager: boolean }) {
   const url = () => media(p.a.url)!;
   const kind = () => p.a.content_type.split('/')[0];
   return (
-    <Switch
-      fallback={
-        <a
-          class="file-card"
-          href={url()}
-          onClick={(e) => {
-            e.preventDefault();
-            void openExternal(url());
-          }}
-        >
-          <I.Paperclip size={22} />
-          <span class="file-info">
-            <span class="file-name">{p.a.filename}</span>
-            <span class="small muted">{formatSize(p.a.size)}</span>
-          </span>
-          <I.Download size={18} />
-        </a>
-      }
-    >
+    <Switch fallback={<FileCard a={p.a} />}>
       <Match when={kind() === 'image'}>
         <div class="media-wrap">
-          <img
+          <ChatImage
             class="attachment-media"
             src={url()}
             alt={p.a.filename}
-            loading="lazy"
+            eager={p.eager}
+            size={p.a.width && p.a.height ? { width: p.a.width, height: p.a.height } : undefined}
+            max={[440, 340]}
             onClick={() => setUi('lightbox', url())}
           />
         </div>
+      </Match>
+      <Match when={p.a.content_type.startsWith('text/plain')}>
+        <TextFileView a={p.a} />
       </Match>
       <Match when={kind() === 'video'}>
         <VideoPlayer src={url()} filename={p.a.filename} />
@@ -746,17 +889,18 @@ function AttachmentView(p: { a: Attachment }) {
   );
 }
 
-function EmbedView(p: { e: Embed }) {
+function EmbedView(p: { e: Embed; eager: boolean }) {
   return (
     <Switch>
       <Match when={p.e.type === 'image'}>
         <div class="media-wrap">
-          <img
+          <ChatImage
             class="attachment-media"
             src={p.e.url}
             alt=""
-            loading="lazy"
-            referrerpolicy="no-referrer"
+            eager={p.eager}
+            external
+            max={[440, 340]}
             onClick={() => setUi('lightbox', p.e.url)}
           />
         </div>
@@ -793,12 +937,13 @@ function EmbedView(p: { e: Embed }) {
               <div class="embed-desc">{p.e.description}</div>
             </Show>
             <Show when={p.e.image && p.e.large_image}>
-              <img
+              <ChatImage
                 class="embed-image large"
                 src={p.e.image!}
                 alt=""
-                loading="lazy"
-                referrerpolicy="no-referrer"
+                eager={p.eager}
+                external
+                max={[1000, 300]}
                 onClick={() => setUi('lightbox', p.e.image!)}
               />
             </Show>

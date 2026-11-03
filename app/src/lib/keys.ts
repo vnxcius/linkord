@@ -20,6 +20,7 @@ export type KeyAction =
   | 'toggle-stream'
   | 'stream-game'
   | 'toggle-camera'
+  | 'toggle-overlay'
   | 'disconnect';
 
 export interface Keybind {
@@ -44,6 +45,11 @@ export const ACTIONS: Record<KeyAction, { label: string; hint: string; hold: boo
     hold: false,
   },
   'toggle-camera': { label: msg('Toggle Camera'), hint: msg('Turn your camera on or off in voice.'), hold: false },
+  'toggle-overlay': {
+    label: msg('Toggle Game Overlay'),
+    hint: msg('Show or hide the overlay over your game (Windows app).'),
+    hold: false,
+  },
   disconnect: { label: msg('Disconnect from Voice'), hint: msg('Leave the voice channel you are in.'), hold: false },
 };
 

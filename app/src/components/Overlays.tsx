@@ -101,7 +101,12 @@ export function Lightbox() {
   const reset = () => (setZoom(1), setPan({ x: 0, y: 0 }));
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') return close();
+    if (e.key === 'Escape') {
+      // Only this: a profile or settings screen under it stays open.
+      e.preventDefault();
+      e.stopPropagation();
+      return close();
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (e.key === '=' || e.key === '+') step(1);
     else if (e.key === '-' || e.key === '_') step(-1);

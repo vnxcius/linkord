@@ -1,3 +1,4 @@
+import { isMobile } from '../lib/ui';
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { emojiUrl } from '../lib/api';
 import { EMOJI_GROUPS, searchEmoji } from '../lib/emoji-data';
@@ -36,7 +37,11 @@ export function EmojiPicker(p: {
 }) {
   const [query, setQuery] = createSignal('');
   let root!: HTMLDivElement;
+  let search!: HTMLInputElement;
   useOutsideClose(() => root, p.onClose);
+  // The autofocus attribute does nothing on something added to a page after it loaded. Not on phones: the keyboard
+  // would cover the picker.
+  onMount(() => isMobile() || search.focus({ preventScroll: true }));
 
   // Custom emoji from every server you're in (current server first), like Discord.
   const servers = () =>
@@ -64,11 +69,11 @@ export function EmojiPicker(p: {
       }}
     >
       <input
+        ref={search}
         class="emoji-search"
         placeholder={t('Find the perfect emoji')}
         value={query()}
         onInput={(e) => setQuery(e.currentTarget.value)}
-        autofocus
       />
       <div class="emoji-scroll">
         <Show

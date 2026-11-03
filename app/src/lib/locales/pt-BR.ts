@@ -3,6 +3,32 @@
 
 /** Interface text. */
 export const UI: Record<string, string> = {
+  '{n} / {max}: sends as message.txt': '{n} / {max}: será enviado como message.txt',
+  'That was too long for a message, so it was attached as message.txt.':
+    'Era longo demais para uma mensagem, então foi anexado como message.txt.',
+  'Open the file to read the rest.': 'Abra o arquivo para ler o resto.',
+  'Show less': 'Mostrar menos',
+  'Show more': 'Mostrar mais',
+  'Failed to send {files}.': 'Falha ao enviar {files}.',
+  'Switch between hours and days': 'Alternar entre horas e dias',
+  Sessions: 'Sessões',
+  'This device': 'Este dispositivo',
+  'Other devices': 'Outros dispositivos',
+  'Active now': 'Ativo agora',
+  'Last active {when}': 'Ativo pela última vez {when}',
+  'Signed in {date}': 'Entrou em {date}',
+  'Linkord app': 'App do Linkord',
+  'Unknown device': 'Dispositivo desconhecido',
+  'No other devices are signed in.': 'Nenhum outro dispositivo está conectado.',
+  'Device logged out': 'Dispositivo desconectado',
+  "Couldn't load your devices.": 'Não foi possível carregar seus dispositivos.',
+  'Search for a song': 'Buscar uma música',
+  Use: 'Usar',
+  'Getting it…': 'Baixando…',
+  'View banner': 'Ver banner',
+  'View picture': 'Ver foto',
+  "{name} hasn't added any favorite games yet.": '{name} ainda não adicionou jogos favoritos.',
+  'User profile': 'Perfil do usuário',
   'Reconnecting…': 'Reconectando…',
   'Opening the gate…': 'Abrindo os portões…',
   'Connection lost — reconnecting…': 'Conexão perdida — reconectando…',
@@ -535,6 +561,25 @@ export const UI: Record<string, string> = {
   'The language Linkord uses on this device.': 'O idioma que o Linkord usa neste dispositivo.',
   English: 'Inglês',
   'Portuguese (Brazil)': 'Português (Brasil)',
+  'Capture: {backend}': 'Captura: {backend}',
+  'Stream paused: the window is covered or minimized. Viewers see the last picture.':
+    'Transmissão pausada: a janela está coberta ou minimizada. Quem assiste vê a última imagem.',
+  'Game overlay': 'Sobreposição em jogos',
+  'Show the overlay in games': 'Mostrar a sobreposição nos jogos',
+  "During a call, shows who's there and who's talking over games in borderless mode. Nothing is added to the game itself, and it stays out of your streams.":
+    'Durante uma chamada, mostra quem está nela e quem está falando sobre jogos no modo sem bordas. Nada é adicionado ao próprio jogo, e ela não aparece nas suas transmissões.',
+  'Only show who is talking': 'Mostrar só quem está falando',
+  'Leaves the screen clear when nobody is talking.': 'Deixa a tela limpa quando ninguém está falando.',
+  Position: 'Posição',
+  'Top left': 'Canto superior esquerdo',
+  'Top right': 'Canto superior direito',
+  'Bottom left': 'Canto inferior esquerdo',
+  'Bottom right': 'Canto inferior direito',
+  "It can't appear over a game in exclusive fullscreen: set the game to borderless.":
+    'Ela não aparece sobre um jogo em tela cheia exclusiva: coloque o jogo no modo sem bordas.',
+  'Toggle Game Overlay': 'Alternar sobreposição do jogo',
+  'Show or hide the overlay over your game (Windows app).':
+    'Mostra ou esconde a sobreposição sobre o seu jogo (app do Windows).',
   'Startup & window': 'Inicialização e janela',
   'Minimize to tray on close': 'Minimizar para a bandeja ao fechar',
   'Closing the window keeps Linkord running in the tray, so you stay in voice and keybinds keep working.':
@@ -1246,6 +1291,9 @@ export const UI: Record<string, string> = {
   'Back to the call': 'Voltar para a chamada',
   'Theater mode': 'Modo teatro',
   'Exit theater mode': 'Sair do modo teatro',
+  'Stream chat': 'Chat da live',
+  'Show stream chat': 'Mostrar chat da live',
+  'Hide stream chat': 'Esconder chat da live',
   'Show channel list': 'Mostrar lista de canais',
   'Hide channel list': 'Esconder lista de canais',
   'Everyone is muted in the AFK channel': 'Todo mundo fica silenciado no canal AFK',
@@ -1594,6 +1642,8 @@ export const UI: Record<string, string> = {
 
 /** Error messages from the server (server/src), shown as they arrive. */
 export const SERVER: Record<string, string> = {
+  'search for 2-100 characters': 'Busque de 2 a 100 caracteres',
+  "couldn't get that song": 'Não foi possível baixar essa música',
   'unknown nameplate': 'plaquinha desconhecida',
   "bots can't be friends": 'bots não podem ser amigos',
   "couldn't read that GIF": 'não deu para ler esse GIF',

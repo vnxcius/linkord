@@ -7,7 +7,7 @@ import { t } from './i18n';
 import { createEffect, createRoot, createSignal } from 'solid-js';
 import { ACTIONS, keyFromEvent, keyFromMouse, modifierOf, modsFromEvent, type KeyAction, type Keybind } from './keys';
 import { isTauri } from './platform';
-import { prefs } from './prefs';
+import { prefs, setPrefs } from './prefs';
 import { setUi, toast } from './ui';
 import {
   canShareScreen,
@@ -56,6 +56,8 @@ function press(action: KeyAction) {
     case 'toggle-camera':
       if (!voiceUi.channelId) return toast(t('Join a voice channel to turn on your camera'));
       return void toggleCamera();
+    case 'toggle-overlay':
+      return setPrefs({ overlay: !prefs.overlay });
     case 'disconnect':
       return void leaveVoice();
     case 'stream-game':

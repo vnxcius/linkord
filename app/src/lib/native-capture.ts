@@ -84,6 +84,10 @@ export interface CaptureVideoStats {
   error: string | null;
   /** The shared window no longer exists (its app was closed). */
   source_closed: boolean;
+  /** The shared window is covered or minimized: viewers have the last picture. */
+  paused: boolean;
+  /** 'duplication', or 'graphics capture' where that couldn't start. */
+  backend: string;
 }
 
 export async function captureVideoStats(): Promise<CaptureVideoStats | null> {

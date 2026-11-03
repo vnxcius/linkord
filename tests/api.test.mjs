@@ -2112,3 +2112,129 @@ test('Discord sign-in: invites, the browser that started it, and only the app th
     assert.equal((await start(bad)).status, 400, bad);
   }
 });
+
+test('sessions: your devices are listed without their tokens, and one can be logged out without the others', async () => {
+  const name = `devices.${run}`;
+  const signIn = async () => (await call(null, 'POST', '/auth/dev', { username: name })).body.token;
+  const [mine, other] = [await signIn(), await signIn()];
+  const stranger = await login('devstranger');
+
+  // A connection says what it's running on; only known kinds of client are kept.
+  const connect = (token, client) =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/gateway`);
+      ws.onopen = () => ws.send(JSON.stringify({ op: 'identify', token, client }));
+      ws.onerror = reject;
+      ws.onmessage = (e) => JSON.parse(e.data).t === 'READY' && resolve(ws);
+    });
+  const socket = await connect(other, 'desktop');
+  const closed = new Promise((resolve) => (socket.onclose = (e) => resolve(e.code)));
+  (await connect(mine, 'made up')).close();
+
+  const list = await ok(mine, 'GET', '/auth/sessions');
+  assert.equal(list.length, 2);
+  const here = list.find((s) => s.current);
+  const there = list.find((s) => !s.current);
+  assert.ok(here && there, 'one of them is this device');
+  assert.equal(there.client, 'desktop');
+  assert.equal(there.online, true);
+  assert.equal(here.client, null, 'a client name that isn\'t known is left out');
+  assert.ok(Date.parse(there.last_seen_at) > 0);
+  assert.ok(!JSON.stringify(list).includes(other), 'never the token');
+  assert.ok(!('token_hash' in there));
+
+  // Someone else's session can't be touched, or even found.
+  assert.equal((await call(stranger.token, 'DELETE', `/auth/sessions/${there.id}`)).status, 404);
+  assert.equal((await call(other, 'GET', '/users/@me')).status, 200);
+
+  await ok(mine, 'DELETE', `/auth/sessions/${there.id}`);
+  assert.equal(await closed, 4001, 'its socket closes right away');
+  assert.equal((await call(other, 'GET', '/users/@me')).status, 401);
+  assert.equal((await call(mine, 'GET', '/users/@me')).status, 200, 'this device stays signed in');
+  assert.equal((await ok(mine, 'GET', '/auth/sessions')).length, 1);
+  assert.equal((await call(mine, 'DELETE', `/auth/sessions/${there.id}`)).status, 404, 'already gone');
+});
+
+test('soundboard: a big upload is kept smaller, its quota given back, and it can still be trimmed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const u = await login('soundsize');
+  const g = await ok(u.token, 'POST', '/guilds', { name: `Sizes ${run}` });
+  const wav = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=10', '-ac', '2', '-ar', '48000', '-f', 'wav', 'pipe:1'], { maxBuffer: 32 * 1024 * 1024 });
+  const upload = async (name, bytes, file) => {
+    const fd = new FormData();
+    fd.append('payload_json', JSON.stringify({ name, trim_start: 0, trim_end: 2 }));
+    fd.append('file', new Blob([bytes], { type: 'audio/wav' }), file);
+    return call(u.token, 'POST', `/guilds/${g.id}/soundboard`, fd);
+  };
+  const quotaBefore = (await ok(u.token, 'GET', '/users/@me/stats')).upload_bytes;
+  const r = await upload('tone', wav, 'tone.wav');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const size = (url) => fs.statSync(path.join(process.env.LINKORD_TEST_DATA_DIR, url.replace(/^\/+/, ''))).size;
+  assert.match(r.body.source, /\.mp3$/, 'the original is replaced');
+  assert.ok(size(r.body.source) < wav.length / 5, `${size(r.body.source)} of ${wav.length} bytes`);
+  assert.ok(size(r.body.url) < 30 * 1024, `2 s clip is ${size(r.body.url)} bytes`);
+  const used = (await ok(u.token, 'GET', '/users/@me/stats')).upload_bytes - quotaBefore;
+  assert.ok(used < wav.length / 5, `the quota only counts what's kept: ${used}`);
+  const retrimmed = await ok(u.token, 'PATCH', `/guilds/${g.id}/soundboard/${r.body.id}`, { trim_start: 5, trim_end: 7 });
+  assert.notEqual(retrimmed.url, r.body.url, 'trims again from the smaller copy');
+
+  // Already small: encoding it again would only lose quality.
+  const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:a', 'libmp3lame', '-b:a', '64k', '-f', 'mp3', 'pipe:1'], { maxBuffer: 32 * 1024 * 1024 });
+  const small = await upload('small', mp3, 'small.mp3');
+  assert.equal(small.status, 200, JSON.stringify(small.body));
+  assert.equal(size(small.body.source), mp3.length, 'left as it was');
+
+});
+
+test('profile song search: finds songs, offers what can be used, and hands back audio that can be uploaded', async () => {
+  const u = await login('songsearch');
+  const hits = await ok(u.token, 'GET', `/users/@me/profile-song/search?q=${encodeURIComponent('a song')}`);
+  assert.deepEqual(hits.map((h) => h.id), ['mockSong001', 'brokenbroke'], 'not the live one or the one too long');
+  assert.equal(hits[0].title, 'Mock One');
+  assert.equal(hits[0].uploader, 'Mock Channel');
+  assert.equal(hits[0].thumbnail, 'https://i.ytimg.com/vi/mockSong001/mqdefault.jpg');
+  assert.equal((await call(u.token, 'GET', '/users/@me/profile-song/search?q=a')).status, 400);
+  assert.deepEqual(await ok(u.token, 'GET', '/users/@me/profile-song/search?q=nothing'), []);
+  assert.equal((await call(null, 'GET', '/users/@me/profile-song/search?q=a+song')).status, 401);
+
+  // Only an id: never an address someone typed.
+  for (const id of ['https://evil.example/x.mp3', '--exec=calc', 'short', '../../etc/x']) {
+    assert.equal((await call(u.token, 'POST', '/users/@me/profile-song/audio', { id })).status, 400, id);
+  }
+
+  const res = await fetch(`${BASE}/api/users/@me/profile-song/audio`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${u.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'mockSong001' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'audio/mpeg');
+  const audio = await res.arrayBuffer();
+  assert.ok(audio.byteLength > 10_000, `${audio.byteLength} bytes`);
+
+  // It isn't saved until it's uploaded like any other file.
+  assert.equal((await ok(u.token, 'GET', `/users/${(await ok(u.token, 'GET', '/users/@me')).id}/profile`)).song, null);
+  const fd = new FormData();
+  fd.append('payload_json', JSON.stringify({ title: 'Mock One', trim_start: 1, trim_end: 4 }));
+  fd.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'Mock One.mp3');
+  const song = await ok(u.token, 'POST', '/users/@me/profile-song', fd);
+  assert.equal(song.title, 'Mock One');
+  assert.ok(Math.abs(song.duration - 3) < 0.1);
+
+  assert.equal((await call(u.token, 'POST', '/users/@me/profile-song/audio', { id: 'brokenbroke' })).status, 400, 'a video that fails to download');
+});
+
+test('attachments: pictures say their size, so clients can keep their place; other files do not', async () => {
+  const u = await login('imgsize');
+  const g = await ok(u.token, 'POST', '/guilds', { name: `Sizes ${run}` });
+  const text = g.channels.find((c) => c.kind === 0);
+  // A 3x2 PNG's header is all the server reads.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAYAAACddGYaAAAAEUlEQVR42mNk+M/AwMDAwAAABgYBAf7z0H0AAAAASUVORK5CYII=', 'base64');
+  const fd = new FormData();
+  fd.append('files[0]', new Blob([png], { type: 'image/png' }), 'a.png');
+  fd.append('files[1]', new Blob(['just text'], { type: 'text/plain' }), 'message.txt');
+  const m = await ok(u.token, 'POST', `/channels/${text.id}/messages`, fd);
+  assert.equal(m.attachments[0].width, 3);
+  assert.equal(m.attachments[0].height, 2);
+  assert.equal(m.attachments[1].width, undefined);
+  assert.equal(m.attachments[1].content_type, 'text/plain');
+});

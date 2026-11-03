@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show } from 'solid-js';
 import { prefs } from '../lib/prefs';
 import { loadedVersion, misspelled, spellLanguage } from '../lib/spellcheck';
-import { resetTyping, runCommand, sendMessage, sendTyping } from '../lib/actions';
+import { MAX_MESSAGE, resetTyping, runCommand, sendMessage, sendTyping } from '../lib/actions';
 import { emojiUrl } from '../lib/api';
 import { COMMANDS, parseCommand } from '../lib/commands';
 import { searchEmoji } from '../lib/emoji-data';
@@ -181,6 +181,8 @@ export function Composer(p: { channel: Channel }) {
     void prefs.spellWords.length;
     clearTimeout(spellTimer);
     const gen = ++spellGen;
+    // Text that can't be sent as it is gets no underlines: 500k characters meant 55k of them, rebuilt on every key.
+    if (value.length > MAX_MESSAGE) return void setBad([]);
     spellTimer = window.setTimeout(async () => {
       const wrong = await misspelled(value);
       if (gen === spellGen) setBad(wrong);
@@ -189,6 +191,7 @@ export function Composer(p: { channel: Channel }) {
   onCleanup(() => clearTimeout(spellTimer));
   const spellRuns = createMemo(() => {
     const v = text();
+    if (v.length > MAX_MESSAGE) return [];
     const runs: { text: string; bad: boolean }[] = [];
     let at = 0;
     for (const w of bad()) {
@@ -205,6 +208,8 @@ export function Composer(p: { channel: Channel }) {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 320)}px`;
   };
+
+  const textFile = (content: string) => new File([content], 'message.txt', { type: 'text/plain' });
 
   const addFiles = (list: FileList | File[]) => {
     const ok = [...list].filter((f) => {
@@ -238,6 +243,19 @@ export function Composer(p: { channel: Channel }) {
   const submit = () => {
     const content = toRaw(text(), gid(), tokens).trim();
     if (!content && !files().length) return;
+    // Too long for a message: it goes as a text file instead, like Discord.
+    if ((content.length > MAX_MESSAGE ? [...content].length : 0) > MAX_MESSAGE) {
+      const file = textFile(content);
+      if (file.size > MAX_FILE) return toast(t('{name} is larger than 25 MB', { name: file.name }));
+      void sendMessage(p.channel.id, '', ui.replyTo[p.channel.id], [...files(), file].slice(0, 10));
+      setText('');
+      setFiles([]);
+      setUi('replyTo', p.channel.id, undefined);
+      resetTyping();
+      input.value = '';
+      autosize();
+      return;
+    }
     const cmd = gid() && !files().length ? parseCommand(content) : null;
     if (cmd) {
       if (thinking()) return;
@@ -419,6 +437,13 @@ export function Composer(p: { channel: Channel }) {
             <For each={spellRuns()}>{(r) => (r.bad ? <mark>{r.text}</mark> : r.text)}</For>
             {'\u200b'}
           </div>
+          <Show when={text().length > MAX_MESSAGE - 500}>
+            <span class="composer-count" classList={{ over: text().length > MAX_MESSAGE }}>
+              {text().length > MAX_MESSAGE
+                ? t('{n} / {max}: sends as message.txt', { n: text().length, max: MAX_MESSAGE })
+                : `${text().length} / ${MAX_MESSAGE}`}
+            </span>
+          </Show>
           <textarea
             ref={input}
             rows={1}
@@ -445,6 +470,14 @@ export function Composer(p: { channel: Channel }) {
               if (pasted?.length) {
                 e.preventDefault();
                 addFiles(pasted);
+                return;
+              }
+              // Too long to be a message: it's attached as a file, and what's already typed stays.
+              const pastedText = e.clipboardData?.getData('text') ?? '';
+              if (text().length + pastedText.length > MAX_MESSAGE) {
+                e.preventDefault();
+                addFiles([textFile(pastedText)]);
+                toast(t('That was too long for a message, so it was attached as message.txt.'));
               }
             }}
           />

@@ -132,3 +132,39 @@ export const PLAYER_ORIGINS = [
   'https://streamable.com',
   'https://www.dailymotion.com',
 ];
+
+/** Hosts of the stream chats shown beside watch together, in the web CSP's frame-src. */
+export const CHAT_ORIGINS = ['https://www.youtube.com', 'https://www.twitch.tv', 'https://kick.com'];
+/** The desktop CSP also needs them, except Twitch's: it opens in a window of its own there (see twitchChatFrames). */
+export const DESKTOP_CHAT_ORIGINS = CHAT_ORIGINS.filter((o) => o !== 'https://www.twitch.tv');
+
+/**
+ * Twitch's chat embed only allows `https://<parent>` on the default port (plus localhost), so it can't be framed from
+ * the desktop app's http://tauri.localhost or the direct address on :8443. YouTube and Kick don't have that rule.
+ */
+export const twitchChatFrames = (page: { protocol: string; hostname: string; port: string }) =>
+  page.hostname === 'localhost' || page.hostname === '127.0.0.1' || (page.protocol === 'https:' && !page.port);
+
+/**
+ * A shared video's chat, if it has one: live streams only (a Twitch video or a plain YouTube video has none to embed).
+ * Not `framed`: `src` is a page to open by itself.
+ */
+export function watchChat(
+  w: { provider: string; media: string; live: boolean },
+  hostname: string,
+  twitchFrames: boolean,
+  dark: boolean,
+): { src: string; framed: boolean } | null {
+  if (!w.live) return null;
+  if (w.provider === 'youtube')
+    return {
+      src: `https://www.youtube.com/live_chat?v=${w.media}&embed_domain=${hostname}${dark ? '&dark_theme=1' : ''}`,
+      framed: true,
+    };
+  if (w.provider === 'kick') return { src: `https://kick.com/popout/${w.media}/chat`, framed: true };
+  if (w.provider !== 'twitch' || w.media.startsWith('v')) return null;
+  const theme = dark ? '&darkpopout' : '';
+  return twitchFrames
+    ? { src: `https://www.twitch.tv/embed/${w.media}/chat?parent=${hostname}${theme}`, framed: true }
+    : { src: `https://www.twitch.tv/popout/${w.media}/chat?popout=${theme}`, framed: false };
+}

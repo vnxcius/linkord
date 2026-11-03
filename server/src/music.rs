@@ -330,6 +330,83 @@ async fn resolve(st: &AppState, target: String, requested_by: Id) -> ApiResult<T
     })
 }
 
+/// Search results asked of YouTube, and the most shown of those that can be used.
+const SEARCH_ASK: usize = 10;
+const SEARCH_SHOW: usize = 6;
+/// Longer videos aren't offered, and only this much is read: at 128 kbit/s it stays under the 15 MB a song can upload.
+const MAX_AUDIO_SECONDS: u32 = 900;
+
+/// A YouTube video id. Only these reach yt-dlp as a link: never a URL someone typed, which could point anywhere.
+pub fn is_video_id(id: &str) -> bool {
+    id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// One line of `yt-dlp --flat-playlist -j`, if it's something that can be used (not live, a channel, or too long).
+fn search_hit(line: &str) -> Option<serde_json::Value> {
+    let info: serde_json::Value = serde_json::from_str(line).ok()?;
+    let id = info["id"].as_str().filter(|id| is_video_id(id))?;
+    let duration = info["duration"].as_f64().filter(|d| *d > 0.0 && *d <= MAX_AUDIO_SECONDS as f64)?;
+    Some(json!({
+        "id": id,
+        "title": info["title"].as_str()?,
+        "uploader": info["uploader"].as_str().or(info["channel"].as_str()),
+        "duration": duration,
+        "thumbnail": format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg"),
+    }))
+}
+
+pub async fn search_videos(st: &AppState, query: &str) -> ApiResult<Vec<serde_json::Value>> {
+    let _turn = crate::media::lookup_turn().await?;
+    let target = format!("ytsearch{SEARCH_ASK}:{query}");
+    let run = ytdlp_cmd(st).args(["--flat-playlist", "-j", "--no-warnings", "--", &target]).output();
+    let out = match tokio::time::timeout(Duration::from_secs(30), run).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => {
+            tracing::error!("running yt-dlp: {e}");
+            return Err(bad("the music player isn't set up on this server"));
+        }
+        Err(_) => return Err(bad("YouTube took too long to answer")),
+    };
+    Ok(String::from_utf8_lossy(&out.stdout).lines().filter_map(search_hit).take(SEARCH_SHOW).collect())
+}
+
+/// A video's audio as MP3.
+pub async fn video_audio(st: &AppState, id: &str) -> ApiResult<Vec<u8>> {
+    let _turn = crate::media::lookup_turn().await?;
+    let url = format!("https://www.youtube.com/watch?v={id}");
+    let not_set_up = |e: std::io::Error| {
+        tracing::error!("running yt-dlp: {e}");
+        bad("the music player isn't set up on this server")
+    };
+    let mut download = ytdlp_cmd(st)
+        .args(["-f", "bestaudio/best", "--no-playlist", "--no-part", "--quiet", "--no-warnings", "-o", "-", "--", &url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(not_set_up)?;
+    let input: Stdio = download.stdout.take().ok_or_else(|| bad("couldn't get that song"))?.try_into().map_err(not_set_up)?;
+    let mut encode = Command::new("ffmpeg");
+    encode
+        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "pipe", "-i", "pipe:0", "-vn", "-map_metadata", "-1", "-t", &MAX_AUDIO_SECONDS.to_string()])
+        .args(["-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", "-f", "mp3", "pipe:1"])
+        .stdin(input)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    crate::media::limit(&mut encode);
+    let encode = encode.spawn().map_err(not_set_up)?;
+    let out = match tokio::time::timeout(Duration::from_secs(120), encode.wait_with_output()).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(not_set_up(e)),
+        Err(_) => return Err(bad("YouTube took too long to answer")),
+    };
+    if !out.status.success() || out.stdout.is_empty() {
+        tracing::warn!("couldn't read a video's audio for a profile song");
+        return Err(bad("couldn't get that song"));
+    }
+    Ok(out.stdout)
+}
+
 #[derive(Deserialize)]
 struct CommandBody {
     name: String,
@@ -921,6 +998,26 @@ impl<R: AsyncRead + Unpin> OggPackets<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_video_ids_reach_ytdlp() {
+        assert!(is_video_id("dQw4w9WgXcQ"));
+        assert!(is_video_id("a-b_c1234XY"));
+        assert!(!is_video_id("https://evil"));
+        assert!(!is_video_id("../../etc/p"));
+        assert!(!is_video_id(""));
+    }
+
+    #[test]
+    fn search_results_leave_out_what_cant_be_used() {
+        let hit = search_hit(r#"{"id":"dQw4w9WgXcQ","title":"Song","channel":"Someone","duration":212.0}"#).unwrap();
+        assert_eq!(hit["uploader"], "Someone");
+        assert_eq!(hit["thumbnail"], "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");
+        assert!(search_hit(r#"{"id":"dQw4w9WgXcQ","title":"Live","duration":null}"#).is_none(), "live");
+        assert!(search_hit(r#"{"id":"dQw4w9WgXcQ","title":"Mix","duration":36000.0}"#).is_none(), "too long");
+        assert!(search_hit(r#"{"id":"UCchannelidthatislonger","title":"A channel","duration":10.0}"#).is_none(), "not a video");
+        assert!(search_hit("not json").is_none());
+    }
 
     fn page(segments: &[u8], body: &[u8]) -> Vec<u8> {
         let mut p = b"OggS".to_vec();

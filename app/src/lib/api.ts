@@ -182,6 +182,21 @@ export async function api<T = any>(method: string, path: string, body?: unknown,
   return text ? JSON.parse(text) : (undefined as T);
 }
 
+/** Like `api` for an answer that's a file, not JSON. */
+export async function apiBlob(method: string, path: string, body: unknown): Promise<Blob> {
+  const res = await fetch(`${serverUrl()}/api${path}`, {
+    method,
+    headers: { authorization: `Bearer ${getToken()}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return res.blob();
+  let msg = res.statusText;
+  try {
+    msg = (await res.json()).error ?? msg;
+  } catch {}
+  throw new ApiError(res.status, serverError(msg));
+}
+
 /** Uploads a form with progress (fetch can't report it). `onProgress` gets 0..1 of the bytes sent; abort with `signal`. */
 export function uploadForm<T = any>(
   method: string,

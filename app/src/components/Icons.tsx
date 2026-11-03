@@ -7,6 +7,7 @@ import { brandOf } from '../lib/brand-icons';
 import emblemUrl from '../assets/emblem.png';
 import adjustmentsHorizontal from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
 import arrowDownTray from 'heroicons/24/outline/arrow-down-tray.svg?raw';
+import devicePhoneMobile from 'heroicons/24/outline/device-phone-mobile.svg?raw';
 import arrowPath from 'heroicons/24/outline/arrow-path.svg?raw';
 import arrowRight from 'heroicons/24/outline/arrow-right.svg?raw';
 import arrowRightStartOnRectangle from 'heroicons/24/outline/arrow-right-start-on-rectangle.svg?raw';
@@ -22,6 +23,7 @@ import bellSlash from 'heroicons/24/outline/bell-slash.svg?raw';
 import camera from 'heroicons/24/outline/camera.svg?raw';
 import chartBar from 'heroicons/24/outline/chart-bar.svg?raw';
 import chatBubbleLeftRight from 'heroicons/24/outline/chat-bubble-left-right.svg?raw';
+import chatBubbleOvalLeft from 'heroicons/24/outline/chat-bubble-oval-left.svg?raw';
 import check from 'heroicons/24/outline/check.svg?raw';
 import chevronDown from 'heroicons/24/outline/chevron-down.svg?raw';
 import chevronLeft from 'heroicons/24/outline/chevron-left.svg?raw';
@@ -129,6 +131,9 @@ export const Chart = hero(chartBar);
 export const Speaker = heroSolid(speakerWaveSolid);
 export const ChatBubble = heroSolid(chatBubbleOvalSolid);
 export const Phone = hero(phone);
+export const Desktop = hero(computerDesktop);
+export const MobileDevice = hero(devicePhoneMobile);
+export const UserCircle = hero(userCircle);
 export const Tv = hero(tv);
 /** A window with its left column marked: show or hide the channel list. */
 export const Sidebar = icon(
@@ -188,6 +193,7 @@ const PinIcon = icon(
 export const Pin = (p: P) => <PinIcon style={{ rotate: '40deg' }} {...p} />;
 export const Search = hero(magnifyingGlass);
 export const Thread = hero(chatBubbleLeftRight);
+export const StreamChat = hero(chatBubbleOvalLeft);
 export const Bell = hero(bell);
 export const BellOff = hero(bellSlash);
 export const UserPlus = hero(userPlus);

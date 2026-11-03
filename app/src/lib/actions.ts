@@ -1,5 +1,5 @@
 import { batch } from 'solid-js';
-import { produce } from 'solid-js/store';
+import { produce, reconcile } from 'solid-js/store';
 import { api, setToken } from './api';
 import { cmpId } from './ids';
 import { addDm, addGuild, channelLayout, setState, state } from './store';
@@ -81,18 +81,46 @@ export async function loadMessages(channelId: string, before?: string) {
       'GET',
       `/channels/${channelId}/messages?limit=${PAGE}${before ? `&before=${before}` : ''}`,
     );
-    setState('messages', channelId, (m) => ({
-      ...m,
-      list: before ? [...page, ...m.list] : [...page, ...m.list.filter((x) => x.pending || x.failed)],
-      loaded: true,
-      hasMore: page.length === PAGE,
-      hasNewer: before ? m.hasNewer : false,
-      loading: false,
-    }));
+    if (before)
+      setState('messages', channelId, (m) => ({
+        ...m,
+        list: [...page, ...m.list],
+        loaded: true,
+        hasMore: page.length === PAGE,
+        loading: false,
+      }));
+    else mergeLatest(channelId, page);
   } catch (e) {
     setState('messages', channelId, 'loading', false);
     throw e;
   }
+}
+
+/**
+ * The latest page, into what's already held. Messages we have are updated in place, so what's on screen isn't rebuilt
+ * (a reconnect used to wipe everything and every picture flashed).
+ */
+function mergeLatest(channelId: string, page: Message[]) {
+  batch(() => {
+    const held = new Map(state.messages[channelId].list.map((m) => [m.id, m]));
+    for (const msg of page)
+      if (held.has(msg.id)) setState('messages', channelId, 'list', (m) => m.id === msg.id, reconcile(msg));
+    const first = page[0]?.id;
+    // Older ones are only still right if this page reaches back to them; otherwise there may be a gap.
+    const joined = page.length === PAGE && !!first && held.has(first);
+    setState('messages', channelId, (m) => ({
+      ...m,
+      list: [
+        ...(joined ? m.list.filter((x) => !x.pending && !x.failed && cmpId(x.id, first) < 0) : []),
+        ...page.map((p) => held.get(p.id) ?? p),
+        ...m.list.filter((x) => x.pending || x.failed),
+      ],
+      loaded: true,
+      hasMore: joined ? m.hasMore : page.length === PAGE,
+      hasNewer: false,
+      loading: false,
+    }));
+  });
 }
 
 /** Loads the next page after the newest loaded message (when viewing history). */
@@ -236,6 +264,7 @@ export async function sendMessage(
     const msg = await api<Message>('POST', `/channels/${channelId}/messages`, body);
     receiveMessage(msg);
   } catch {
+    if (files.length && !voice) failedFiles.set(nonce, files);
     setState(
       'messages',
       channelId,
@@ -276,6 +305,21 @@ export function receiveMessage(msg: Message) {
   else setState('messages', msg.channel_id, 'list', (l) => [...l, msg]);
 }
 
+/** What the server takes (messages.rs MAX_CONTENT). */
+export const MAX_MESSAGE = 4000;
+
+/** Files of messages that failed to send, for Retry. Messages in the store can't hold them. */
+const failedFiles = new Map<string, File[]>();
+
+export const failedFileNames = (m: Message) => (m.nonce ? (failedFiles.get(m.nonce) ?? []).map((f) => f.name) : []);
+
+/** A message that never reached the server only exists here, so removing it is local. */
+export function dismissMessage(m: Message) {
+  if (m.nonce) failedFiles.delete(m.nonce);
+  setState('messages', m.channel_id, 'list', (l) => l.filter((x) => x.id !== m.id));
+  for (const a of m.attachments) if (a.url.startsWith('blob:')) URL.revokeObjectURL(a.url);
+}
+
 export async function retryMessage(m: Message) {
   setState('messages', m.channel_id, 'list', (l) => l.filter((x) => x.id !== m.id));
   // A failed voice message still has its recording locally.
@@ -287,7 +331,9 @@ export async function retryMessage(m: Message) {
       waveform: v.waveform,
     });
   }
-  void sendMessage(m.channel_id, m.content, m.reply_to ?? undefined);
+  const files = m.nonce ? failedFiles.get(m.nonce) : undefined;
+  if (m.nonce) failedFiles.delete(m.nonce);
+  void sendMessage(m.channel_id, m.content, m.reply_to ?? undefined, files);
 }
 
 export async function toggleReaction(m: Message, emoji: string) {

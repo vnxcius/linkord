@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
     music::init(&st).await.context("creating the music bot")?;
     tokio::spawn(music::keep_ytdlp_updated(st.clone()));
     tokio::spawn(auth::sweep(st.clone()));
+    tokio::spawn(uploads::backfill_image_sizes(st.clone()));
     tokio::spawn(logs::prune(st.clone()));
     tokio::spawn(gateway::presence_sweeper(st.clone()));
     tokio::spawn(voice::afk_sweeper(st.clone()));

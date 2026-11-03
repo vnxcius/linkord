@@ -60,6 +60,11 @@ export interface Prefs {
   /** Soundboard volume (0-1) for everyone's sounds, and per person (0 = muted). */
   soundboardVolume: number;
   soundboardUserVolumes: Record<string, number>;
+  /** In-game overlay (Windows app): who's in the call, over borderless games. */
+  overlay: boolean;
+  overlayCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  /** Only rows for people talking right now. */
+  overlayOnlySpeaking: boolean;
   /** Profile songs start by themselves (quietly) when you open someone's full profile. Off: they wait for a click. */
   profileSongAutoplay: boolean;
   /** Spellcheck in the message box, its language ('auto' = the app's language) and words you added. */
@@ -108,6 +113,9 @@ const DEFAULTS: Prefs = {
   streamDebug: false,
   soundboardVolume: 0.8,
   soundboardUserVolumes: {},
+  overlay: true,
+  overlayCorner: 'top-left',
+  overlayOnlySpeaking: false,
   profileSongAutoplay: false,
   spellcheck: true,
   spellLanguage: 'auto',

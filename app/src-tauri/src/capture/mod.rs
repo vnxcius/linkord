@@ -1,5 +1,5 @@
-//! Native screen capture for streaming (Windows): an in-app source picker, Windows Graphics Capture,
-//! hardware H.264 encoding and per-application audio. Encoded frames go to the web app over a Tauri
+//! Native screen capture for streaming (Windows): an in-app source picker, Desktop Duplication (duplication.rs, with
+//! Windows Graphics Capture where that can't start), hardware H.264 encoding and per-application audio. Encoded frames go to the web app over a Tauri
 //! channel and from there out through the existing voice connection.
 //! Other platforms report "unsupported" and the app falls back to the browser's capture.
 
@@ -7,6 +7,8 @@
 mod audio;
 #[cfg(windows)]
 mod convert;
+#[cfg(windows)]
+mod duplication;
 #[cfg(windows)]
 mod encoder;
 
@@ -148,6 +150,10 @@ pub struct CaptureVideoStats {
     error: Option<String>,
     /// The shared window no longer exists (its app was closed).
     source_closed: bool,
+    /// The shared window is covered or minimized: viewers have the last picture.
+    paused: bool,
+    /// "duplication", or "graphics capture" where that couldn't start (the cursor lags in games then).
+    backend: &'static str,
 }
 
 #[tauri::command]
@@ -189,6 +195,7 @@ mod imp {
     use super::audio::{process_loopback_supported, AudioCapture, Source};
     use windows_capture::graphics_capture_api::GraphicsCaptureApi;
     use super::convert::{target_size, Converter};
+    use super::duplication::{self, Duplicated, Target};
     use super::encoder::Encoder;
     use super::{CaptureInfo, CaptureSource, CaptureVideoStats};
 
@@ -213,6 +220,8 @@ mod imp {
         stats: Stats,
         /// Set when the encoder gave up; the stream stops and the app reads why from the stats.
         error: Mutex<Option<String>>,
+        /// The window being streamed is covered or minimized.
+        paused: AtomicBool,
     }
 
     /// Per-stage counters (microseconds), reset by every `video_stats` read.
@@ -248,7 +257,7 @@ mod imp {
 
     struct Session {
         shared: Arc<Shared>,
-        control: Option<CaptureControl<Handler, BoxError>>,
+        capture: Option<Backend>,
         encoder: Option<JoinHandle<()>>,
         audio: Option<AudioCapture>,
         // Kept so the source can be switched without restarting the stream.
@@ -259,6 +268,30 @@ mod imp {
         source: String,
         /// The frame rate the capture's update interval was set up for.
         capture_fps: u32,
+    }
+
+    /// What's producing frames. Duplication unless it can't start: Graphics Capture makes the cursor lag in games.
+    enum Backend {
+        Duplication(Duplicated),
+        GraphicsCapture(CaptureControl<Handler, BoxError>),
+    }
+
+    impl Backend {
+        fn name(&self) -> &'static str {
+            match self {
+                Backend::Duplication(_) => "duplication",
+                Backend::GraphicsCapture(_) => "graphics capture",
+            }
+        }
+
+        fn stop(self) {
+            match self {
+                Backend::Duplication(d) => drop(d),
+                Backend::GraphicsCapture(c) => {
+                    let _ = c.stop();
+                }
+            }
+        }
     }
 
     static SESSION: Mutex<Option<Session>> = Mutex::new(None);
@@ -340,7 +373,8 @@ mod imp {
 
     // ---------- capture ----------
 
-    struct Handler {
+    /// Decides which frames to keep and sends those on to the encoder, whichever backend they come from.
+    struct Sender {
         shared: Arc<Shared>,
         frames: SyncSender<Converted>,
         /// When the next frame is due (a running deadline, so the average rate matches the target even when
@@ -352,50 +386,42 @@ mod imp {
     /// Frames arriving this early are still taken, so a 60 Hz display can feed a 60 fps stream.
     const SLACK: Duration = Duration::from_micros(1500);
 
-    impl GraphicsCaptureApiHandler for Handler {
-        type Flags = (Arc<Shared>, SyncSender<Converted>);
-        type Error = BoxError;
-
-        fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-            let (shared, frames) = ctx.flags;
+    impl Sender {
+        fn new(shared: Arc<Shared>, frames: SyncSender<Converted>) -> Sender {
             let converter = Converter::new();
             shared.stats.threads.store(converter.threads as u32, Ordering::Relaxed);
-            Ok(Handler { shared, frames, next: None, converter })
+            Sender { shared, frames, next: None, converter }
         }
 
-        fn on_frame_arrived(&mut self, frame: &mut Frame, control: InternalCaptureControl) -> Result<(), Self::Error> {
-            if self.shared.stop.load(Ordering::Relaxed) {
-                control.stop();
-                return Ok(());
-            }
-            let params = *self.shared.params.lock().unwrap();
+        fn take_slot(&mut self) -> bool {
+            let fps = self.shared.params.lock().unwrap().fps;
             // Windows delivers frames at the display's refresh rate; keep only what the stream needs.
-            let interval = Duration::from_micros(1_000_000 / params.fps as u64);
+            let interval = Duration::from_micros(1_000_000 / fps as u64);
             let now = Instant::now();
             if self.next.is_some_and(|due| now + SLACK < due) {
-                return Ok(());
+                return false;
             }
-            let stats = &self.shared.stats;
             // The encoder hasn't taken the last frame yet: skip this one before reading it back (the next
             // arriving frame is due right away).
             if self.shared.queued.load(Ordering::Acquire) {
-                stats.busy_skips.fetch_add(1, Ordering::Relaxed);
-                return Ok(());
+                self.shared.stats.busy_skips.fetch_add(1, Ordering::Relaxed);
+                return false;
             }
             // Keep the schedule unless we fell behind it (static screens produce no frames at all).
             self.next = Some(match self.next {
                 Some(due) if now < due + interval => due + interval,
                 _ => now + interval,
             });
-            let started = Instant::now();
-            let mut buffer = frame.buffer()?;
-            record(&stats.readback_us, &stats.readback_max_us, started);
-            let (sw, sh, stride) = (buffer.width(), buffer.height(), buffer.row_pitch() as usize);
-            let (dw, dh) = target_size(sw, sh, params.height);
+            true
+        }
+
+        fn convert_and_queue(&mut self, image: &[u8], sw: u32, sh: u32, stride: usize) {
+            let now = Instant::now();
+            let stats = &self.shared.stats;
+            let (dw, dh) = target_size(sw, sh, self.shared.params.lock().unwrap().height);
             let mut nv12 = self.shared.pool.lock().unwrap().pop().unwrap_or_default();
-            let started = Instant::now();
-            self.converter.convert(buffer.as_raw_buffer(), sw, sh, stride, dw, dh, &mut nv12);
-            record(&stats.convert_us, &stats.convert_max_us, started);
+            self.converter.convert(image, sw, sh, stride, dw, dh, &mut nv12);
+            record(&stats.convert_us, &stats.convert_max_us, now);
             stats.frames.fetch_add(1, Ordering::Relaxed);
             // Marked before sending, so the encoder's "taken" (after receiving) can't be overwritten.
             self.shared.queued.store(true, Ordering::Release);
@@ -404,6 +430,64 @@ mod imp {
                 let (std::sync::mpsc::TrySendError::Full(c) | std::sync::mpsc::TrySendError::Disconnected(c)) = e;
                 self.shared.pool.lock().unwrap().push(c.nv12);
             }
+        }
+    }
+
+    impl duplication::Sink for Sender {
+        fn stopped(&self) -> bool {
+            self.shared.stop.load(Ordering::Relaxed)
+        }
+
+        fn until_due(&self) -> Duration {
+            self.next.map_or(Duration::ZERO, |due| due.saturating_duration_since(Instant::now() + SLACK))
+        }
+
+        fn due(&mut self) -> bool {
+            self.take_slot()
+        }
+
+        fn wants_frame(&self) -> bool {
+            self.shared.keyframe.load(Ordering::Relaxed)
+        }
+
+        fn send(&mut self, image: &[u8], width: u32, height: u32, stride: usize, started: Instant) {
+            let stats = &self.shared.stats;
+            record(&stats.readback_us, &stats.readback_max_us, started);
+            self.convert_and_queue(image, width, height, stride);
+        }
+
+        fn set_paused(&mut self, paused: bool) {
+            self.shared.paused.store(paused, Ordering::Relaxed);
+        }
+    }
+
+    struct Handler {
+        sender: Sender,
+    }
+
+    impl GraphicsCaptureApiHandler for Handler {
+        type Flags = (Arc<Shared>, SyncSender<Converted>);
+        type Error = BoxError;
+
+        fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
+            let (shared, frames) = ctx.flags;
+            Ok(Handler { sender: Sender::new(shared, frames) })
+        }
+
+        fn on_frame_arrived(&mut self, frame: &mut Frame, control: InternalCaptureControl) -> Result<(), Self::Error> {
+            if self.sender.shared.stop.load(Ordering::Relaxed) {
+                control.stop();
+                return Ok(());
+            }
+            if !self.sender.take_slot() {
+                return Ok(());
+            }
+            let started = Instant::now();
+            let mut buffer = frame.buffer()?;
+            let stats = &self.sender.shared.stats;
+            record(&stats.readback_us, &stats.readback_max_us, started);
+            let (sw, sh, stride) = (buffer.width(), buffer.height(), buffer.row_pitch() as usize);
+            self.sender.convert_and_queue(buffer.as_raw_buffer(), sw, sh, stride);
             Ok(())
         }
     }
@@ -464,12 +548,19 @@ mod imp {
     }
 
     /// Starts capturing a source ("screen:<hmonitor>" / "window:<hwnd>"); returns which audio to pair with it.
-    fn start_item(source: &str, shared: &Arc<Shared>, frames: &SyncSender<Converted>) -> Result<(CaptureControl<Handler, BoxError>, Source), String> {
+    fn start_item(source: &str, shared: &Arc<Shared>, frames: &SyncSender<Converted>) -> Result<(Backend, Source), String> {
         let (kind, raw) = source.split_once(':').ok_or("bad source")?;
         let handle: usize = raw.parse().map_err(|_| "bad source")?;
         let flags = (shared.clone(), frames.clone());
         let fps = shared.params.lock().unwrap().fps;
-        let (control, audio_source) = match kind {
+        shared.paused.store(false, Ordering::Relaxed);
+        let target = match kind {
+            "screen" => Target::Screen(handle),
+            "window" => Target::Window(handle),
+            _ => return Err("bad source".into()),
+        };
+        let duplicated = duplication::start(target, Sender::new(shared.clone(), frames.clone())).map_err(|e| eprintln!("desktop duplication unavailable: {e}")).ok();
+        let (capture, audio_source) = match kind {
             "screen" => {
                 let item = Monitor::from_raw_hmonitor(handle as *mut std::ffi::c_void);
                 let settings = Settings::new(
@@ -484,7 +575,11 @@ mod imp {
                 );
                 let webview = WEBVIEW_PID.load(Ordering::Relaxed);
                 let exclude = if webview != 0 { webview } else { std::process::id() };
-                (Handler::start_free_threaded(settings).map_err(|e| e.to_string())?, Source::AllExcept(exclude))
+                let audio = Source::AllExcept(exclude);
+                match duplicated {
+                    Some(d) => (Backend::Duplication(d), audio),
+                    None => (Backend::GraphicsCapture(Handler::start_free_threaded(settings).map_err(|e| e.to_string())?), audio),
+                }
             }
             "window" => {
                 let item = Window::from_raw_hwnd(handle as *mut std::ffi::c_void);
@@ -499,13 +594,17 @@ mod imp {
                     ColorFormat::Bgra8,
                     flags,
                 );
-                (Handler::start_free_threaded(settings).map_err(|e| e.to_string())?, Source::Only(pid))
+                let audio = Source::Only(pid);
+                match duplicated {
+                    Some(d) => (Backend::Duplication(d), audio),
+                    None => (Backend::GraphicsCapture(Handler::start_free_threaded(settings).map_err(|e| e.to_string())?), audio),
+                }
             }
             _ => return Err("bad source".into()),
         };
         // Windows 10 can't capture per process: fall back to everything the PC plays.
         let audio_source = if process_loopback_supported() { audio_source } else { Source::System };
-        Ok((control, audio_source))
+        Ok((capture, audio_source))
     }
 
     fn start_audio(want: bool, source: Source, on_audio: &Channel<InvokeResponseBody>) -> (Option<AudioCapture>, &'static str) {
@@ -546,6 +645,7 @@ mod imp {
             pool: Mutex::new(Vec::new()),
             stats: Stats::default(),
             error: Mutex::new(None),
+            paused: AtomicBool::new(false),
         });
         // Probe the encoder up front so failures surface as an error the app can fall back from.
         let probe = Encoder::new(1280, 720, fps.clamp(5, 60), bitrate).map_err(|e| format!("no H.264 encoder: {e}"))?;
@@ -553,14 +653,14 @@ mod imp {
         drop(probe);
 
         let (tx, rx) = sync_channel::<Converted>(1);
-        let (control, audio_source) = start_item(&source, &shared, &tx)?;
+        let (capture, audio_source) = start_item(&source, &shared, &tx)?;
         let capture_fps = shared.params.lock().unwrap().fps;
         let enc_shared = shared.clone();
         let encoder = std::thread::spawn(move || encode_loop(enc_shared, rx, on_video));
         let (audio_capture, audio_mode) = start_audio(audio, audio_source, &on_audio);
         *SESSION.lock().unwrap() = Some(Session {
             shared,
-            control: Some(control),
+            capture: Some(capture),
             encoder: Some(encoder),
             audio: audio_capture,
             frames: tx,
@@ -586,10 +686,21 @@ mod imp {
 
     /// Starts capturing `source` in place of the current one (same encoder and connection).
     fn restart_video(session: &mut Session, source: String) -> Result<Source, String> {
-        let (control, audio_source) = start_item(&source, &session.shared, &session.frames)?;
-        if let Some(old) = session.control.replace(control) {
-            let _ = old.stop();
+        // First: one process can't duplicate a monitor twice.
+        if let Some(old) = session.capture.take() {
+            old.stop();
         }
+        let (capture, audio_source) = match start_item(&source, &session.shared, &session.frames) {
+            Ok(started) => started,
+            Err(e) => {
+                // The new source didn't work: stay on the old one rather than end the stream.
+                if let Ok((old, _)) = start_item(&session.source, &session.shared, &session.frames) {
+                    session.capture = Some(old);
+                }
+                return Err(e);
+            }
+        };
+        session.capture = Some(capture);
         session.source = source;
         session.capture_fps = session.shared.params.lock().unwrap().fps;
         // The new source may have a different size; either way viewers need a fresh keyframe.
@@ -598,7 +709,7 @@ mod imp {
     }
 
     pub fn video_stats() -> Option<CaptureVideoStats> {
-        let (shared, source) = SESSION.lock().unwrap().as_ref().map(|s| (s.shared.clone(), s.source.clone()))?;
+        let (shared, source, backend) = SESSION.lock().unwrap().as_ref().map(|s| (s.shared.clone(), s.source.clone(), s.capture.as_ref().map_or("none", Backend::name)))?;
         let st = &shared.stats;
         let error = shared.error.lock().unwrap().clone();
         let take = |a: &AtomicU64| a.swap(0, Ordering::Relaxed);
@@ -619,6 +730,8 @@ mod imp {
             threads: st.threads.load(Ordering::Relaxed),
             error,
             source_closed: window_closed(&source),
+            paused: shared.paused.load(Ordering::Relaxed),
+            backend,
         })
     }
 
@@ -633,8 +746,8 @@ mod imp {
     pub fn stop() {
         let Some(mut session) = SESSION.lock().unwrap().take() else { return };
         session.shared.stop.store(true, Ordering::Relaxed);
-        if let Some(control) = session.control.take() {
-            let _ = control.stop();
+        if let Some(capture) = session.capture.take() {
+            capture.stop();
         }
         if let Some(t) = session.encoder.take() {
             let _ = t.join();
@@ -653,8 +766,9 @@ mod imp {
         let fps = fps.clamp(5, 60);
         *s.shared.params.lock().unwrap() = Params { height: height.clamp(360, 1080), fps, bitrate };
         s.shared.params_changed.store(true, Ordering::Relaxed);
-        // The capture's update interval was set for the old frame rate: restart it (audio keeps running).
-        if fps != s.capture_fps && matches!(update_interval(fps), MinimumUpdateIntervalSettings::Custom(_)) {
+        // Graphics Capture's update interval was set for the old frame rate: restart it (audio keeps running).
+        let interval_set = matches!(s.capture, Some(Backend::GraphicsCapture(_))) && matches!(update_interval(fps), MinimumUpdateIntervalSettings::Custom(_));
+        if fps != s.capture_fps && interval_set {
             let source = s.source.clone();
             if let Err(e) = restart_video(s, source) {
                 eprintln!("couldn't restart capture for {fps} fps: {e}");

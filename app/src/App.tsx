@@ -130,10 +130,12 @@ function Main() {
       ref={initSwipes}
     >
       <div class="nav-pane" classList={{ 'with-banner': state.view !== '@me' && !!state.guilds[state.view]?.banner }}>
-        <GuildBanner />
         <Rail />
-        <Sidebar />
-        <Dock />
+        <div class="nav-panel">
+          <GuildBanner />
+          <Sidebar />
+          <Dock />
+        </div>
       </div>
       <main class="main">
         <ReconnectBanner />

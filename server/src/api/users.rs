@@ -1,4 +1,4 @@
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -35,6 +35,8 @@ pub fn routes() -> Router<AppState> {
         .route("/nameplates", get(default_nameplates))
         .route("/users/@me/banner", post(|st, me, mp| upload_image(st, me, mp, "banner")).delete(|st, me| clear_image(st, me, "banner")))
         .route("/users/@me/profile-song", post(upload_song).patch(update_song).delete(remove_song))
+        .route("/users/@me/profile-song/search", get(search_songs))
+        .route("/users/@me/profile-song/audio", post(song_audio))
         .route("/users/{id}", get(get_user))
         .route("/users/{id}/profile", get(profile))
         .route("/users/{id}/note", axum::routing::put(set_note))
@@ -316,6 +318,37 @@ fn clean_song_title(t: Option<&str>) -> ApiResult<String> {
     Ok(t)
 }
 
+#[derive(Deserialize)]
+struct SongSearch {
+    q: String,
+}
+
+/// Songs to pick from instead of uploading a file (YouTube, through yt-dlp).
+async fn search_songs(State(st): State<AppState>, AuthUser(me): AuthUser, Query(search): Query<SongSearch>) -> ApiResult<Json<Vec<serde_json::Value>>> {
+    st.limits.check(format!("song-search:{me}"), 10.0, 0.2)?;
+    let q = search.q.trim();
+    if !(2..=100).contains(&q.chars().count()) {
+        return Err(bad("search for 2-100 characters"));
+    }
+    Ok(Json(crate::music::search_videos(&st, q).await?))
+}
+
+#[derive(Deserialize)]
+struct SongAudio {
+    id: String,
+}
+
+/// The audio of a search result as MP3. It goes to the same trim editor and upload as a file from the disk, so nothing
+/// is kept here and it counts against the quota only if saved.
+async fn song_audio(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<SongAudio>) -> ApiResult<impl axum::response::IntoResponse> {
+    if !crate::music::is_video_id(&body.id) {
+        return Err(bad("couldn't find that video"));
+    }
+    st.limits.check(format!("song-audio:{me}"), 3.0, 0.05)?;
+    let audio = crate::music::video_audio(&st, &body.id).await?;
+    Ok(([(axum::http::header::CONTENT_TYPE, "audio/mpeg")], audio))
+}
+
 /// Multipart: `file` (audio, up to 15 MB) and `payload_json` {title, volume, trim_start, trim_end}; up to 30 s of it
 /// is cut to MP3 (soundboard.rs).
 async fn upload_song(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp: Multipart) -> ApiResult<Json<serde_json::Value>> {
@@ -353,7 +386,7 @@ async fn upload_song(State(st): State<AppState>, AuthUser(me): AuthUser, mut mp:
     let length = crate::soundboard::duration(&path).await.unwrap_or(MAX_SONG_SECONDS);
     let start = fields.trim_start.unwrap_or(0.0).max(0.0);
     let end = fields.trim_end.unwrap_or(start + MAX_SONG_SECONDS).min(length).max(start);
-    let url = match crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG).await {
+    let url = match crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG, crate::soundboard::SONG_BITRATE).await {
         Ok(url) => url,
         Err(e) => {
             let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(&dir)).await;
@@ -391,7 +424,7 @@ async fn update_song(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bo
     if body.trim_start.is_some() || body.trim_end.is_some() {
         start = body.trim_start.unwrap_or(start).max(0.0);
         end = body.trim_end.unwrap_or(end).max(start);
-        new_url = crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG).await?;
+        new_url = crate::soundboard::cut_clip(&st, &source, start, end, MAX_SONG_SECONDS, SONG_TOO_LONG, crate::soundboard::SONG_BITRATE).await?;
         if let Some(old) = crate::soundboard::upload_path(&st, &url) {
             let _ = tokio::fs::remove_file(old).await;
         }

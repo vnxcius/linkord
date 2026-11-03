@@ -815,8 +815,235 @@ await step('voice channel: hide the channel list from the header; watch together
   assert.ok(x > player.x, 'the soundboard should overlap the player in this layout');
   assert.ok(await a.page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.soundboard'), [x, y]), 'soundboard is under the player');
   await a.page.keyboard.press('Escape');
+  // A plain video has no chat to show.
+  assert.equal(await a.page.locator('.watch-bar [aria-label="Show stream chat"]').count(), 0);
   await watch('DELETE');
   await a.page.waitForSelector('.watch-party', { state: 'detached' });
+
+  // A live stream does: beside the player, not under it, and allowed by the page's CSP.
+  const blocked = [];
+  const onConsole = (m) => /frame-src/.test(m.text()) && /^(Refused to frame|Framing) 'https:\/\/kick\.com/.test(m.text()) && blocked.push(m.text());
+  a.page.on('console', onConsole);
+  assert.equal((await watch('PUT', { url: 'https://kick.com/someone' })).status, 200);
+  await a.page.click('.watch-bar [aria-label="Show stream chat"]');
+  await a.page.waitForSelector('.watch-party.expanded iframe.watch-chat[src="https://kick.com/popout/someone/chat"]');
+  await a.page.waitForFunction(() => {
+    const host = document.querySelector('.watch-host')?.getBoundingClientRect();
+    const chat = document.querySelector('.watch-chat')?.getBoundingClientRect();
+    return host && chat && host.right <= chat.left + 1;
+  });
+  await shot(a.page, 'e2e-watch-chat');
+  await a.page.click('.watch-bar [aria-label="Hide stream chat"]');
+  await a.page.waitForSelector('.watch-chat', { state: 'detached' });
+  a.page.off('console', onConsole);
+  assert.deepEqual(blocked, []);
+  await watch('DELETE');
+  await a.page.waitForSelector('.watch-party', { state: 'detached' });
+});
+
+await step('profiles: the side card is there from the start, pictures open like attachments; DMs show the other person', async () => {
+  const pg = a.page;
+  const picture = fs.readFileSync(new URL('../assets/icon.png', import.meta.url));
+  const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+  assert.ok(token, 'signed in');
+  const post = async (path, body) => {
+    const fd = body ? JSON.stringify(body) : new FormData();
+    if (!body) fd.append('file', new Blob([picture], { type: 'image/png' }), 'x.png');
+    const r = await fetch(`${BASE}/api${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: fd,
+    });
+    assert.equal(r.status, 200, path);
+    return r.json();
+  };
+  const guildId = new URL(pg.url()).pathname.split('/')[2];
+  await post('/users/@me/avatar');
+  await post('/users/@me/banner');
+  await post(`/guilds/${guildId}/banner`);
+  await pg.reload();
+  await pg.waitForSelector('.layout');
+
+  // The server list sits above the panel; the banner fills the panel's rounded top, down to the server's name.
+  await pg.waitForSelector('.guild-banner');
+  await pg.waitForFunction(() => {
+    const rail = document.querySelector('.rail').getBoundingClientRect();
+    const panel = document.querySelector('.nav-panel').getBoundingClientRect();
+    const banner = document.querySelector('.guild-banner').getBoundingClientRect();
+    const head = document.querySelector('.guild-header').getBoundingClientRect();
+    return rail.bottom <= panel.top && Math.abs(banner.top - panel.top) < 1 && Math.abs(banner.bottom - head.bottom) < 1 && banner.height > 60;
+  });
+  assert.notEqual(await pg.evaluate(() => getComputedStyle(document.querySelector('.guild-banner')).borderTopLeftRadius), '0px');
+  await shot(pg, 'e2e-sidebar-banner');
+
+  // Their own profile, through the menu at the bottom left.
+  await pg.click('.user-panel .user-info, .user-panel .avatar');
+  // Slow on purpose: what's on screen before the profile arrives must be where it stays.
+  let arrived = false;
+  await pg.route('**/api/users/*/profile', async (route) => {
+    await new Promise((r) => setTimeout(r, 900));
+    arrived = true;
+    await route.continue();
+  });
+  await pg.click('.profile-card .profile-avatar');
+  await pg.waitForSelector('.profile-modal');
+  await pg.waitForSelector('.profile-modal-wrap .side-card');
+  await pg.waitForTimeout(350); // the opening animation
+  assert.equal(arrived, false, 'still loading');
+  const before = await pg.locator('.profile-modal').boundingBox();
+  const sideBefore = await pg.locator('.side-card').boundingBox();
+  await pg.waitForSelector('.profile-modal .profile-tabs');
+  await pg.waitForFunction(() => document.querySelector('.games-card-head h3')?.textContent.trim().length > 0);
+  await pg.waitForTimeout(150);
+  const after = await pg.locator('.profile-modal').boundingBox();
+  assert.deepEqual(after, before, 'nothing moves once the profile has loaded');
+  assert.deepEqual(await pg.locator('.side-card').boundingBox(), sideBefore);
+  await pg.unroute('**/api/users/*/profile');
+
+  // Smaller dot, picture and banner open over the profile, Escape only closes that.
+  const sizes = await pg.evaluate(() => {
+    const dot = document.querySelector('.profile-modal .presence').getBoundingClientRect();
+    return { dot: dot.width, banner: document.querySelector('.profile-banner.big').getBoundingClientRect().height };
+  });
+  assert.ok(sizes.dot <= 36, `status circle is ${sizes.dot}px with its ring`);
+  assert.equal(sizes.banner, 190);
+  await pg.click('.profile-modal button.profile-avatar');
+  await pg.waitForSelector('.lightbox img');
+  await pg.keyboard.press('Escape');
+  await pg.waitForSelector('.lightbox', { state: 'detached' });
+  await pg.waitForSelector('.profile-modal');
+  await pg.click('.profile-modal .profile-banner-open');
+  await pg.waitForSelector('.lightbox img');
+  await pg.keyboard.press('Escape');
+  await pg.keyboard.press('Escape');
+  await pg.waitForSelector('.profile-modal', { state: 'detached' });
+
+  // Back in the server's text channel, where the member list is.
+  await pg.click(`.rail-btn[aria-label="Keep ${run}"]`);
+  await pg.click('.sidebar >> text=general');
+  await pg.waitForSelector('.chat-header h2:has-text("general")');
+  if (!(await pg.locator('.member').count())) await pg.click('[aria-label="Member list"]');
+
+  // Someone with no games: the card says so instead of inviting them to edit it.
+  await pg.click(`.member:has-text("${b.name}"), .members-row:has-text("${b.name}")`);
+  await pg.click('.profile-card .profile-avatar');
+  await pg.waitForSelector('.side-card .widget-empty:has-text("favorite games")');
+  await shot(pg, 'e2e-full-profile');
+  await pg.keyboard.press('Escape');
+  await pg.waitForSelector('.profile-modal', { state: 'detached' });
+
+  // A direct message shows the other person on the right, and the header button hides it.
+  await pg.click(`.member:has-text("${b.name}"), .members-row:has-text("${b.name}")`);
+  await pg.click('.profile-card button:has-text("Message")');
+  await pg.waitForSelector(`.margin .dm-profile:has-text("${b.name}")`);
+  await pg.waitForSelector('.margin-tabs button:has-text("Profile")');
+  await shot(pg, 'e2e-dm-profile');
+  await pg.click('[aria-label="User profile"]');
+  await pg.waitForSelector('.dm-profile', { state: 'detached' });
+  await pg.click('[aria-label="User profile"]');
+  await pg.waitForSelector('.dm-profile');
+
+  // Settings: sessions got their own tab, and logging out everywhere moved there.
+  await pg.click('[aria-label="Settings"]');
+  await pg.waitForSelector('.settings-screen');
+  assert.equal(await pg.locator('.settings-foot button:has-text("Log out everywhere")').count(), 0);
+  await pg.click('.settings-nav button:has-text("Sessions")');
+  await pg.waitForSelector('.session-row:has-text("Active now")');
+  await pg.waitForSelector('.session-everywhere');
+  await shot(pg, 'e2e-sessions');
+
+  // Stats: nothing cut off; long times are in hours, and clicking one shows days.
+  await pg.route('**/api/users/@me/stats*', async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), voice_seconds: 200000 } });
+  });
+  await pg.click('.settings-nav button:has-text("Stats")');
+  await pg.waitForSelector('.stats-hero strong');
+  const cut = await pg.evaluate(() => [...document.querySelectorAll('.stats-hero strong')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
+  assert.deepEqual(cut, []);
+  const time = pg.locator('.stats-hero .duration-toggle');
+  assert.equal(await time.textContent(), '55 h 33 min');
+  await time.click();
+  assert.equal(await time.textContent(), '2 d 7 h');
+  await time.click();
+  assert.equal(await time.textContent(), '55 h 33 min');
+  await shot(pg, 'e2e-stats');
+  await pg.unroute('**/api/users/@me/stats*');
+  await pg.keyboard.press('Escape');
+  await pg.waitForSelector('.settings-screen', { state: 'detached' });
+});
+
+await step('very long text: stays responsive, goes as message.txt; a failed message can be deleted; reactions use our emoji; the picker takes focus', async () => {
+  const pg = a.page;
+  const box = 'textarea[data-spell="composer"]';
+  await pg.click(`.rail-btn[aria-label="Keep ${run}"]`);
+  await pg.click('.sidebar >> text=general');
+  await pg.waitForSelector('.chat-header h2:has-text("general")');
+  const setBox = (t) => pg.evaluate(([sel, t]) => { const e = document.querySelector(sel); e.focus(); e.value = t; e.dispatchEvent(new InputEvent('input', { bubbles: true })); }, [box, t]);
+  const messages = () => pg.locator('.message').count();
+  const before = await messages();
+
+  // 500k characters: typing stays usable (it took 3-4 s per key before), no underlines, and it goes as a file.
+  await setBox('lorem ipsum dolor sit amet '.repeat(20000));
+  await pg.waitForSelector('.composer-count.over');
+  await pg.waitForTimeout(1500);
+  assert.equal(await pg.locator('.spell-layer mark').count(), 0);
+  await pg.evaluate(() => {
+    window.__lags = [];
+    document.addEventListener('keydown', () => {
+      const t = performance.now();
+      requestAnimationFrame(() => setTimeout(() => window.__lags.push(performance.now() - t)));
+    }, true);
+  });
+  await pg.keyboard.type('qwertyuiop', { delay: 60 });
+  await pg.waitForTimeout(400);
+  const slowest = await pg.evaluate(() => Math.max(...window.__lags));
+  console.log(`  500k characters in the box, slowest key: ${Math.round(slowest)} ms`);
+  assert.ok(slowest < 1000, `${slowest} ms for a key`);
+  await pg.keyboard.press('Enter');
+  await pg.waitForSelector('.text-file .file-name:text("message.txt")');
+  await pg.waitForSelector('.text-file-body:has-text("lorem ipsum")');
+  assert.equal(await pg.inputValue(box), '', 'the box is empty again');
+  assert.equal(await pg.locator('.message:has(.text-file) .content').count(), 0, 'no text in the message itself');
+  const sent = await messages();
+
+  // One that fails to send: Retry and Delete right there, and the menu only has what can work on it.
+  await pg.route('**/api/channels/*/messages', (route) => (route.request().method() === 'POST' ? route.abort() : route.continue()));
+  await pg.focus(box);
+  await pg.keyboard.type('this one fails');
+  await pg.keyboard.press('Enter');
+  await pg.waitForSelector('.failed-note');
+  await pg.unroute('**/api/channels/*/messages');
+  await pg.locator('.message:has(.failed-note)').click({ button: 'right', position: { x: 200, y: 10 } });
+  assert.deepEqual(await pg.locator('.context-menu button').allTextContents(), ['Retry', 'Copy Text', 'Delete Message']);
+  await pg.keyboard.press('Escape');
+  await pg.click('.failed-note button:has-text("Delete")');
+  await pg.waitForSelector('.failed-note', { state: 'detached' });
+  assert.equal(await messages(), sent);
+
+  // Reactions are drawn with our emoji, not the system's, in the font the browser really used.
+  await pg.focus(box);
+  await pg.keyboard.type('react to this');
+  await pg.keyboard.press('Enter');
+  const last = pg.locator('.message').last();
+  await last.locator('.content:has-text("react to this")').waitFor();
+  await last.hover();
+  await last.locator('.message-actions .emoji-quick').first().click();
+  await last.locator('.reaction').waitFor();
+  const cdp = await pg.context().newCDPSession(pg);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const { root } = await cdp.send('DOM.getDocument');
+  const { nodeIds } = await cdp.send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: '.reaction-emoji' });
+  const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: nodeIds[nodeIds.length - 1] });
+  assert.deepEqual(fonts.map((f) => f.familyName), ['Linkord Twemoji'], JSON.stringify(fonts));
+
+  // The emoji picker's search box takes the keyboard when it opens (the soundboard's uses the same picker).
+  await last.hover();
+  await last.locator('.message-actions [data-tip="Add reaction"]').first().click();
+  await pg.waitForSelector('.message-picker .emoji-search');
+  await pg.waitForFunction(() => document.activeElement?.classList.contains('emoji-search'));
+  await pg.keyboard.press('Escape');
 });
 
 await step('keybinds: Ctrl+Shift+M toggles mute; a recorded push-to-talk key opens the mic only while held', async () => {

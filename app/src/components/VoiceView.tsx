@@ -629,6 +629,7 @@ function captureTimingLines(): string[] {
   if (!c) return [];
   const ms = (avg: number, max: number) => `${avg.toFixed(1)} / ${max.toFixed(1)} ms`;
   return [
+    t('Capture: {backend}', { backend: c.backend }),
     t('Readback {readback} · convert {convert} ({threads} threads) · encode {encode}', {
       readback: ms(c.readback_ms, c.readback_max_ms),
       convert: ms(c.convert_ms, c.convert_max_ms),
@@ -766,6 +767,12 @@ function VideoCard(p: { item: VideoItem; guildId?: string | null; large?: boolea
             <video ref={(v) => (v.srcObject = localStream() ?? null)} autoplay playsinline muted />
           </Show>
         </Show>
+      </Show>
+
+      <Show when={own() && isScreen() && voiceUi.captureTimings?.paused}>
+        <div class="stream-paused">
+          {t('Stream paused: the window is covered or minimized. Viewers see the last picture.')}
+        </div>
       </Show>
 
       <Show when={prefs.streamDebug && watching() && !p.small && debugLines().length}>

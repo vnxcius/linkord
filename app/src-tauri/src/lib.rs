@@ -5,11 +5,14 @@ use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 mod capture;
 mod games;
 mod keybinds;
+#[cfg(windows)]
+mod overlay;
 
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 
@@ -142,6 +145,34 @@ fn set_keybinds(mut binds: Vec<keybinds::Bind>) {
     keybinds::set_binds(binds);
     #[cfg(not(windows))]
     let _ = binds;
+}
+
+/// What the in-game overlay shows (Windows; no people = off). See overlay.rs.
+#[tauri::command]
+fn overlay_update(view: serde_json::Value) -> Result<(), String> {
+    #[cfg(windows)]
+    overlay::update(serde_json::from_value(view).map_err(|e| e.to_string())?);
+    #[cfg(not(windows))]
+    let _ = view;
+    Ok(())
+}
+
+/// Someone's picture for the overlay: square RGBA as the raw request body.
+#[tauri::command]
+fn overlay_avatar(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+            return Err("expected pixels".into());
+        };
+        let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok());
+        let id = header("x-id").ok_or("no id")?.to_string();
+        let side = header("x-side").and_then(|s| s.parse().ok()).ok_or("no size")?;
+        overlay::set_avatar(id, side, bytes)?;
+    }
+    #[cfg(not(windows))]
+    let _ = request;
+    Ok(())
 }
 
 /// Writes a downloaded file (raw request body) into the Downloads folder without overwriting
@@ -290,6 +321,70 @@ fn watch_popout_close(app: AppHandle) {
     }
 }
 
+/// The window for Twitch's chat, which refuses to be framed by this app's origin (http://tauri.localhost).
+const WATCH_CHAT: &str = "watch-chat";
+
+/// Only Twitch's own chat page: this window shows someone else's site. No capability names this window, so that page
+/// can't reach the app's commands.
+fn twitch_chat_url(url: &str) -> Option<tauri::Url> {
+    let url = tauri::Url::parse(url).ok()?;
+    (url.scheme() == "https" && url.host_str() == Some("www.twitch.tv") && url.path().starts_with("/popout/")).then_some(url)
+}
+
+/// Opens the chat window, or shows another channel's chat in it. Async: see watch_popout_open.
+#[tauri::command]
+async fn watch_chat_open(app: AppHandle, url: String, title: String) -> Result<(), String> {
+    let url = twitch_chat_url(&url).ok_or("not a Twitch chat")?;
+    if let Some(w) = app.get_webview_window(WATCH_CHAT) {
+        if w.url().ok().as_ref() != Some(&url) {
+            w.navigate(url).map_err(|e| e.to_string())?;
+        }
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let (width, height) = (360.0, 640.0);
+    let opener = app.clone();
+    let mut builder = tauri::WebviewWindowBuilder::new(&app, WATCH_CHAT, tauri::WebviewUrl::External(url))
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(280.0, 320.0)
+        .always_on_top(true)
+        .background_color(tauri::window::Color(24, 24, 27, 255))
+        // Signing in stays here; links people post in the chat go to the browser.
+        .on_new_window(move |url, _| {
+            if url.host_str().is_some_and(|h| h == "twitch.tv" || h.ends_with(".twitch.tv")) {
+                return tauri::webview::NewWindowResponse::Allow;
+            }
+            if matches!(url.scheme(), "http" | "https") {
+                let _ = opener.opener().open_url(url.as_str(), None::<&str>);
+            }
+            tauri::webview::NewWindowResponse::Deny
+        });
+    if let Some(screen) = app.get_webview_window("main").and_then(|m| m.current_monitor().ok().flatten()) {
+        let scale = screen.scale_factor();
+        let area = screen.work_area();
+        let x = (area.position.x as f64 + area.size.width as f64) / scale - width - 24.0;
+        builder = builder.position(x, area.position.y as f64 / scale + 24.0);
+    }
+    let window = builder.build().map_err(|e| e.to_string())?;
+    let handle = app.clone();
+    window.on_window_event(move |e| {
+        if let WindowEvent::Destroyed = e {
+            let _ = handle.emit_to("main", "watch-chat-closed", ());
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn watch_chat_close(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(WATCH_CHAT) {
+        let _ = w.destroy();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -311,9 +406,13 @@ pub fn run() {
             set_close_to_tray,
             set_start_minimized,
             set_keybinds,
+            overlay_update,
+            overlay_avatar,
             save_download,
             watch_popout_open,
             watch_popout_close,
+            watch_chat_open,
+            watch_chat_close,
             capture::list_capture_sources,
             capture::start_capture,
             capture::stop_capture,

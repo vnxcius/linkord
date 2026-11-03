@@ -5,6 +5,7 @@ import { createEffect, createRoot, createSignal, on } from 'solid-js';
 import { initGames } from './games';
 import { msg, t } from './i18n';
 import { initKeybinds } from './keybinds';
+import { initOverlay } from './overlay';
 import { isTauri, setNotificationClickHandler, type NotifyTarget } from './platform';
 import { Kind } from './types';
 import { prefs } from './prefs';
@@ -134,6 +135,7 @@ export async function initDesktop() {
   const { getCurrentWindow, UserAttentionType } = await import('@tauri-apps/api/window');
   const win = getCurrentWindow();
   void listenFrameMenus();
+  if (isWindows) void initOverlay();
 
   createRoot(() => {
     createEffect(() => {

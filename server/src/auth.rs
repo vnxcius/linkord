@@ -1,11 +1,11 @@
 use std::time::{Duration, Instant};
 
-use axum::extract::{FromRequestParts, Query, State};
+use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::header::{AUTHORIZATION, COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::http::request::Parts;
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use rand::RngCore;
@@ -119,6 +119,8 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/dev", post(dev_login))
         .route("/auth/logout", post(logout))
         .route("/auth/logout-all", post(logout_all))
+        .route("/auth/sessions", get(list_sessions))
+        .route("/auth/sessions/{id}", delete(end_session))
 }
 
 async fn auth_config(State(st): State<AppState>) -> Json<serde_json::Value> {
@@ -468,6 +470,62 @@ async fn logout(State(st): State<AppState>, parts: Parts) -> ApiResult<()> {
             crate::voice::close_token(&st, user, &hash).await;
         }
     }
+    Ok(())
+}
+
+/// A gateway connection opened or closed: when this login was last used and, when opening, what it's running on.
+pub async fn touch_session(st: &AppState, token: &[u8], device: Option<(Option<&str>, Option<&str>)>) {
+    let (agent, client) = device.unwrap_or((None, None));
+    let done = sqlx::query("UPDATE sessions SET last_seen_at = now(), user_agent = COALESCE($2, user_agent), client = COALESCE($3, client) WHERE token_hash = $1")
+        .bind(token)
+        .bind(agent)
+        .bind(client)
+        .execute(&st.db)
+        .await;
+    if let Err(e) = done {
+        tracing::warn!("recording a session's last use: {e}");
+    }
+}
+
+/// This account's logins, for Settings -> Sessions. Never the token or its hash.
+async fn list_sessions(State(st): State<AppState>, AuthUser(me): AuthUser, headers: HeaderMap) -> ApiResult<Json<serde_json::Value>> {
+    let current = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer ")).map(hash_token);
+    let live = st.hub.live_tokens(me);
+    let rows: Vec<(String, Vec<u8>, Option<String>, Option<String>, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+        "SELECT id, token_hash, client, user_agent, created_at, last_seen_at FROM sessions
+         WHERE user_id = $1 AND expires_at > now() ORDER BY COALESCE(last_seen_at, created_at) DESC",
+    )
+    .bind(me)
+    .fetch_all(&st.db)
+    .await?;
+    let list: Vec<_> = rows
+        .into_iter()
+        .map(|(id, token, client, user_agent, created_at, last_seen_at)| {
+            json!({
+                "id": id,
+                "current": current.as_ref() == Some(&token),
+                "online": live.contains(&token),
+                "client": client,
+                "user_agent": user_agent,
+                "created_at": created_at,
+                "last_seen_at": last_seen_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!(list)))
+}
+
+/// Logs one of your devices out: what it has open ends with it, as with a normal logout.
+async fn end_session(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<String>) -> ApiResult<()> {
+    let token: Vec<u8> = sqlx::query_scalar("DELETE FROM sessions WHERE id = $1 AND user_id = $2 RETURNING token_hash")
+        .bind(&id)
+        .bind(me)
+        .fetch_optional(&st.db)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    st.hub.close_token(&token);
+    crate::voice::close_token(&st, me, &token).await;
+    tracing::info!(user = %me, "session ended from another device");
     Ok(())
 }
 

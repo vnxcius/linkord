@@ -334,7 +334,7 @@ export function ProfilePopout() {
         {(u) => (
           <>
             <div class="profile-banner" style={{ 'background-color': accentCss(u().accent_color) }}>
-              <Show when={media(shown()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
+              <Show when={media(shown()?.banner)}>{(src) => <BannerImage src={src()} />}</Show>
             </div>
             <div class="profile-avatar-row">
               <button
@@ -454,6 +454,113 @@ export function ProfilePopout() {
   );
 }
 
+/** A profile's banner: clicking it opens it like an attachment. */
+function BannerImage(p: { src: string }) {
+  return (
+    <button class="profile-banner-open" aria-label={t('View banner')} onClick={() => setUi('lightbox', p.src)}>
+      <img src={p.src} alt="" />
+    </button>
+  );
+}
+
+/** The other person in a direct message, in the panel on the right. */
+export function DmProfile(p: { userId: string }) {
+  const [full] = createResource(
+    () => p.userId,
+    (id) => api<FullProfile>('GET', `/users/${id}/profile`).catch(() => undefined),
+  );
+  const user = () => state.users[p.userId] ?? full()?.user;
+  const rel = () => state.relationships[p.userId];
+  const open = () => setUi('modal', { type: 'user-profile', userId: p.userId });
+  const servers = () => (full()?.mutual_guilds ?? []).filter((id) => state.guilds[id]);
+  return (
+    <Show when={user()}>
+      {(u) => (
+        <div class="dm-profile">
+          <div class="profile-banner" style={{ 'background-color': accentCss(u().accent_color) }}>
+            <Show when={media(u().banner)}>{(src) => <BannerImage src={src()} />}</Show>
+          </div>
+          <div class="profile-avatar-row">
+            <button class="profile-avatar" title={t('View full profile')} onClick={open}>
+              <Avatar user={u()} size={84} presence />
+              <span class="profile-avatar-hint">{t('View profile')}</span>
+            </button>
+            <StatusBubble userId={u().id} />
+          </div>
+          <div class="profile-body">
+            <h3>
+              {nameOf(u().id)}
+              <BirthdayCake userId={u().id} />
+            </h3>
+            <div class="profile-username">
+              {u().username}
+              <Show when={u().pronouns}>
+                <span class="pronouns">{u().pronouns}</span>
+              </Show>
+              <Show when={u().bot}>
+                <span class="bot-tag">{t('BOT')}</span>
+              </Show>
+              <Show when={rel() === Rel.Friend}>
+                <span class="tag">{t('Friend')}</span>
+              </Show>
+            </div>
+            <Show when={gameOf(u().id)}>
+              {(a) => (
+                <div class="profile-section">
+                  <GameCard activity={a()} />
+                </div>
+              )}
+            </Show>
+            <Show when={spotifyOf(u().id)}>
+              {(a) => (
+                <div class="profile-section">
+                  <SpotifyCard activity={a()} />
+                </div>
+              )}
+            </Show>
+            <Show when={u().bio}>
+              <div class="profile-section">
+                <div class="label">{t('About me')}</div>
+                <p class="bio">{u().bio}</p>
+              </div>
+            </Show>
+            <Show when={full()?.links?.length}>
+              <div class="profile-section">
+                <ProfileLinks links={full()!.links!} />
+              </div>
+            </Show>
+            <Show when={full()}>
+              <div class="profile-section">
+                <div class="label">{t('Linkord member since')}</div>
+                <p>{longDate(full()!.created_at)}</p>
+              </div>
+              <Show when={servers().length || full()!.mutual_friends?.length}>
+                <div class="profile-section">
+                  <button class="dm-profile-mutual" onClick={open}>
+                    {[
+                      servers().length ? plural(servers().length, '{n} Mutual Server', '{n} Mutual Servers') : '',
+                      full()!.mutual_friends?.length
+                        ? plural(full()!.mutual_friends.length, '{n} Mutual Friend', '{n} Mutual Friends')
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </button>
+                </div>
+              </Show>
+            </Show>
+            <div class="profile-actions">
+              <button class="btn" onClick={open}>
+                {t('View full profile')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Show>
+  );
+}
+
 /**
  * The card on the right of a full profile, as tall as the profile card: favorite games, Kass's top songs and the
  * stats card, one at a time (tabs when there's more than one), each scrolling inside.
@@ -523,30 +630,35 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
   const close = () => setUi('modal', null);
   const servers = () => (full()?.mutual_guilds ?? []).filter((id) => state.guilds[id]);
   const friends = () => full()?.mutual_friends ?? [];
-  // The favorite games card on the right (others' only when they picked some; yours always, to invite you to).
+  // The card on the right is always there, from the first frame: the profile moving over once it had loaded was a
+  // visible jump. It starts on favorite games, which are worth a card even when there are none yet.
   const games = () => full()?.favorite_games ?? [];
-  const showGames = () => !!full()?.favorite_games && (games().length > 0 || isMe());
   // Others' Kass songs only when there are some; yours always (it says how to fill it).
   const songs = () => full()?.top_songs;
   const showSongs = () => !!songs() && (songs()!.length > 0 || isMe());
-  const widgets = () => showGames() || showSongs() || !!full()?.stats;
+  const picture = () => media(shown()?.avatar);
   return (
-    <div class="profile-modal-wrap" classList={{ 'with-games': widgets() }}>
+    <div class="profile-modal-wrap">
       <div class="modal profile-modal" role="dialog" aria-label={t('Profile')}>
         <Show when={user()}>
           {(u) => (
             <>
               <div class="profile-banner big" style={{ 'background-color': accentCss(u().accent_color) }}>
-                <Show when={media(shown()?.banner)}>{(src) => <img src={src()} alt="" />}</Show>
+                <Show when={media(shown()?.banner)}>{(src) => <BannerImage src={src()} />}</Show>
                 <button class="icon-btn modal-close" aria-label={t('Close')} onClick={close}>
                   <I.Close size={18} />
                 </button>
               </div>
               <div class="profile-modal-head">
                 <div class="profile-avatar-row">
-                  <div class="profile-avatar big">
+                  <button
+                    class="profile-avatar big"
+                    aria-label={t('View picture')}
+                    disabled={!picture()}
+                    onClick={() => setUi('lightbox', picture()!)}
+                  >
                     <Avatar user={u()} size={120} presence guildId={p.guildId} />
-                  </div>
+                  </button>
                   <StatusBubble userId={u().id} big />
                 </div>
                 <div class="profile-modal-actions">
@@ -752,27 +864,24 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
           )}
         </Show>
       </div>
-      <Show when={widgets() && user()}>
+      <Show when={user()}>
         {(u) => (
           <SideCard
             tabs={[
-              ...(showGames()
-                ? [
-                    {
-                      id: 'games',
-                      label: t('Games'),
-                      body: () => (
-                        <FavoriteGamesCard
-                          bare
-                          userId={u().id}
-                          name={nameOf(u().id, p.guildId)}
-                          games={games()}
-                          isMe={isMe()}
-                        />
-                      ),
-                    },
-                  ]
-                : []),
+              {
+                id: 'games',
+                label: t('Games'),
+                body: () => (
+                  <FavoriteGamesCard
+                    bare
+                    userId={u().id}
+                    name={nameOf(u().id, p.guildId)}
+                    games={games()}
+                    isMe={isMe()}
+                    loading={!full()}
+                  />
+                ),
+              },
               ...(showSongs()
                 ? [
                     {

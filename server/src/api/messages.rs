@@ -225,6 +225,7 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
                 uploads::reserve(&st, me, bytes.len()).await?;
                 let url = uploads::save(&st, &format!("attachments/{}", a.ch.id), &filename, &bytes).await?;
                 saved.add(&url, bytes.len() as u64);
+                let size = uploads::is_image(&content_type).then(|| uploads::image_size(&bytes)).flatten();
                 attachments.push(Attachment {
                     id: Id::new(),
                     filename: uploads::sanitize_filename(&filename),
@@ -233,6 +234,8 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
                     content_type,
                     duration_secs: None,
                     waveform: None,
+                    width: size.map(|s| s.0),
+                    height: size.map(|s| s.1),
                 });
             }
         }

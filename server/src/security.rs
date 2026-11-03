@@ -38,12 +38,12 @@ pub async fn upload_headers(req: Request, next: Next) -> Response {
 }
 
 /// Matches the desktop app's CSP (tauri.conf.json), with what the web client needs on top; the frame-src list is
-/// lib/video-links.ts PLAYER_ORIGINS plus Kick (tests/video-links.test.mjs checks both).
+/// lib/video-links.ts PLAYER_ORIGINS plus Kick and the stream chats, CHAT_ORIGINS (tests/video-links.test.mjs checks both).
 const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' data: blob: https: wss:; \
     img-src 'self' data: blob: https:; media-src 'self' blob: mediastream: https:; style-src 'self' 'unsafe-inline'; \
     font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; \
     frame-src https://www.youtube.com https://www.tiktok.com https://www.instagram.com https://player.vimeo.com https://clips.twitch.tv \
-    https://player.twitch.tv https://streamable.com https://www.dailymotion.com https://player.kick.com";
+    https://player.twitch.tv https://streamable.com https://www.dailymotion.com https://player.kick.com https://www.twitch.tv https://kick.com";
 
 pub async fn web_headers(req: Request, next: Next) -> Response {
     // Only the tunnel's address: direct access has its own host, where other ports may not speak HTTPS.

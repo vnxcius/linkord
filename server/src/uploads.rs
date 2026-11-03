@@ -106,6 +106,80 @@ pub fn image_name(stem: &str, bytes: &[u8]) -> ApiResult<String> {
     image_ext(bytes).map(|ext| format!("{stem}.{ext}")).ok_or_else(|| bad("must be a png, jpeg, gif or webp image"))
 }
 
+/// Width and height from an image's header, for attachments.
+pub fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let size = imagesize::blob_size(bytes).ok()?;
+    let (width, height) = (u32::try_from(size.width).ok()?, u32::try_from(size.height).ok()?);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// How much of a file is read for its size. JPEG headers can sit behind a large EXIF block.
+const SIZE_HEADER: u64 = 256 * 1024;
+/// Messages looked at in one go, and the pause after them: nothing here should be noticeable on a busy server.
+const BACKFILL_BATCH: i64 = 200;
+const BACKFILL_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Attachments from before their size was recorded. Runs in the background after startup, once per start; files that
+/// can't be read are passed over (clients measure those themselves).
+pub async fn backfill_image_sizes(st: AppState) {
+    use tokio::io::AsyncReadExt;
+    let mut after = Id(0);
+    let mut filled = 0u64;
+    loop {
+        let rows: Result<Vec<(Id, sqlx::types::Json<serde_json::Value>)>, _> = sqlx::query_as(
+            "SELECT id, attachments FROM messages
+             WHERE id > $1 AND EXISTS (
+                 SELECT 1 FROM jsonb_array_elements(attachments) a WHERE a->>'content_type' LIKE 'image/%' AND NOT a ? 'width'
+             )
+             ORDER BY id LIMIT $2",
+        )
+        .bind(after)
+        .bind(BACKFILL_BATCH)
+        .fetch_all(&st.db)
+        .await;
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(e) => return tracing::warn!("image size backfill stopped: {e}"),
+        };
+        let Some(last) = rows.last().map(|(id, _)| *id) else { break };
+        after = last;
+        for (id, old) in rows {
+            let Ok(mut new) = serde_json::from_value::<Vec<crate::models::Attachment>>(old.0.clone()) else { continue };
+            let mut changed = false;
+            for a in new.iter_mut().filter(|a| a.width.is_none() && is_image(&a.content_type)) {
+                let Some(path) = crate::soundboard::upload_path(&st, &a.url) else { continue };
+                let Ok(file) = tokio::fs::File::open(&path).await else { continue };
+                let mut head = Vec::new();
+                if file.take(SIZE_HEADER).read_to_end(&mut head).await.is_err() {
+                    continue;
+                }
+                if let Some((width, height)) = image_size(&head) {
+                    a.width = Some(width);
+                    a.height = Some(height);
+                    changed = true;
+                }
+            }
+            if !changed {
+                continue;
+            }
+            // Only if nothing else changed them meanwhile (a moderator removing a file must stay removed).
+            let done = sqlx::query("UPDATE messages SET attachments = $2 WHERE id = $1 AND attachments = $3")
+                .bind(id)
+                .bind(sqlx::types::Json(&new))
+                .bind(sqlx::types::Json(&old.0))
+                .execute(&st.db)
+                .await;
+            if matches!(done, Ok(r) if r.rows_affected() == 1) {
+                filled += 1;
+            }
+        }
+        tokio::time::sleep(BACKFILL_PAUSE).await;
+    }
+    if filled > 0 {
+        tracing::info!(messages = filled, "image sizes recorded for older attachments");
+    }
+}
+
 /// Downloads a remote image (Discord avatar/banner) into local storage.
 pub async fn mirror(st: &AppState, url: &str, dir: &str) -> Option<String> {
     let resp = st.http.get(url).send().await.ok()?.error_for_status().ok()?;
@@ -205,5 +279,19 @@ pub async fn delete_attachment(st: &AppState, url: &str) {
         if !used {
             let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join("attachments").join(ch).join(dir)).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_size_reads_the_header() {
+        // A 1x1 PNG, then only as much of its header as a size needs.
+        let png = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0, 0, 2, 0, 0, 0, 1, 0, 8, 6, 0, 0, 0];
+        assert_eq!(image_size(&png), Some((512, 256)));
+        assert_eq!(image_size(b"not a picture at all, just some text"), None);
+        assert_eq!(image_size(&[]), None);
     }
 }

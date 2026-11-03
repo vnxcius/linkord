@@ -23,7 +23,12 @@ pub const AUDIO_EXT: &[&str] = &["mp3", "ogg", "opus", "wav", "webm", "m4a"];
 const MAX_SOURCE: usize = 8 * 1024 * 1024;
 /// Discord allows 5.2 seconds.
 const MAX_SECONDS: f64 = 5.2;
-const MAX_PER_GUILD: i64 = 50;
+const MAX_PER_GUILD: i64 = 100;
+/// The part that plays. A few seconds of effects don't need more; profile songs are music and get SONG_BITRATE.
+const CLIP_BITRATE: &str = "96k";
+pub const SONG_BITRATE: &str = "128k";
+/// What's kept of an upload to trim again later. WAVs are often 10x this.
+const SOURCE_BITRATE: &str = "128k";
 
 #[derive(Clone, Serialize, FromRow)]
 pub struct Sound {
@@ -143,11 +148,11 @@ pub fn upload_path(st: &AppState, url: &str) -> Option<std::path::PathBuf> {
 
 /// Cuts `start..end` seconds of `src` into an MP3 next to it; returns its URL.
 async fn cut(st: &AppState, src_url: &str, start: f64, end: f64) -> ApiResult<String> {
-    cut_clip(st, src_url, start, end, MAX_SECONDS, "sounds can be at most 5 seconds long").await
+    cut_clip(st, src_url, start, end, MAX_SECONDS, "sounds can be at most 5 seconds long", CLIP_BITRATE).await
 }
 
 /// [`cut`] with another limit (profile songs, users.rs).
-pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f64, too_long: &'static str) -> ApiResult<String> {
+pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f64, too_long: &'static str, bitrate: &str) -> ApiResult<String> {
     let src = upload_path(st, src_url).ok_or_else(|| bad("couldn't read that sound"))?;
     if !(start >= 0.0 && end - start >= 0.1 && end - start <= max + 0.01) {
         return Err(bad(too_long));
@@ -159,7 +164,7 @@ pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f
     ff.args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{start:.3}"), "-t", &format!("{:.3}", end - start)])
         .args(["-protocol_whitelist", "file", "-f", format, "-i"])
         .arg(&src)
-        .args(["-vn", "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k"])
+        .args(["-vn", "-map_metadata", "-1", "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", bitrate])
         .arg(&out_path);
     let ok = matches!(crate::media::run(ff, std::time::Duration::from_secs(60)).await?, Some(o) if o.status.success());
     if !ok {
@@ -167,6 +172,30 @@ pub async fn cut_clip(st: &AppState, src_url: &str, start: f64, end: f64, max: f
         return Err(bad("couldn't read that sound"));
     }
     Ok(src_url.rsplit_once('/').map(|(dir, _)| format!("{dir}/{name}")).unwrap_or(name))
+}
+
+/// Replaces an uploaded original with a smaller MP3 and gives the difference back to the quota. Keeps the original when
+/// that wouldn't save much (it's already compressed, and encoding again only loses quality) or if anything goes wrong:
+/// the sound works either way.
+async fn shrink_source(st: &AppState, me: Id, src_url: &str, size: usize) -> String {
+    let Some(src) = upload_path(st, src_url) else { return src_url.to_string() };
+    let Some(format) = crate::media::audio_format_of(&src).await else { return src_url.to_string() };
+    let name = format!("source-{}.mp3", crate::auth::random_token(6));
+    let out_path = src.with_file_name(&name);
+    let mut ff = tokio::process::Command::new("ffmpeg");
+    ff.args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-protocol_whitelist", "file", "-f", format, "-i"])
+        .arg(&src)
+        .args(["-vn", "-map_metadata", "-1", "-ac", "2", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", SOURCE_BITRATE])
+        .arg(&out_path);
+    let encoded = matches!(crate::media::run(ff, std::time::Duration::from_secs(60)).await, Ok(Some(o)) if o.status.success());
+    let new_size = tokio::fs::metadata(&out_path).await.map(|m| m.len() as usize).unwrap_or(usize::MAX);
+    if !encoded || new_size > size / 10 * 9 {
+        let _ = tokio::fs::remove_file(&out_path).await;
+        return src_url.to_string();
+    }
+    let _ = tokio::fs::remove_file(&src).await;
+    uploads::release(st, me, (size - new_size) as u64).await;
+    src_url.rsplit_once('/').map(|(dir, _)| format!("{dir}/{name}")).unwrap_or(name)
 }
 
 fn clean_name(n: &str) -> ApiResult<String> {
@@ -236,6 +265,8 @@ async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Pa
             return Err(e);
         }
     };
+    // After cutting, so the clip comes from the best copy there will ever be.
+    let source = shrink_source(&st, me, &source, bytes.len()).await;
     let sound = sqlx::query_as::<_, Sound>(&format!(
         "INSERT INTO soundboard_sounds (id, guild_id, name, emoji, volume, url, creator_id, source, trim_start, trim_end)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {COLS}"
