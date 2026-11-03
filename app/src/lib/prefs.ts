@@ -43,8 +43,21 @@ export interface Prefs {
   hiddenGames: string[];
   /** UI language; 'system' follows the Windows (or browser) language. */
   language: 'system' | 'en' | 'pt-BR';
-  /** Light or dark; 'system' follows Windows (or the browser). */
-  theme: 'system' | 'light' | 'dark';
+  /** Light or dark; 'system' follows Windows (or the browser). Christmas is a dark theme with decorations. */
+  theme: 'system' | 'light' | 'dark' | 'christmas';
+  /** With the Christmas theme: falling snow. */
+  christmasSnow: boolean;
+  /** With the Christmas theme: its sound pack instead of the usual sounds. */
+  christmasSounds: boolean;
+  /** With the Christmas theme: background music, and how loud (0-1). */
+  christmasMusic: boolean;
+  christmasMusicVolume: number;
+  /** With the Christmas theme: hats on everyone's picture, Santa's flights, the countdown in channel headers. */
+  christmasHats: boolean;
+  christmasSanta: boolean;
+  christmasCountdown: boolean;
+  /** How many times you've caught Santa. */
+  santaCaught: number;
   /** Desktop app zoom (Ctrl + / Ctrl -), 1 = 100%. */
   zoom: number;
   /** Skin tone for emoji picked in the picker: 0 = default yellow, 1-5 light to dark. */
@@ -75,6 +88,9 @@ export interface Prefs {
   dmCallHeight: number;
   /** Width of a voice channel's chat beside the call (px; 0 = the default). */
   voiceChatWidth: number;
+  /** Sidebar widths in px (channel list, right sidebar); 0 = default. */
+  navWidth: number;
+  marginWidth: number;
   /** The channel list is hidden while a voice channel is open (the header's sidebar button). */
   voiceNavCollapsed: boolean;
 }
@@ -105,6 +121,14 @@ const DEFAULTS: Prefs = {
   hiddenGames: [],
   language: 'system',
   theme: 'system',
+  christmasSnow: true,
+  christmasSounds: true,
+  christmasMusic: true,
+  christmasMusicVolume: 0.2,
+  christmasHats: true,
+  christmasSanta: true,
+  christmasCountdown: true,
+  santaCaught: 0,
   zoom: 1,
   emojiTone: 0,
   downloadBannerDismissed: false,
@@ -122,6 +146,8 @@ const DEFAULTS: Prefs = {
   spellWords: [],
   dmCallHeight: 0,
   voiceChatWidth: 0,
+  navWidth: 0,
+  marginWidth: 0,
   voiceNavCollapsed: false,
 };
 

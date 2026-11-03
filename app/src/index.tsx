@@ -8,9 +8,15 @@ import { pickReachableServer } from './lib/api';
 import { installContextMenu } from './lib/contextmenu';
 import { installErrorReporting } from './lib/report';
 import { initTooltips } from './lib/tooltip';
+import { initChristmasMusic } from './lib/christmas-music';
+import { initHolidays } from './lib/holidays';
+import { initSanta } from './lib/santa';
 import { initTheme } from './lib/theme';
 
 initTheme();
+initChristmasMusic();
+initHolidays();
+initSanta();
 installContextMenu();
 installErrorReporting();
 initTooltips();

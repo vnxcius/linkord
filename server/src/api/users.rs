@@ -109,7 +109,9 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     let note: Option<String> =
         sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
     let own = me == id;
+    let snowballs = crate::snowball::profile(&st, me, id).await?;
     let mut out = serde_json::json!({
+        "snowballs": snowballs,
         "user": user, "mutual_friends": friends, "mutual_guilds": mutual_guilds, "created_at": created_at, "connections": connections,
         "favorite_games": favorite_games, "links": links.0, "note": note.unwrap_or_default(), "song": profile_song(&st, id, own).await?,
     });

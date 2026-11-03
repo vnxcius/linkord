@@ -8,6 +8,8 @@ use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
+#[cfg(windows)]
+mod app_icon;
 mod capture;
 mod games;
 mod keybinds;
@@ -15,16 +17,25 @@ mod keybinds;
 mod overlay;
 
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
+/// The Christmas theme's icons are on.
+static CHRISTMAS_ICON: AtomicBool = AtomicBool::new(false);
+/// What the tray shows now, so changing icons doesn't lose it.
+static TRAY_STATE: Mutex<String> = Mutex::new(String::new());
 
 struct Tray(Mutex<Option<TrayIcon>>);
 
 fn tray_image(state: &str) -> Option<Image<'static>> {
-    let bytes: &'static [u8] = match state {
-        "speaking" => include_bytes!("../icons/tray/speaking.png"),
-        "muted" => include_bytes!("../icons/tray/muted.png"),
-        "deafened" => include_bytes!("../icons/tray/deafened.png"),
-        "connected" => include_bytes!("../icons/tray/connected.png"),
-        _ => include_bytes!("../icons/tray/idle.png"),
+    let bytes: &'static [u8] = match (state, CHRISTMAS_ICON.load(Ordering::Relaxed)) {
+        ("speaking", true) => include_bytes!("../icons/christmas/speaking.png"),
+        ("muted", true) => include_bytes!("../icons/christmas/muted.png"),
+        ("deafened", true) => include_bytes!("../icons/christmas/deafened.png"),
+        ("connected", true) => include_bytes!("../icons/christmas/connected.png"),
+        (_, true) => include_bytes!("../icons/christmas/idle.png"),
+        ("speaking", false) => include_bytes!("../icons/tray/speaking.png"),
+        ("muted", false) => include_bytes!("../icons/tray/muted.png"),
+        ("deafened", false) => include_bytes!("../icons/tray/deafened.png"),
+        ("connected", false) => include_bytes!("../icons/tray/connected.png"),
+        (_, false) => include_bytes!("../icons/tray/idle.png"),
     };
     Image::from_bytes(bytes).ok()
 }
@@ -92,6 +103,18 @@ fn set_tray_state(app: AppHandle, state: String, tooltip: Option<String>) {
         let _ = tray.set_icon(tray_image(&state));
         let _ = tray.set_tooltip(Some(tooltip.as_deref().unwrap_or("Linkord")));
     }
+    *TRAY_STATE.lock().unwrap() = state;
+}
+
+/// The Christmas theme's app icon, on or off: the tray here, and on Windows the windows and shortcuts (app_icon.rs).
+#[tauri::command]
+fn set_app_icon(app: AppHandle, christmas: bool) {
+    CHRISTMAS_ICON.store(christmas, Ordering::Relaxed);
+    if let Some(tray) = app.state::<Tray>().0.lock().unwrap().as_ref() {
+        let _ = tray.set_icon(tray_image(&TRAY_STATE.lock().unwrap()));
+    }
+    #[cfg(windows)]
+    std::thread::spawn(move || app_icon::apply(&app, christmas));
 }
 
 fn tray_menu(app: &AppHandle, open: &str, quit: &str) -> tauri::Result<Menu<tauri::Wry>> {
@@ -402,6 +425,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             login_listen,
             set_tray_state,
+            set_app_icon,
             set_tray_menu,
             set_close_to_tray,
             set_start_minimized,
@@ -426,6 +450,13 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            // Left on last time: the tray and window start with it instead of changing once the web app has loaded.
+            #[cfg(windows)]
+            if app_icon::is_on(&handle) {
+                CHRISTMAS_ICON.store(true, Ordering::Relaxed);
+                let h = handle.clone();
+                std::thread::spawn(move || app_icon::apply(&h, true));
+            }
             *app.state::<Tray>().0.lock().unwrap() = Some(build_tray(&handle)?);
             if let Some(w) = app.get_webview_window("main") {
                 enable_media(&w);

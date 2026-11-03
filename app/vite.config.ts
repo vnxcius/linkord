@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import solid from 'vite-plugin-solid';
 import tailwindcss from '@tailwindcss/vite';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 
@@ -31,6 +31,34 @@ function dictionaries(): Plugin {
 }
 
 /**
+ * The Christmas theme's background music at /christmas-music/<track>.mp3 (lib/christmas-music.ts). Like the dictionaries,
+ * only the web build carries it (~18 MB); the desktop app streams it from the server.
+ */
+function christmasMusic(): Plugin {
+  const tracks = () => readdirSync('music/christmas').filter((f) => f.endsWith('.mp3'));
+  return {
+    name: 'linkord-christmas-music',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/christmas-music\/([a-z-]+\.mp3)$/);
+        if (!m || !tracks().includes(m[1])) return next();
+        res.setHeader('content-type', 'audio/mpeg');
+        res.end(readFileSync(`music/christmas/${m[1]}`));
+      });
+    },
+    generateBundle() {
+      if (process.env.TAURI_ENV_PLATFORM) return;
+      for (const f of tracks())
+        this.emitFile({
+          type: 'asset',
+          fileName: `christmas-music/${f}`,
+          source: readFileSync(`music/christmas/${f}`),
+        });
+    },
+  };
+}
+
+/**
  * hunspell-asm's ESM build (and its emscripten-wasm-loader) import CommonJS functions as namespaces and then call
  * them (`import * as nanoid from 'nanoid'; nanoid()`, the same with the Emscripten runtime), which only works with
  * CommonJS interop. Default imports instead. It runs in the spellcheck worker, so workers get this plugin too.
@@ -48,7 +76,7 @@ function fixHunspellAsm(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss(), dictionaries(), fixHunspellAsm()],
+  plugins: [solid(), tailwindcss(), dictionaries(), christmasMusic(), fixHunspellAsm()],
   clearScreen: false,
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   server: {

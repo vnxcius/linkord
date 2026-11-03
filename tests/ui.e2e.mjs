@@ -1076,6 +1076,9 @@ await step('keybinds: Ctrl+Shift+M toggles mute; a recorded push-to-talk key ope
 });
 
 await step('screen share: go live, LIVE badge, click name to watch, stats, hide strip, stop', async () => {
+  // The steps before it leave the chat on screen; the call's controls are in the call view.
+  await a.page.click('.voice-channel:has-text("Campfire") .channel-item');
+  await b.page.click('.voice-channel:has-text("Campfire") .channel-item');
   await a.page.click('[data-tip="Share your screen"]');
   await a.page.click('.go-live .seg button:has-text("720p")');
   await a.page.click('.go-live .seg button:has-text("30 fps")');
@@ -1418,6 +1421,46 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await swipe(300, 80, 400);
   await pg.waitForSelector('.main .chat-header');
   await ctx.close();
+});
+
+await step('sidebars: drag the handles to resize, remembered, double-click resets', async () => {
+  const { page: pg } = await user('wren', { language: 'en' });
+  const width = (sel) => pg.$eval(sel, (e) => e.getBoundingClientRect().width);
+  const drag = async (sel, dx) => {
+    const b = await (await pg.$(sel)).boundingBox();
+    await pg.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await pg.mouse.down();
+    await pg.mouse.move(b.x + b.width / 2 + dx, b.y + b.height / 2, { steps: 4 });
+    await pg.mouse.up();
+  };
+  const nav = await width('.nav-pane');
+  await drag('.sidebar-resize.for-nav', 60);
+  assert.ok(Math.abs((await width('.nav-pane')) - nav - 60) < 3);
+  await pg.reload();
+  await pg.waitForSelector('.layout');
+  assert.ok(Math.abs((await width('.nav-pane')) - nav - 60) < 3);
+  await pg.dblclick('.sidebar-resize.for-nav');
+  assert.ok(Math.abs((await width('.nav-pane')) - nav) < 1);
+  await pg.context().close();
+});
+
+await step('christmas theme: its look and snow come from the pref, its options show in Appearance, and it comes off', async () => {
+  const { page: pg } = await user('holly', { theme: 'christmas', language: 'en' });
+  const htmlTheme = () => pg.evaluate(() => document.documentElement.dataset.theme);
+  assert.equal(await htmlTheme(), 'christmas');
+  await pg.waitForSelector('.xmas-snow', { state: 'attached' });
+  await pg.click('[aria-label="Settings"]');
+  await pg.click('.settings-nav button:has-text("Appearance")');
+  await pg.waitForSelector('.xmas-options');
+  await pg.click('.xmas-options .switch >> nth=0');
+  await pg.waitForSelector('.xmas-snow', { state: 'detached' });
+  await pg.click('.xmas-options .switch >> nth=0');
+  await pg.waitForSelector('.xmas-snow', { state: 'attached' });
+  await pg.click('.theme-card:has-text("Dark")');
+  assert.equal(await htmlTheme(), 'dark');
+  await pg.waitForSelector('.xmas-options', { state: 'detached' });
+  await pg.waitForSelector('.xmas-snow', { state: 'detached' });
+  await pg.context().close();
 });
 
 await step('language: follows the browser (pt-BR), can be switched in settings; the stats tab shows', async () => {

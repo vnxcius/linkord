@@ -1,6 +1,7 @@
 // The soundboard picker (from the call controls) and the server settings page for a server's own sounds.
 import { Slider } from './ui/slider';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { onOutsideMouseDown } from '../lib/outside-click';
 import { Portal } from 'solid-js/web';
 import { api, serverUrl } from '../lib/api';
 import { prefs } from '../lib/prefs';
@@ -59,12 +60,11 @@ export function SoundboardPicker(p: { onClose: () => void; style?: Record<string
   const onDoc = (e: MouseEvent) =>
     !el.contains(e.target as Node) && !(e.target as HTMLElement).closest('.soundboard-toggle') && p.onClose();
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && p.onClose();
+  onOutsideMouseDown(onDoc);
   onMount(() => {
-    setTimeout(() => document.addEventListener('mousedown', onDoc));
     document.addEventListener('keydown', onKey);
   });
   onCleanup(() => {
-    document.removeEventListener('mousedown', onDoc);
     document.removeEventListener('keydown', onKey);
   });
   const inCall = () => !!voiceUi.channelId && !voiceUi.connecting;

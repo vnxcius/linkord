@@ -239,10 +239,11 @@ input, textarea, select { font: inherit; color: inherit; }
 .titlebar-controls .close:hover { background: var(--danger); color: white; }
 
 .layout {
-  flex: 1; min-height: 0; display: grid; grid-template-columns: 296px minmax(0, 1fr); gap: var(--gap);
+  position: relative; flex: 1; min-height: 0; display: grid;
+  grid-template-columns: var(--nav-w, 296px) minmax(0, 1fr); gap: var(--gap);
   padding: 0 var(--gap) var(--gap); background: var(--bg-0);
 }
-.layout:has(> .margin) { grid-template-columns: 296px minmax(0, 1fr) auto; }
+.layout:has(> .margin) { grid-template-columns: var(--nav-w, 296px) minmax(0, 1fr) auto; }
 /* Channel list hidden: a voice channel with its sidebar button off, or watch-together theater mode. */
 .layout.nav-hidden { grid-template-columns: minmax(0, 1fr); }
 .layout.nav-hidden:has(> .margin) { grid-template-columns: minmax(0, 1fr) auto; }
@@ -718,7 +719,7 @@ input, textarea, select { font: inherit; color: inherit; }
 
 /* The margin: the column right of the chat, one tab at a time (people, pins, search). */
 .margin.side-panel {
-  width: 300px; flex: none; min-height: 0; display: flex; flex-direction: column; background: var(--bg-1);
+  width: var(--margin-w, 300px); flex: none; min-height: 0; display: flex; flex-direction: column; background: var(--bg-1);
   border: 0; border-radius: var(--radius-panel); overflow: hidden;
 }
 .margin-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 10px 8px 12px; }
@@ -2429,7 +2430,7 @@ img.status-emoji { object-fit: contain; }
 /* Friends page: Active Now column */
 .friends-main { flex: 1; display: flex; min-height: 0; }
 .friends-main .friends-body { flex: 1; min-width: 0; }
-.active-now { width: 340px; flex: none; border-left: 1px solid var(--line); padding: 18px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.active-now { width: var(--margin-w, 340px); flex: none; border-left: 1px solid var(--line); padding: 18px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .active-now h3 { margin: 0 0 4px; font: 400 28px/1.1 var(--font-display); }
 .active-empty { text-align: center; padding: 18px 8px; display: flex; flex-direction: column; gap: 6px; }
 .active-empty p { margin: 0; }
@@ -2775,13 +2776,21 @@ img.status-emoji { object-fit: contain; }
 .voice-chat { position: relative; width: min(380px, 40%); max-width: calc(100% - 360px); flex: none; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 /* Its left edge: drag to make the chat wider or narrower. */
 .voice-chat-resize { position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; cursor: ew-resize; z-index: 3; }
+/* The handles beside the sidebars fill the gap between the panels (components/SidebarResize.tsx). */
+.sidebar-resize { position: absolute; top: 0; bottom: var(--gap); width: var(--gap); cursor: ew-resize; z-index: 6; border-radius: 3px; touch-action: none; }
+.sidebar-resize.for-nav { left: calc(var(--gap) + var(--nav-w, 296px)); }
+.sidebar-resize.for-margin { right: calc(var(--gap) + var(--margin-w, 300px)); }
+.sidebar-resize.inline { position: relative; inset: auto; flex: none; width: 8px; margin: 0 -4px; }
+.sidebar-resize:hover, .sidebar-resize:focus-visible, body.resizing-x .sidebar-resize:active {
+  outline: none; background: linear-gradient(90deg, transparent calc(50% - 1px), var(--gold) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
+}
 .voice-chat-resize:hover, body.resizing-x .voice-chat-resize { background: linear-gradient(90deg, transparent 3px, rgba(227, 179, 65, 0.6) 3px 5px, transparent 5px); }
 body.resizing-x { cursor: ew-resize; user-select: none; }
 body.resizing-x iframe { pointer-events: none; }
 .voice-chat-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); font: 400 10.5px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 @media (max-width: 760px) {
   .voice-chat { position: absolute; inset: 0; width: auto !important; max-width: none; background: var(--bg-2); z-index: 20; }
-  .voice-chat-resize { display: none; }
+  .voice-chat-resize, .sidebar-resize { display: none; }
 }
 
 .owner-crown { color: var(--gold); display: inline-grid; margin-left: 2px; }
@@ -3537,3 +3546,509 @@ img.emblem { display: inline-block; flex: none; object-fit: contain; user-select
 .ms-bio { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .ms-bio .label { font: 500 10.5px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
 .ms-bio .counter { font-style: normal; margin-left: 6px; opacity: 0.8; }
+
+/* ======================================================================
+   Christmas (Settings -> Appearance): the dark theme's layers in evergreen, gold still the accent, red only in the
+   decorations so it never reads as an error. Lights and snow are backgrounds on pseudo-elements: nothing to lay out,
+   no effect on clicks, and the only animation is opacity, which rests with the snow (components/Christmas.tsx).
+   ====================================================================== */
+:root[data-theme='christmas'] {
+  --bg-0: #09130f;
+  --bg-1: #0f1e18;
+  --bg-2: #13251d;
+  --bg-3: #1a3026;
+  --bg-4: #233c30;
+  --bg-hover: rgba(226, 255, 238, 0.05);
+  --bg-active: rgba(226, 255, 238, 0.085);
+  --line: #1e362b;
+  --line-strong: #2d4a3b;
+
+  --text: #eef4ef;
+  --text-2: #bbcbc0;
+  --text-3: #8fa698;
+
+  /* Brighter than usual, or voice activity would disappear against the green. */
+  --online: #4cd07f;
+  --speaking: #4cd07f;
+  --speaking-soft: rgba(76, 208, 127, 0.2);
+  --offline: #8a978f;
+  color-scheme: dark;
+
+  --xmas-hat: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='24' viewBox='0 0 30 24'%3E%3Cpath fill='%23c8313f' d='M3 19C5 9 11 3 18 4c4 .6 6 4 7 9-2-2-4-3-5-2 1 3 1 6 1 8Z'/%3E%3Crect x='1' y='17' width='22' height='6' rx='3' fill='%23f4f7f4'/%3E%3Ccircle cx='25.5' cy='14.5' r='3' fill='%23f4f7f4'/%3E%3C/svg%3E");
+  --xmas-drift: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='12' viewBox='0 0 420 12'%3E%3Cpath fill='%23eef5f0' d='M0 0H420V5C405 9 392 4 376 5S350 11 332 8 306 3 288 5 262 12 240 8 214 3 196 5 170 10 150 7 124 3 106 5 80 11 58 8 30 3 0 5Z'/%3E%3C/svg%3E");
+  --xmas-lights: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='24' viewBox='0 0 180 24'%3E%3Cpath fill='none' stroke='%230a120e' stroke-width='1.4' d='M0 9Q45 16 90 9T180 9'/%3E%3Crect x='13.8' y='9.9' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='15' cy='15.5' rx='2.5' ry='3.5' fill='%23e5484d'/%3E%3Crect x='43.8' y='11.5' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='45' cy='17.1' rx='2.5' ry='3.5' fill='%23f2cd6b'/%3E%3Crect x='73.8' y='9.9' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='75' cy='15.5' rx='2.5' ry='3.5' fill='%234cd07f'/%3E%3Crect x='103.8' y='9.9' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='105' cy='15.5' rx='2.5' ry='3.5' fill='%236aa9ff'/%3E%3Crect x='133.8' y='11.5' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='135' cy='17.1' rx='2.5' ry='3.5' fill='%23e5484d'/%3E%3Crect x='163.8' y='9.9' width='2.4' height='2.6' rx='.6' fill='%2326382d'/%3E%3Cellipse cx='165' cy='15.5' rx='2.5' ry='3.5' fill='%23f2cd6b'/%3E%3C/svg%3E");
+  --xmas-glow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='24' viewBox='0 0 180 24'%3E%3Ccircle cx='15' cy='15.5' r='6.5' fill='%23e5484d' opacity='.35'/%3E%3Cellipse cx='15' cy='15.5' rx='2.5' ry='3.5' fill='%23fff' opacity='.55'/%3E%3Ccircle cx='75' cy='15.5' r='6.5' fill='%234cd07f' opacity='.35'/%3E%3Cellipse cx='75' cy='15.5' rx='2.5' ry='3.5' fill='%23fff' opacity='.55'/%3E%3Ccircle cx='135' cy='17.1' r='6.5' fill='%23e5484d' opacity='.35'/%3E%3Cellipse cx='135' cy='17.1' rx='2.5' ry='3.5' fill='%23fff' opacity='.55'/%3E%3C/svg%3E");
+}
+:root[data-theme='christmas'] ::selection {
+  background: rgba(227, 179, 65, 0.3);
+}
+
+.xmas-snow {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+:root[data-theme='christmas'] .main,
+:root[data-theme='christmas'] .margin.side-panel {
+  position: relative;
+}
+:root[data-theme='christmas'] .nav-panel::before,
+:root[data-theme='christmas'] .margin.side-panel::before,
+:root[data-theme='christmas'] .main::before,
+:root[data-theme='christmas'] .main::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+}
+/* Snow lying on the top edge of each panel. */
+:root[data-theme='christmas'] .nav-panel::before,
+:root[data-theme='christmas'] .margin.side-panel::before {
+  z-index: 6;
+  height: 12px;
+  background: var(--xmas-drift) repeat-x;
+}
+:root[data-theme='christmas'] .margin.side-panel::before {
+  background-position: -170px 0;
+}
+/* The chat page: snow, and the string lights hanging under it. */
+:root[data-theme='christmas'] .main::before {
+  z-index: 6;
+  height: 24px;
+  background:
+    var(--xmas-drift) -60px 0 repeat-x,
+    var(--xmas-lights) repeat-x;
+}
+:root[data-theme='christmas'] .main::after {
+  z-index: 7;
+  height: 24px;
+  background: var(--xmas-glow) repeat-x;
+  animation: xmas-twinkle 2.6s ease-in-out infinite;
+}
+:root[data-theme='christmas'].xmas-idle .main::after,
+:root[data-theme='christmas'].xmas-idle .profile-banner.big::after {
+  animation-play-state: paused;
+}
+@keyframes xmas-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.12;
+  }
+}
+
+/* A Santa hat on the server you're in. */
+:root[data-theme='christmas'] .rail-item.active::after {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: -5px;
+  width: 25px;
+  height: 20px;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--xmas-hat) center / contain no-repeat;
+  transform: rotate(-14deg);
+}
+:root[data-theme='christmas'] .nav-pane > .rail {
+  padding-top: 8px;
+}
+.xmas-options {
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  :root[data-theme='christmas'] .nav-panel::before,
+  :root[data-theme='christmas'] .margin.side-panel::before,
+  :root[data-theme='christmas'] .main::before,
+  :root[data-theme='christmas'] .main::after {
+    border-radius: 0;
+  }
+}
+
+/* Its card in Settings -> Appearance. */
+.tm-christmas {
+  --tm-desk: #09130f;
+  --tm-panel: #0f1e18;
+  --tm-page: #13251d;
+  --tm-raised: #233c30;
+  --tm-soft: #39574a;
+  --tm-gold: #e3b341;
+}
+.tm-christmas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.75;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='84' fill='%23fff'%3E%3Ccircle cx='9' cy='7' r='0.9'/%3E%3Ccircle cx='31' cy='19' r='0.6'/%3E%3Ccircle cx='58' cy='5' r='0.8'/%3E%3Ccircle cx='82' cy='27' r='0.7'/%3E%3Ccircle cx='104' cy='12' r='0.9'/%3E%3Ccircle cx='17' cy='44' r='0.7'/%3E%3Ccircle cx='46' cy='38' r='0.9'/%3E%3Ccircle cx='71' cy='52' r='0.6'/%3E%3Ccircle cx='96' cy='46' r='0.8'/%3E%3Ccircle cx='121' cy='31' r='0.6'/%3E%3Ccircle cx='133' cy='58' r='0.9'/%3E%3Ccircle cx='27' cy='68' r='0.8'/%3E%3Ccircle cx='62' cy='74' r='0.7'/%3E%3Ccircle cx='112' cy='72' r='0.7'/%3E%3Ccircle cx='140' cy='9' r='0.7'/%3E%3C/svg%3E");
+}
+/* Room for the lights above the running head. */
+:root[data-theme='christmas'] .main .chat-header {
+  padding-top: 22px;
+}
+:root[data-theme='christmas'] .margin-head {
+  padding-top: 18px;
+}
+
+/* Profiles: snow on every banner (the card and the full profile), and on the full profile the lights and the snow
+   falling in front of it instead of behind the dimmed backdrop. */
+:root[data-theme='christmas'] .profile-banner::before,
+:root[data-theme='christmas'] .profile-banner.big::after,
+:root[data-theme='christmas'] .side-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+:root[data-theme='christmas'] .profile-banner::before {
+  height: 12px;
+  background: var(--xmas-drift) -110px 0 repeat-x;
+}
+:root[data-theme='christmas'] .profile-banner.big::before {
+  height: 24px;
+  background:
+    var(--xmas-drift) -110px 0 repeat-x,
+    var(--xmas-lights) repeat-x;
+}
+:root[data-theme='christmas'] .profile-banner.big::after {
+  height: 24px;
+  background: var(--xmas-glow) repeat-x;
+  animation: xmas-twinkle 2.6s ease-in-out infinite;
+}
+:root[data-theme='christmas'] .side-card-tabs {
+  padding-top: 20px;
+}
+:root[data-theme='christmas'] .side-card::before {
+  z-index: 3;
+  height: 12px;
+  background: var(--xmas-drift) -240px 0 repeat-x;
+}
+:root:has(.profile-modal-wrap) .xmas-snow {
+  z-index: 101;
+}
+
+/* The tree at the foot of the right sidebar: takes its own room so the list above scrolls instead of running under it. */
+.xmas-tree {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 6px 8px 8px;
+  pointer-events: none;
+}
+/* Only the drawn parts take clicks, so the space around them still belongs to whatever is under it. */
+.xmas-poke {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.xmas-tree-lights,
+.xmas-fx {
+  pointer-events: none;
+}
+.xmas-tree svg,
+.xmas-snowman svg {
+  overflow: visible;
+}
+.xmas-tree svg {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+}
+.active-now > .xmas-tree {
+  margin-top: auto;
+}
+.xmas-tree-lights {
+  animation: xmas-twinkle 2.6s ease-in-out infinite;
+}
+.xmas-tree-lights.b {
+  animation-delay: -1.3s;
+}
+:root.xmas-idle .xmas-tree-lights {
+  animation-play-state: paused;
+}
+@media (max-height: 640px) {
+  .xmas-tree {
+    display: none;
+  }
+}
+.xmas-music-volume {
+  padding: 4px 16px 12px;
+  margin: 0;
+}
+
+/* The snowman in the corner of the full profile. The page leaves room so the end of a long profile can scroll clear of him. */
+.xmas-snowman {
+  position: absolute;
+  right: 14px;
+  bottom: 8px;
+  z-index: 2;
+  width: 108px;
+  pointer-events: none;
+}
+.xmas-snowman svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+:root[data-theme='christmas'] .profile-modal {
+  position: relative;
+}
+:root[data-theme='christmas'] .profile-modal-body {
+  padding-bottom: 124px;
+}
+@media (max-height: 640px) {
+  .xmas-snowman {
+    display: none;
+  }
+  :root[data-theme='christmas'] .profile-modal-body {
+    padding-bottom: 22px;
+  }
+}
+
+/* Santa hats on pictures: a pseudo-element, so long lists gain no DOM and nothing to download per avatar. */
+:root[data-theme='christmas'].xmas-hats .avatar::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: -13%;
+  width: 68%;
+  height: 54%;
+  z-index: 1;
+  pointer-events: none;
+  background: var(--xmas-hat) center / contain no-repeat;
+  transform: rotate(-14deg);
+}
+
+/* Santa, flying. Only his drawing takes clicks. */
+.santa {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 300;
+  width: 190px;
+  height: 70px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  will-change: transform;
+}
+.santa svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.santa.flip svg {
+  transform: scaleX(-1);
+}
+.santa.caught {
+  pointer-events: none;
+}
+
+/* Snow building up behind the message box, only where there is one. */
+.xmas-pile {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  cursor: pointer;
+  height: calc(14px + var(--pile, 0) * 38px);
+  opacity: min(1, calc(var(--pile, 0) * 12));
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='14' viewBox='0 0 360 14'%3E%3Cpath fill='%23eef5f0' d='M0 14V8C30 2 58 11 92 6S150 0 182 7 240 12 272 5 330 2 360 8V14Z'/%3E%3C/svg%3E")
+      0 0 / 360px 14px repeat-x,
+    linear-gradient(#eef5f0, #eef5f0) 0 14px no-repeat;
+  transition:
+    height 20s linear,
+    opacity 20s linear;
+}
+.xmas-pile.cleared {
+  transition:
+    height 0.35s ease-out,
+    opacity 0.35s ease-out;
+  pointer-events: none;
+}
+.main:has(.composer-wrap) > .xmas-pile {
+  display: block;
+}
+:root[data-theme='christmas'] .composer-wrap {
+  z-index: 1;
+  pointer-events: none;
+} /* its padding mustn't swallow clicks on the snow */
+:root[data-theme='christmas'] .composer-wrap > * {
+  pointer-events: auto;
+}
+
+/* The countdown: its own strip under the header, clear of the lights and the snow on the panel's edge. */
+.xmas-countdown {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 28px;
+  padding: 8px 16px;
+  background: rgba(227, 179, 65, 0.13);
+  border-bottom: 1px solid rgba(227, 179, 65, 0.4);
+  color: var(--text);
+  font-size: 13.5px;
+}
+.xmas-countdown-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+.xmas-countdown-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.xmas-countdown strong {
+  color: var(--gold-hi);
+  font: 600 17px/1 var(--font-mono);
+  letter-spacing: 0.01em;
+}
+.xmas-countdown-item.soon strong {
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--gold);
+  color: var(--on-gold);
+}
+
+/* What's playing, above the tree, with a way to skip it. */
+.xmas-now-playing {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 12px 0;
+  padding: 5px 6px 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.xmas-now-playing > svg {
+  flex: none;
+  color: var(--gold);
+}
+.xmas-now-playing-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.active-now > .xmas-now-playing {
+  margin: auto 0 0;
+}
+.active-now > .xmas-now-playing + .xmas-tree {
+  margin-top: 0;
+}
+
+/* Snowballs. */
+.snowball {
+  position: fixed;
+  top: -13px;
+  left: -13px;
+  width: 26px;
+  height: 26px;
+  z-index: 95;
+  pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #dfeae4 60%, #b9cdc3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.snowball-splat {
+  position: fixed;
+  z-index: 95;
+  pointer-events: none;
+  width: 76px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 92 74'%3E%3Cpath fill='%23f4f8f5' d='M46 8c6-7 13 2 16 6 8-3 17-3 16 6 9 2 13 11 5 15 5 7 1 15-8 13 0 9-10 12-15 6-5 8-15 9-18 1-8 4-17 0-15-8-9 1-15-8-8-14-7-5-3-14 6-13-1-9 8-13 15-8 2-3 4-4 6-4Z'/%3E%3Ccircle cx='8' cy='12' r='3' fill='%23f4f8f5'/%3E%3Ccircle cx='86' cy='62' r='2.4' fill='%23f4f8f5'/%3E%3Ccircle cx='14' cy='66' r='2' fill='%23f4f8f5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+.snowball-splat span {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(10, 18, 14, 0.85);
+  color: #fff;
+  font: 500 11px/1.2 var(--font-mono);
+  white-space: nowrap;
+}
+.snowball-top-label {
+  display: block;
+  margin-top: 16px;
+  font: 500 10.5px var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.snowball-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+.snowball-top em {
+  width: 16px;
+  flex: none;
+  font: 400 10.5px var(--font-mono);
+  font-style: normal;
+  color: var(--gold);
+}
+.snowball-top strong {
+  font: 500 12px var(--font-mono);
+}
+
+/* Holidays arriving. */
+.fireworks {
+  position: fixed;
+  inset: 0;
+  z-index: 290;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.holiday-greeting {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  z-index: 291;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+}
+.holiday-greeting strong {
+  font: 400 clamp(40px, 7vw, 84px)/1.1 var(--font-display);
+}
+.holiday-greeting span {
+  font: 500 clamp(16px, 2vw, 24px) var(--font-mono);
+  letter-spacing: 0.2em;
+  color: var(--gold-hi);
+}

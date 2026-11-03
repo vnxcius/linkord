@@ -9,6 +9,7 @@ import { initOverlay } from './overlay';
 import { isTauri, setNotificationClickHandler, type NotifyTarget } from './platform';
 import { Kind } from './types';
 import { prefs } from './prefs';
+import { isChristmas } from './theme';
 import { anyAlert, state, totalMentions } from './store';
 import { voiceUi } from './voice';
 import { initZoom } from './zoom';
@@ -147,6 +148,7 @@ export async function initDesktop() {
     createEffect(
       () => void invoke('set_tray_menu', { open: t('Open Linkord'), quit: t('Quit Linkord') }).catch(() => {}),
     );
+    createEffect(() => void invoke('set_app_icon', { christmas: isChristmas() }).catch(() => {}));
     createEffect(() => void invoke('set_close_to_tray', { enabled: prefs.closeToTray }).catch(() => {}));
     createEffect(() => void invoke('set_start_minimized', { enabled: prefs.startMinimized }).catch(() => {}));
     createEffect(

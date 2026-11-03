@@ -6,6 +6,9 @@ import { Rel } from '../lib/types';
 import { attempt, isNarrow, openMenu, openProfile } from '../lib/ui';
 import { CustomStatusView, GameCard, GameIcon, SpotifyCard, SpotifyIcon } from './Activity';
 import { Avatar } from './Avatar';
+import { ChristmasTree } from './ChristmasArt';
+import { HolidayCountdown } from './Christmas';
+import { SidebarResize } from './SidebarResize';
 import * as I from './Icons';
 import { MobileBack } from './Chat';
 import { friendItems } from './Profile';
@@ -70,6 +73,7 @@ export function Friends() {
           </button>
         </nav>
       </header>
+      <HolidayCountdown />
       <div class="friends-main">
         <div class="friends-body">
           <Show when={tab() !== 'add'} fallback={<AddFriend />}>
@@ -114,37 +118,41 @@ function ActiveNow() {
       .map(([id]) => id)
       .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   return (
-    <aside class="active-now">
-      <h3>{t('Active Now')}</h3>
-      <For
-        each={active()}
-        fallback={
-          <div class="active-empty">
-            <strong>{t("It's quiet for now…")}</strong>
-            <p class="muted small">
-              {t("When a friend starts playing a game or listening to Spotify, you'll see it here.")}
-            </p>
-          </div>
-        }
-      >
-        {(id) => (
-          <div class="active-card">
-            <button class="active-user" onClick={(e) => openProfile(id, e)}>
-              <Avatar user={state.users[id]} size={32} presence />
-              <span class="grow">
-                <strong>{nameOf(id)}</strong>
-                <span class="muted small">{gameOf(id)?.name ?? 'Spotify'}</span>
-              </span>
-              <Show when={gameOf(id)} fallback={<SpotifyIcon size={16} />}>
-                {(g) => <GameIcon src={g().icon} size={20} />}
-              </Show>
-            </button>
-            <Show when={gameOf(id)}>{(a) => <GameCard activity={a()} compact />}</Show>
-            <Show when={spotifyOf(id)}>{(a) => <SpotifyCard activity={a()} compact />}</Show>
-          </div>
-        )}
-      </For>
-    </aside>
+    <>
+      <SidebarResize side="margin" inline />
+      <aside class="active-now">
+        <h3>{t('Active Now')}</h3>
+        <For
+          each={active()}
+          fallback={
+            <div class="active-empty">
+              <strong>{t("It's quiet for now…")}</strong>
+              <p class="muted small">
+                {t("When a friend starts playing a game or listening to Spotify, you'll see it here.")}
+              </p>
+            </div>
+          }
+        >
+          {(id) => (
+            <div class="active-card">
+              <button class="active-user" onClick={(e) => openProfile(id, e)}>
+                <Avatar user={state.users[id]} size={32} presence />
+                <span class="grow">
+                  <strong>{nameOf(id)}</strong>
+                  <span class="muted small">{gameOf(id)?.name ?? 'Spotify'}</span>
+                </span>
+                <Show when={gameOf(id)} fallback={<SpotifyIcon size={16} />}>
+                  {(g) => <GameIcon src={g().icon} size={20} />}
+                </Show>
+              </button>
+              <Show when={gameOf(id)}>{(a) => <GameCard activity={a()} compact />}</Show>
+              <Show when={spotifyOf(id)}>{(a) => <SpotifyCard activity={a()} compact />}</Show>
+            </div>
+          )}
+        </For>
+        <ChristmasTree />
+      </aside>
+    </>
   );
 }
 

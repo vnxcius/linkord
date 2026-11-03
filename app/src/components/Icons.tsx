@@ -5,6 +5,8 @@ import type { JSX } from 'solid-js';
 import { Show, splitProps } from 'solid-js';
 import { brandOf } from '../lib/brand-icons';
 import emblemUrl from '../assets/emblem.png';
+import emblemChristmasUrl from '../assets/emblem-christmas.png';
+import { isChristmas } from '../lib/theme';
 import adjustmentsHorizontal from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
 import arrowDownTray from 'heroicons/24/outline/arrow-down-tray.svg?raw';
 import devicePhoneMobile from 'heroicons/24/outline/device-phone-mobile.svg?raw';
@@ -208,6 +210,11 @@ export const EyeOff = hero(eyeSlash);
 export const Appearance = hero(swatch);
 export const Sun = hero(sun);
 export const Moon = hero(moon);
+export const Snowflake = icon(
+  path(
+    'M12 2.25v19.5M3.56 7.13l16.88 9.74M3.56 16.87l16.88-9.74M9.75 3.75 12 6l2.25-2.25M9.75 20.25 12 18l2.25 2.25M3.2 10.2l3.07-.82-.82-3.07M20.8 13.8l-3.07.82.82 3.07M3.2 13.8l3.07.82-.82 3.07M20.8 10.2l-3.07-.82.82-3.07',
+  ),
+);
 export const Switch = hero(arrowsRightLeft);
 export const PopOut = icon(
   path(
@@ -248,6 +255,7 @@ export const VolumeMute = hero(speakerXMark);
 export const VolumeLow = icon(body(speakerWave).replace('M19.114 5.636a9 9 0 0 1 0 12.728', ''));
 export const VolumeHigh = hero(speakerWave);
 export const Speed = hero(forward);
+export const NextTrack = hero(forward);
 export const External = hero(arrowTopRightOnSquare);
 export const EnterFullscreen = hero(arrowsPointingOut);
 export const ExitFullscreen = hero(arrowsPointingIn);
@@ -260,9 +268,9 @@ export function Emblem(p: { size?: number }) {
   return (
     <img
       class="emblem"
-      src={emblemUrl}
+      src={isChristmas() ? emblemChristmasUrl : emblemUrl}
       width={w()}
-      height={Math.round((w() * 621) / 827)}
+      height={isChristmas() ? w() : Math.round((w() * 621) / 827)}
       alt="Linkord"
       draggable={false}
     />

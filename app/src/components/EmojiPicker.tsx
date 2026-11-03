@@ -1,5 +1,6 @@
 import { isMobile } from '../lib/ui';
-import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createSignal, For, onMount, Show, type JSX } from 'solid-js';
+import { onOutsideMouseDown } from '../lib/outside-click';
 import { emojiUrl } from '../lib/api';
 import { EMOJI_GROUPS, searchEmoji } from '../lib/emoji-data';
 import { t } from '../lib/i18n';
@@ -22,8 +23,7 @@ const unicodePick = (c: string): Picked => ({ text: c, reaction: c });
 
 export function useOutsideClose(el: () => HTMLElement, onClose: () => void) {
   const onDoc = (e: MouseEvent) => !el().contains(e.target as Node) && onClose();
-  onMount(() => setTimeout(() => document.addEventListener('mousedown', onDoc)));
-  onCleanup(() => document.removeEventListener('mousedown', onDoc));
+  onOutsideMouseDown(onDoc);
 }
 
 export function EmojiPicker(p: {

@@ -46,6 +46,7 @@ import { DmProfile } from './Profile';
 import { Composer } from './Composer';
 import { Members } from './Members';
 import { PrivateBadge } from './PrivateBadge';
+import { ChristmasTree } from './ChristmasArt';
 import * as I from './Icons';
 import { formatTime, MessageItem, onContentClick, renderContent } from './MessageItem';
 import { VoiceStatusHeader } from './VoiceStatus';
@@ -511,6 +512,7 @@ export function Margin(p: { channel: Channel; tab: MarginTab }) {
           </div>
         </Match>
       </Switch>
+      <ChristmasTree />
     </aside>
   );
 }

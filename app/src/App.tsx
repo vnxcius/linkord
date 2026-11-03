@@ -18,6 +18,7 @@ import { ContextMenu, Lightbox } from './components/Overlays';
 import { MiniPlayer } from './components/MiniPlayer';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { Calls } from './components/Call';
+import { ChristmasDecor, HolidayCountdown, SnowPile } from './components/Christmas';
 import { WatchHost, watchTheater } from './components/Watch';
 import { StreamPreviewHost } from './components/StreamPreview';
 import { prefs } from './lib/prefs';
@@ -32,6 +33,7 @@ import { Rail } from './components/Rail';
 import { Dock, GuildBanner, Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
 import { PickUsername } from './components/Username';
+import { SidebarResize, sidebarWidth } from './components/SidebarResize';
 import { Onboarding } from './components/Onboarding';
 import { Button } from './components/ui/button';
 import { INVITE_KEY, LOGIN_PENDING_KEY } from './lib/api';
@@ -64,6 +66,9 @@ export default function App() {
 
   return (
     <div class="app-root" classList={{ desktop: isTauri }}>
+      <Show when={prefs.theme === 'christmas'}>
+        <ChristmasDecor />
+      </Show>
       <Show when={isTauri || !isMobile()}>
         <TitleBar />
       </Show>
@@ -127,6 +132,7 @@ function Main() {
     <div
       class="layout"
       classList={{ 'mobile-main': ui.mobilePane === 'main', 'nav-hidden': navHidden() }}
+      style={{ '--nav-w': sidebarWidth(prefs.navWidth), '--margin-w': sidebarWidth(prefs.marginWidth) }}
       ref={initSwipes}
     >
       <div class="nav-pane" classList={{ 'with-banner': state.view !== '@me' && !!state.guilds[state.view]?.banner }}>
@@ -152,6 +158,7 @@ function Main() {
           {(c) => (
             <>
               <ChatHeader channel={c()} />
+              <HolidayCountdown />
               <div class="main-body">
                 <ChatView channel={c()} />
                 <Show when={isNarrow() && !ui.panel && c().guild_id && c().kind === Kind.Text && ui.membersDrawer}>
@@ -162,8 +169,19 @@ function Main() {
             </>
           )}
         </Show>
+        <SnowPile />
       </main>
-      <Show when={channel() && marginTab(channel()!)}>{(tab) => <Margin channel={channel()!} tab={tab()} />}</Show>
+      <Show when={!navHidden()}>
+        <SidebarResize side="nav" />
+      </Show>
+      <Show when={channel() && marginTab(channel()!)}>
+        {(tab) => (
+          <>
+            <SidebarResize side="margin" />
+            <Margin channel={channel()!} tab={tab()} />
+          </>
+        )}
+      </Show>
       <ModalHost />
       <Show when={ui.profile}>
         <ProfilePopout />

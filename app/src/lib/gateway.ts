@@ -1,3 +1,4 @@
+import { onSnowball } from './snowball';
 import { batch } from 'solid-js';
 import { t } from './i18n';
 import { produce, reconcile } from 'solid-js/store';
@@ -203,6 +204,8 @@ function handle(t: string, d: any) {
         'relationships',
         produce((r) => delete r[d.id]),
       );
+    case 'SNOWBALL':
+      return onSnowball(d);
     case 'WATCH_UPDATE':
       setServerNow(d.server_now);
       return putWatch(d.channel_id, d.watch);

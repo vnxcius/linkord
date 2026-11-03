@@ -1,15 +1,5 @@
-import {
-  createEffect,
-  createResource,
-  createSignal,
-  For,
-  type JSX,
-  Match,
-  onCleanup,
-  onMount,
-  Show,
-  Switch,
-} from 'solid-js';
+import { createEffect, createResource, createSignal, For, type JSX, Match, onMount, Show, Switch } from 'solid-js';
+import { onOutsideMouseDown } from '../lib/outside-click';
 import { api, media } from '../lib/api';
 import { blockUser, friendRequest, openDm, removeRelationship, selectView } from '../lib/actions';
 import { dateLocale, plural, t } from '../lib/i18n';
@@ -21,6 +11,8 @@ import { attempt, isMobile, setUi, ui, type MenuEntry } from '../lib/ui';
 import { GameCard, SpotifyCard, SpotifyIcon, StatusBubble } from './Activity';
 import { Avatar, GuildIcon } from './Avatar';
 import { MyStatusBubble } from './CustomStatus';
+import { Snowman } from './ChristmasArt';
+import { isChristmas } from '../lib/theme';
 import * as I from './Icons';
 import { volumeMenu } from './Sidebar';
 import { type FavoriteGame, FavoriteGamesCard } from './FavoriteGames';
@@ -37,6 +29,8 @@ import {
   StatsCard,
   type TopSong,
   TopSongsCard,
+  SnowballsCard,
+  type Snowballs,
 } from './ProfileWidgets';
 
 export function accentCss(color?: number | null) {
@@ -300,8 +294,7 @@ export function ProfilePopout() {
     if (isMobile() || target.closest('.drawer-backdrop')) swallowNextClick();
     close();
   };
-  onMount(() => setTimeout(() => document.addEventListener('mousedown', onDoc)));
-  onCleanup(() => document.removeEventListener('mousedown', onDoc));
+  onOutsideMouseDown(onDoc);
 
   // Keep the card on screen.
   createEffect(() => {
@@ -601,6 +594,8 @@ interface FullProfile {
   /** Present when they show it (yours always, with show_top_songs / show_stats saying whether others see it). */
   top_songs?: TopSong[];
   stats?: PublicStats;
+  /** Older servers leave it out. */
+  snowballs?: Snowballs;
   show_top_songs?: boolean;
   show_stats?: boolean;
   connections?: { type: string; id: string; name: string }[];
@@ -863,6 +858,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
             </>
           )}
         </Show>
+        <Snowman />
       </div>
       <Show when={user()}>
         {(u) => (
@@ -888,6 +884,15 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       id: 'songs',
                       label: t('Top songs'),
                       body: () => <TopSongsCard songs={songs()!} isMe={isMe()} shown={full()?.show_top_songs} />,
+                    },
+                  ]
+                : []),
+              ...(full()?.snowballs && (isChristmas() || full()!.snowballs!.thrown || full()!.snowballs!.taken)
+                ? [
+                    {
+                      id: 'snowballs',
+                      label: t('Snowballs'),
+                      body: () => <SnowballsCard snowballs={full()!.snowballs!} />,
                     },
                   ]
                 : []),

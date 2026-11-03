@@ -39,6 +39,8 @@ import { Avatar } from './Avatar';
 import { BirthdayCake } from './Birthday';
 import { EmojiPicker, QUICK_REACTIONS } from './EmojiPicker';
 import * as I from './Icons';
+import { throwSnowball } from '../lib/snowball';
+import { isChristmas } from '../lib/theme';
 import { pauseChatVideo, VideoPlayer } from './VideoPlayer';
 import { VoiceMessage } from './VoiceNote';
 import { InviteCard, inviteCodes, isInviteUrl } from './InviteCard';
@@ -388,6 +390,12 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
     }
     items.push({ label: t('Reply'), icon: () => <I.Reply size={16} />, run: () => replyTo(m().channel_id, m().id) });
     items.push({ label: t('Forward'), icon: () => <I.Forward size={16} />, run: forward });
+    if (isChristmas() && m().author.id !== state.me?.id)
+      items.push({
+        label: t('Throw a Snowball'),
+        icon: () => <I.Snowflake size={16} />,
+        run: () => throwSnowball(m().channel_id, m().author.id, m().id),
+      });
     if (canEdit()) items.push({ label: t('Edit Message'), icon: () => <I.Edit size={16} />, run: startEdit });
     if (canThread())
       items.push({

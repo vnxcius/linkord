@@ -2238,3 +2238,27 @@ test('attachments: pictures say their size, so clients can keep their place; oth
   assert.equal(m.attachments[1].width, undefined);
   assert.equal(m.attachments[1].content_type, 'text/plain');
 });
+
+test('snowballs: only at people who can see the channel, and the score reaches the profile', async () => {
+  const a = await login('snowa');
+  const b = await login('snowb');
+  const stranger = await login('snowc');
+  const g = await ok(a.token, 'POST', '/guilds', { name: 'Snow' });
+  const text = g.channels.find((c) => c.kind === 0);
+  const invite = await ok(a.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(b.token, 'POST', `/invites/${invite.code}`);
+  const throwAt = (who, target) => call(who.token, 'POST', `/channels/${text.id}/snowball`, { target });
+  assert.equal((await throwAt(a, a.id)).status, 400);
+  assert.equal((await throwAt(a, stranger.id)).status, 400);
+  assert.notEqual((await throwAt(stranger, a.id)).status, 204);
+  assert.equal((await throwAt(a, b.id)).status, 204);
+  // The score is saved in the background.
+  let profile;
+  for (let i = 0; i < 20; i++) {
+    profile = await ok(a.token, 'GET', `/users/${b.id}/profile`);
+    if (profile.snowballs.taken && profile.snowballs.top.length) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(profile.snowballs.taken, 1);
+  assert.equal(profile.snowballs.top[0].user.id, a.id);
+});

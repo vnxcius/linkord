@@ -4,6 +4,7 @@ import { loadedVersion, misspelled, spellLanguage } from '../lib/spellcheck';
 import { MAX_MESSAGE, resetTyping, runCommand, sendMessage, sendTyping } from '../lib/actions';
 import { emojiUrl } from '../lib/api';
 import { COMMANDS, parseCommand } from '../lib/commands';
+import { throwSnowball } from '../lib/snowball';
 import { searchEmoji } from '../lib/emoji-data';
 import { toRaw, type Tokens } from '../lib/mentions';
 import { t } from '../lib/i18n';
@@ -256,8 +257,14 @@ export function Composer(p: { channel: Channel }) {
       autosize();
       return;
     }
-    const cmd = gid() && !files().length ? parseCommand(content) : null;
-    if (cmd) {
+    const cmd = !files().length ? parseCommand(content) : null;
+    if (cmd?.command.name === 'snowball') {
+      // Not one of Kass's commands: it works in DMs too, where "/snowball" alone means the other person.
+      const others = (p.channel.recipients ?? []).filter((u) => u.id !== state.me?.id);
+      const target = cmd.query.match(/^<@!?(\d+)>$/)?.[1] ?? (others.length === 1 && !cmd.query ? others[0].id : null);
+      if (!target) return toast(t('Say who: /snowball @name'));
+      throwSnowball(p.channel.id, target);
+    } else if (cmd && gid()) {
       if (thinking()) return;
       setThinking(true);
       void runCommand(p.channel.id, cmd.command.name, cmd.query).finally(() => setThinking(false));

@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js';
+import { onOutsideMouseDown } from '../lib/outside-click';
 import { downloadFile, filenameFromUrl } from '../lib/download';
 import { t } from '../lib/i18n';
 import { openExternal } from '../lib/platform';
@@ -19,13 +20,12 @@ export function ContextMenu() {
   const close = () => setUi('menu', null);
   const onDoc = (e: MouseEvent) => !el.contains(e.target as Node) && close();
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+  onOutsideMouseDown(onDoc);
   onMount(() => {
-    setTimeout(() => document.addEventListener('mousedown', onDoc));
     document.addEventListener('keydown', onKey);
     window.addEventListener('blur', close);
   });
   onCleanup(() => {
-    document.removeEventListener('mousedown', onDoc);
     document.removeEventListener('keydown', onKey);
     window.removeEventListener('blur', close);
   });

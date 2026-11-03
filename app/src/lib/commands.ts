@@ -28,6 +28,7 @@ export const COMMANDS: SlashCommand[] = [
   },
   { name: 'remove', option: msg('number or name'), description: msg('Remove a song from the queue') },
   { name: 'stop', description: msg('Stop the music and make Kass leave') },
+  { name: 'snowball', option: msg('@someone'), description: msg('Throw a snowball at someone') },
 ];
 
 /** "/play never gonna" -> the command and its text; anything else (including unknown commands) is a message. */

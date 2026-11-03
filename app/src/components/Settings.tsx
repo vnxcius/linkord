@@ -62,6 +62,9 @@ import {
 } from '../lib/voice';
 import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
 import { systemTheme } from '../lib/theme';
+import { celebrate, nextHoliday } from '../lib/holidays';
+import { flySanta } from '../lib/santa';
+import { musicTitle, nextSong } from '../lib/christmas-music';
 import { FavoriteGamesSettings } from './FavoriteGames';
 import { GameIcon, SpotifyIcon } from './Activity';
 import { Avatar } from './Avatar';
@@ -2340,7 +2343,7 @@ function NotificationsPage() {
 // ---------- Appearance ----------
 
 /** Linkord itself in miniature, in one theme's colours whichever theme is on: server strip, channels, chat, people. */
-function ThemeMock(p: { mode: 'dark' | 'light'; half?: boolean }) {
+function ThemeMock(p: { mode: 'dark' | 'light' | 'christmas'; half?: boolean }) {
   return (
     <span class={`tm tm-${p.mode}`} classList={{ 'tm-half': p.half }}>
       <span class="tm-side">
@@ -2389,6 +2392,7 @@ function AppearancePage() {
     ],
     ['light', t('Light'), '', I.Sun],
     ['dark', t('Dark'), '', I.Moon],
+    ['christmas', t('Christmas'), t('Evergreen and gold, with snow, string lights and its own sounds.'), I.Snowflake],
   ];
   return (
     <Section title={t('Theme')} description={t('How Linkord looks on this device.')}>
@@ -2398,7 +2402,7 @@ function AppearancePage() {
             <label class="theme-card" classList={{ on: prefs.theme === id }}>
               <input type="radio" name="theme" checked={prefs.theme === id} onChange={() => setPrefs({ theme: id })} />
               <span class="theme-preview" aria-hidden="true">
-                <ThemeMock mode={id === 'light' ? 'light' : 'dark'} />
+                <ThemeMock mode={id === 'system' ? 'dark' : id} />
                 <Show when={id === 'system'}>
                   <ThemeMock mode="light" half />
                 </Show>
@@ -2418,6 +2422,111 @@ function AppearancePage() {
           )}
         </For>
       </div>
+      <Show when={prefs.theme === 'christmas'}>
+        <div class="set-card xmas-options">
+          <SwitchRow
+            label={t('Falling snow')}
+            hint={t(
+              'Rests while Linkord is in the background or showing a call, so it never takes anything from a game.',
+            )}
+            checked={prefs.christmasSnow}
+            onChange={(v) => setPrefs({ christmasSnow: v })}
+          />
+          <SwitchRow
+            label={t('Santa hats')}
+            hint={t("On everyone's picture, only on your screen.")}
+            checked={prefs.christmasHats}
+            onChange={(v) => setPrefs({ christmasHats: v })}
+          />
+          <SwitchRow
+            label={t('Santa flyover')}
+            hint={
+              t('He crosses the window every so often. Click him!') +
+              (prefs.santaCaught ? ` ${plural(prefs.santaCaught, 'Caught {n} time.', 'Caught {n} times.')}` : '')
+            }
+            checked={prefs.christmasSanta}
+            onChange={(v) => setPrefs({ christmasSanta: v })}
+            extra={
+              <button
+                class="btn small-btn"
+                onClick={(e) => {
+                  e.preventDefault();
+                  flySanta();
+                }}
+              >
+                {t('Send Santa now')}
+              </button>
+            }
+          />
+          <SwitchRow
+            label={t('Holiday countdown')}
+            hint={t('Days until Christmas and New Year in channel headers, with fireworks at midnight.')}
+            checked={prefs.christmasCountdown}
+            onChange={(v) => setPrefs({ christmasCountdown: v })}
+            extra={
+              <button
+                class="btn small-btn"
+                onClick={(e) => {
+                  e.preventDefault();
+                  celebrate(nextHoliday());
+                }}
+              >
+                {t('Preview fireworks')}
+              </button>
+            }
+          />
+          <SwitchRow
+            label={t('Background music')}
+            hint={t("Christmas carols. Pauses during calls, videos and while you're using another window.")}
+            checked={prefs.christmasMusic}
+            onChange={(v) => setPrefs({ christmasMusic: v })}
+            extra={
+              <Show when={musicTitle()}>
+                <button
+                  class="btn small-btn"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    nextSong();
+                  }}
+                >
+                  {t('Next song')}
+                </button>
+              </Show>
+            }
+          />
+          <Show when={prefs.christmasMusic}>
+            <label class="field xmas-music-volume">
+              <span>{t('Music volume')}</span>
+              <Slider
+                min={0}
+                max={100}
+                value={Math.round(prefs.christmasMusicVolume * 100)}
+                onInput={(v) => setPrefs({ christmasMusicVolume: v / 100 })}
+              />
+            </label>
+          </Show>
+          <SwitchRow
+            label={t('Christmas sounds')}
+            hint={t("Discord's Winter sounds for calls, joining, leaving, mute and deafen.")}
+            checked={prefs.christmasSounds}
+            onChange={(v) => setPrefs({ christmasSounds: v })}
+            extra={
+              <button
+                class="icon-btn"
+                aria-label={t('Play {sound} sound', { sound: t('Christmas sounds') })}
+                data-tip={t('Preview')}
+                disabled={!prefs.christmasSounds || !prefs.sounds || !prefs.soundKinds.calls}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setTimeout(sounds.ringIncoming(), 5400);
+                }}
+              >
+                <I.Play size={15} />
+              </button>
+            }
+          />
+        </div>
+      </Show>
     </Section>
   );
 }

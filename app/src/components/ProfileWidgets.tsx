@@ -1,12 +1,15 @@
 // Pieces of the full profile (Profile.tsx ProfileModal): links, your private note about someone, their profile song,
 // and the widget cards beside it (Kass's top songs, the stats card). Server side: users.rs profile().
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { Avatar } from './Avatar';
+import type { User } from '../lib/types';
 import { api, media } from '../lib/api';
 import { brandOf } from '../lib/brand-icons';
 import { plural, t } from '../lib/i18n';
 import { openExternal } from '../lib/platform';
 import { prefs } from '../lib/prefs';
 import { setState, state } from '../lib/store';
+import { displayName } from '../lib/types';
 import { attempt, setUi } from '../lib/ui';
 import * as I from './Icons';
 import { Duration, num, ReactionEmoji } from './StatsPage';
@@ -200,6 +203,51 @@ function HiddenHint(p: { shown?: boolean }) {
         <I.EyeOff size={14} /> {t('Only you can see this. Show it in Settings → Profile.')}
       </button>
     </Show>
+  );
+}
+
+/** The snowball fight: this person's score and the best throwers among people you share a server with. */
+export interface Snowballs {
+  thrown: number;
+  taken: number;
+  top: { user: User; thrown: number }[];
+}
+export function SnowballsCard(p: { snowballs: Snowballs }) {
+  return (
+    <section class="widget-card" aria-label={t('Snowball fight')}>
+      <header class="widget-head">
+        <span class="label">{t('Keep throwing')}</span>
+        <h3>{t('Snowball fight')}</h3>
+      </header>
+      <div class="profile-stats">
+        <div>
+          <span>{t('Thrown')}</span>
+          <strong>{p.snowballs.thrown}</strong>
+        </div>
+        <div>
+          <span>{t('Taken')}</span>
+          <strong>{p.snowballs.taken}</strong>
+        </div>
+      </div>
+      <Show
+        when={p.snowballs.top.length}
+        fallback={<p class="muted small">{t('No one has thrown a snowball yet. Try /snowball @name in a chat.')}</p>}
+      >
+        <span class="label snowball-top-label">{t('Best throwers')}</span>
+        <ol class="top-songs">
+          <For each={p.snowballs.top}>
+            {(row, i) => (
+              <li class="snowball-top">
+                <em>{i() + 1}</em>
+                <Avatar user={row.user} size={24} />
+                <span class="grow">{displayName(row.user)}</span>
+                <strong>{row.thrown}</strong>
+              </li>
+            )}
+          </For>
+        </ol>
+      </Show>
+    </section>
   );
 }
 

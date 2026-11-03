@@ -7,10 +7,11 @@
 // outline around the icon's shape, and muted/deafened turn the whole shape red with a large white glyph instead of
 // a small badge. Glyphs are Lucide's mic-off and headphone-off (ISC).
 import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { chromium } from '../../../../tests/node_modules/playwright-core/index.mjs';
 
 const root = new URL('../../../../', import.meta.url);
-const source = `data:image/png;base64,${readFileSync(new URL('assets/icon.png', root)).toString('base64')}`;
+const source = `data:image/png;base64,${readFileSync(new URL(process.env.SOURCE ?? 'assets/icon.png', root)).toString('base64')}`;
 
 const MIC_OFF = ['M12 19v3', 'M15 9.34V5a3 3 0 0 0-5.68-1.33', 'M16.95 16.95A7 7 0 0 1 5 12v-2', 'M18.89 13.23A7 7 0 0 0 19 12v-2', 'm2 2 20 20', 'M9 9v3a3 3 0 0 0 5.12 2.12'];
 const HEADPHONE_OFF = [
@@ -118,7 +119,7 @@ const page = await browser.newPage();
 const icons = await page.evaluate(render, { source, glyphs: { muted: MIC_OFF, deafened: HEADPHONE_OFF } });
 await browser.close();
 const png = (url) => Buffer.from(url.split(',')[1], 'base64');
-writeFileSync(new URL('assets/icon-square.png', root), png(icons.square));
+if (!process.env.SQUARE) writeFileSync(new URL('assets/icon-square.png', root), png(icons.square));
 for (const name of ['idle', 'connected', 'speaking', 'muted', 'deafened'])
-  writeFileSync(new URL(`${name}.png`, process.env.OUT ? `file://${process.env.OUT}/` : import.meta.url), png(icons[name]));
+  writeFileSync(new URL(`${name}.png`, process.env.OUT ? pathToFileURL(`${process.env.OUT}/`) : import.meta.url), png(icons[name]));
 console.log('written: assets/icon-square.png and tray icons idle, connected, speaking, muted, deafened');

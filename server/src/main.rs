@@ -16,6 +16,7 @@ mod perms;
 mod previews;
 mod ratelimit;
 mod security;
+mod snowball;
 mod soundboard;
 mod spotify;
 mod state;
@@ -125,6 +126,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(music::routes())
         .merge(logs::routes())
         .merge(soundboard::routes())
+        .merge(snowball::routes())
         .merge(watch::routes())
         .merge(previews::routes())
         .route("/gateway", get(gateway::ws_handler))
