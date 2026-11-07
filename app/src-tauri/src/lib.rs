@@ -285,9 +285,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
     builder.build(app)
 }
 
-/// Everything about the window except whether it's visible (see run()).
+/// Everything about the window except whether it's visible (see run()) and fullscreen: a fullscreen video or
+/// stream makes the whole window fullscreen (WebView2's ContainsFullScreenElementChanged -> SetFullscreen), and a
+/// save during it brought the app back fullscreen with no element to leave it: not resizable, over the taskbar.
 fn window_state_flags() -> StateFlags {
-    StateFlags::all() - StateFlags::VISIBLE
+    StateFlags::all() - StateFlags::VISIBLE - StateFlags::FULLSCREEN
 }
 
 static WINDOW_MOVES: AtomicU64 = AtomicU64::new(0);
