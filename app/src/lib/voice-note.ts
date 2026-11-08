@@ -2,7 +2,7 @@
 // 100 ms for the live waveform, and packs a fixed-size waveform for the message bubble.
 
 import { createSignal } from 'solid-js';
-import { prefs } from './prefs';
+import { getMic } from './media-devices';
 
 /** Bars in a voice message's waveform (one byte each, like Discord's voice messages). */
 export const BARS = 48;
@@ -56,10 +56,7 @@ export function decodeWaveform(b64?: string): number[] {
 export type Recorder = Awaited<ReturnType<typeof startRecording>>;
 
 export async function startRecording() {
-  const device = prefs.inputDevice && prefs.inputDevice !== 'default' ? { deviceId: { exact: prefs.inputDevice } } : {};
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { ...device, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
+  const stream = await getMic({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
   const type = mimeType();
   const rec = new MediaRecorder(stream, { ...(type ? { mimeType: type } : {}), audioBitsPerSecond: 32_000 });
   const chunks: Blob[] = [];

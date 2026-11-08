@@ -7,6 +7,7 @@ import { createStore, produce, reconcile } from 'solid-js/store';
 import workletUrl from './voice-worklets.ts?worker&url';
 import type { StreamAudioStats, WorkerIn, WorkerOut } from './voice-worker';
 import { api, getToken, serverUrl } from './api';
+import { getCamera, getMic, isChosenMic, outputSinkId } from './media-devices';
 import { prefs, setPrefs } from './prefs';
 import { sounds } from './sounds';
 import { nameOf, state } from './store';
@@ -163,17 +164,8 @@ export async function joinVoice(channelId: string) {
 
     let capturePort: MessagePort | null = null;
     if (mic) {
-      const capture = new AudioWorkletNode(audio, 'linkord-capture');
-      captureNode = capture;
-      // Route through a silent gain so the capture node is always pulled by the graph.
-      const sink = audio.createGain();
-      sink.gain.value = 0;
-      capture.connect(sink).connect(audio.destination);
-      micSource = audio.createMediaStreamSource(mic);
-      micSource.connect(capture);
-      const capCh = new MessageChannel();
-      capture.port.postMessage({ port: capCh.port1 }, [capCh.port1]);
-      capturePort = capCh.port2;
+      capturePort = newCapture(audio);
+      plugMic(mic);
     }
 
     worker = new Worker(new URL('./voice-worker.ts', import.meta.url), { type: 'module' });
@@ -293,6 +285,7 @@ function teardown() {
   mic = null;
   micSource = null;
   captureNode = null;
+  micGone = false;
   void audio?.close();
   audio = null;
   for (const r of remotes.values()) r.decoder.state !== 'closed' && r.decoder.close();
@@ -1043,7 +1036,7 @@ export async function toggleCamera() {
   if (!worker || voiceUi.connecting) return;
   if (publishers.camera) return stopPublish('camera');
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: cameraConstraints() });
+    const stream = await openCamera();
     await publish('camera', stream, 30, 'motion');
   } catch (e) {
     if ((e as DOMException)?.name !== 'NotAllowedError') toast(t('Could not start camera'));
@@ -1182,8 +1175,7 @@ let previewCtx: AudioContext | null = null;
 export async function previewSound(sound: Sound) {
   const ctx = audio ?? (previewCtx ??= new AudioContext());
   const sinked = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
-  if (ctx === previewCtx && sinked.setSinkId)
-    await sinked.setSinkId(prefs.outputDevice === 'default' ? '' : prefs.outputDevice).catch(() => {});
+  if (ctx === previewCtx && sinked.setSinkId) await sinked.setSinkId(await outputSinkId()).catch(() => {});
   await ctx.resume().catch(() => {});
   const src = ctx.createBufferSource();
   const gain = ctx.createGain();
@@ -1201,14 +1193,9 @@ export async function switchCamera(deviceId: string) {
   await toggleCamera();
 }
 
-/** The camera chosen in settings, at 720p30. */
-export function cameraConstraints(): MediaTrackConstraints {
-  return {
-    deviceId: prefs.videoDevice !== 'default' ? { exact: prefs.videoDevice } : undefined,
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30 },
-  };
+/** The camera chosen in settings (or the default one if it's unplugged), at 720p30. */
+export function openCamera(): Promise<MediaStream> {
+  return getCamera({ width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } });
 }
 
 function onKeyframeRequest(source: string) {
@@ -1542,38 +1529,98 @@ export function onVoiceStateFromServer(v: VoiceState, prev?: VoiceState) {
 // ---------- devices, sensitivity, push-to-talk, per-user volume ----------
 
 function openMic(): Promise<MediaStream | null> {
-  return navigator.mediaDevices
-    .getUserMedia({
-      audio: {
-        deviceId: prefs.inputDevice !== 'default' ? { exact: prefs.inputDevice } : undefined,
-        echoCancellation: prefs.echoCancellation,
-        // RNNoise wants the raw signal; stacking two suppressors makes voices sound watery.
-        noiseSuppression: prefs.noiseMode === 'standard',
-        autoGainControl: true,
-        channelCount: 1,
-      },
-    })
-    .catch(() => null);
+  return getMic({
+    echoCancellation: prefs.echoCancellation,
+    // RNNoise wants the raw signal; stacking two suppressors makes voices sound watery.
+    noiseSuppression: prefs.noiseMode === 'standard',
+    autoGainControl: true,
+    channelCount: 1,
+  }).catch((e) => (console.warn('microphone', e), null));
 }
+
+/** The capture worklet the mic feeds; returns the port the voice worker reads it from. */
+function newCapture(ctx: AudioContext): MessagePort {
+  const capture = new AudioWorkletNode(ctx, 'linkord-capture');
+  captureNode = capture;
+  // Route through a silent gain so the capture node is always pulled by the graph.
+  const sink = ctx.createGain();
+  sink.gain.value = 0;
+  capture.connect(sink).connect(ctx.destination);
+  const capCh = new MessageChannel();
+  capture.port.postMessage({ port: capCh.port1 }, [capCh.port1]);
+  return capCh.port2;
+}
+
+/** Feeds this stream into the capture node instead of the current mic. */
+function plugMic(stream: MediaStream) {
+  micSource?.disconnect();
+  if (mic !== stream) mic?.getTracks().forEach((t) => t.stop());
+  mic = stream;
+  micSource = audio!.createMediaStreamSource(stream);
+  micSource.connect(captureNode!);
+  // The device went away (unplugged, Bluetooth headset switching profile): reopen, falling back to the default.
+  stream.getAudioTracks()[0]?.addEventListener('ended', () => mic === stream && void restartMic(true));
+}
+
+let micGone = false;
+
+/** Re-opens the microphone after the input device or processing options change, or the device went away. */
+export async function restartMic(quiet = false) {
+  const ctx = audio;
+  if (!ctx) return;
+  const gen = generation;
+  const fresh = await openMic();
+  if (gen !== generation || audio !== ctx) return fresh?.getTracks().forEach((t) => t.stop());
+  if (!fresh) {
+    if (quiet && mic?.getAudioTracks()[0]?.readyState === 'ended') {
+      // Nothing to record from right now; the next device change tries again.
+      micSource?.disconnect();
+      micSource = null;
+      mic = null;
+      if (!micGone) toast(t('No microphone available'));
+      micGone = true;
+    } else if (!quiet) toast(t('Could not open that microphone'));
+    return;
+  }
+  micGone = false;
+  if (!captureNode) {
+    // Joined listen-only: give the worker a capture port now.
+    const port = newCapture(ctx);
+    send({ type: 'capture', port }, [port]);
+  }
+  plugMic(fresh);
+}
+
+// Devices come and go (a Bluetooth headset switching between stereo and hands-free swaps its endpoints). Reopen the
+// mic when it died, when the chosen one is back while we're on the default, or when "System default" now means
+// another device (Chromium keeps the old one otherwise).
+let deviceTimer: number | undefined;
+navigator.mediaDevices?.addEventListener('devicechange', () => {
+  clearTimeout(deviceTimer);
+  deviceTimer = window.setTimeout(async () => {
+    if (!audio) return;
+    // The chosen speakers went away (call moves to the default) or came back (moves back to them).
+    void applyOutputDevice();
+    const track = mic?.getAudioTracks()[0];
+    if (!track || track.readyState === 'ended') return void restartMic(true);
+    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+    const inputs = devices.filter((d) => d.kind === 'audioinput');
+    const settings = track.getSettings();
+    if (!isChosenMic(track)) {
+      if (inputs.some((d) => d.deviceId === prefs.inputDevice)) void restartMic(true);
+    } else if (prefs.inputDevice === 'default') {
+      const def = inputs.find((d) => d.deviceId === 'default');
+      if (def?.groupId && settings.groupId && def.groupId !== settings.groupId) void restartMic(true);
+    }
+  }, 700);
+});
 
 async function applyOutputDevice() {
   const ctx = audio as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null;
   if (!ctx?.setSinkId) return;
-  await ctx
-    .setSinkId(prefs.outputDevice === 'default' ? '' : prefs.outputDevice)
-    .catch((e) => console.warn('output device', e));
-}
-
-/** Re-opens the microphone after the input device or processing options change. */
-export async function restartMic() {
-  if (!audio || !captureNode) return;
-  const fresh = await openMic();
-  if (!fresh) return toast(t('Could not open that microphone'));
-  micSource?.disconnect();
-  mic?.getTracks().forEach((t) => t.stop());
-  mic = fresh;
-  micSource = audio.createMediaStreamSource(fresh);
-  micSource.connect(captureNode);
+  const id = await outputSinkId();
+  if ((ctx as AudioContext & { sinkId?: unknown }).sinkId === id) return;
+  await ctx.setSinkId(id).catch((e) => console.warn('output device', e));
 }
 
 export async function setOutputDevice(id: string) {

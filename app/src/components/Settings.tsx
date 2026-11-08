@@ -47,19 +47,12 @@ import {
 import { dateLocale, LANGUAGES, msg, plural, systemLang, t, type LangPref } from '../lib/i18n';
 import { isTauri, notify, openExternal } from '../lib/platform';
 import { openPage } from '../lib/route';
+import { getMic } from '../lib/media-devices';
 import { prefs, setPrefs, type SoundKind } from '../lib/prefs';
 import { sounds } from '../lib/sounds';
 import { state } from '../lib/store';
 import { attempt, isMobile, setUi, toast } from '../lib/ui';
-import {
-  cameraConstraints,
-  restartMic,
-  setOutputDevice,
-  syncVad,
-  toggleDeafen,
-  toggleMute,
-  voiceUi,
-} from '../lib/voice';
+import { openCamera, restartMic, setOutputDevice, syncVad, toggleDeafen, toggleMute, voiceUi } from '../lib/voice';
 import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
 import { systemTheme } from '../lib/theme';
 import { celebrate, nextHoliday } from '../lib/holidays';
@@ -1534,7 +1527,7 @@ function useMicLevel() {
     }
   });
   createEffect(() => {
-    const device = prefs.inputDevice;
+    void prefs.inputDevice; // reopen on a device change (getMic reads it)
     const out = prefs.outputDevice;
     const ns = prefs.noiseMode === 'standard';
     const testing = monitoring();
@@ -1542,15 +1535,7 @@ function useMicLevel() {
     const ec = prefs.echoCancellation && !testing;
     stop();
     if (voiceUi.channelId && !testing) return;
-    navigator.mediaDevices
-      .getUserMedia({
-        audio: {
-          deviceId: device !== 'default' ? { exact: device } : undefined,
-          noiseSuppression: ns,
-          echoCancellation: ec,
-          autoGainControl: true,
-        },
-      })
+    getMic({ noiseSuppression: ns, echoCancellation: ec, autoGainControl: true })
       .then((s) => {
         stream = s;
         const c = new AudioContext() as AudioContext & { setSinkId?: (id: string) => Promise<void> };
@@ -1775,9 +1760,25 @@ function DeviceSelect(p: {
       <span>{p.label}</span>
       <div class="select-wrap">
         <span class="select-icon">{p.icon}</span>
-        <select value={p.value} onChange={(e) => p.onChange(e.currentTarget.value)}>
-          <option value="default">{t('System default')}</option>
-          <For each={p.devices}>{(d) => <option value={d.deviceId}>{d.label || p.fallback}</option>}</For>
+        {/* `selected` per option, not just `value` on the select: the devices load after the select renders, and a
+            value with no matching option yet falls back to the first one ("System default") for good. */}
+        <select onChange={(e) => p.onChange(e.currentTarget.value)}>
+          <option value="default" selected={p.value === 'default'}>
+            {t('System default')}
+          </option>
+          <For each={p.devices}>
+            {(d) => (
+              <option value={d.deviceId} selected={d.deviceId === p.value}>
+                {d.label || p.fallback}
+              </option>
+            )}
+          </For>
+          {/* The chosen device isn't connected right now: keep showing it (the default is used meanwhile). */}
+          <Show when={p.devices && p.value !== 'default' && !p.devices.some((d) => d.deviceId === p.value)}>
+            <option value={p.value} selected>
+              {t('Unavailable device')}
+            </option>
+          </Show>
         </select>
         <I.Chevron size={16} />
       </div>
@@ -1803,10 +1804,7 @@ function VoicePage(p: { onKeybinds: () => void }) {
       .forEach((t) => t.stop());
     setPreview(null);
   };
-  const startPreview = () =>
-    navigator.mediaDevices
-      .getUserMedia({ video: cameraConstraints() })
-      .then(setPreview, () => toast(t('Could not open that camera')));
+  const startPreview = () => openCamera().then(setPreview, () => toast(t('Could not open that camera')));
   onCleanup(stopPreview);
 
   return (

@@ -261,6 +261,8 @@ export interface Settings {
   release_seen?: string;
   /** The Christmas season whose greeting was seen ('2026'). */
   christmas_seen?: string;
+  /** Soundboard sound ids starred in the picker ("default:<file>" or a server sound's id), oldest first. */
+  favorite_sounds?: string[];
 }
 
 export const displayName = (u?: Pick<User, 'username' | 'display_name'> | null) =>

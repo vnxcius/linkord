@@ -2,6 +2,10 @@
 // or the server settings need them and kept current by GUILD_SOUNDBOARD_UPDATE.
 import { createStore } from 'solid-js/store';
 import { api } from './api';
+import { patchSettings } from './actions';
+import { t } from './i18n';
+import { state } from './store';
+import { toast } from './ui';
 
 export interface Sound {
   /** A snowflake for server sounds, "default:<file>" for default ones. */
@@ -40,4 +44,17 @@ export function loadGuildSounds(guildId: string, force = false) {
     .then((s) => setSounds('guilds', guildId, s))
     .catch(() => {})
     .finally(() => loading.delete(guildId));
+}
+
+/** Starred sounds; kept in the synced settings so they follow you to every device. */
+export const MAX_FAVORITE_SOUNDS = 100;
+export const favoriteSounds = () => state.settings.favorite_sounds ?? [];
+export const isFavoriteSound = (id: string) => favoriteSounds().includes(id);
+
+export function toggleFavoriteSound(id: string) {
+  const list = favoriteSounds();
+  if (list.includes(id)) return void patchSettings({ favorite_sounds: list.filter((x) => x !== id) }).catch(() => {});
+  if (list.length >= MAX_FAVORITE_SOUNDS)
+    return toast(t('You have {n} favorite sounds — remove one to add another', { n: MAX_FAVORITE_SOUNDS }));
+  void patchSettings({ favorite_sounds: [...list, id] }).catch(() => toast(t("Couldn't save your favorites")));
 }

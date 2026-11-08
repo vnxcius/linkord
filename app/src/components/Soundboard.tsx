@@ -8,7 +8,15 @@ import { prefs } from '../lib/prefs';
 import { t } from '../lib/i18n';
 import { can, P } from '../lib/perms';
 import { railEntries } from './Rail';
-import { loadDefaultSounds, loadGuildSounds, sounds, type Sound } from '../lib/soundboard';
+import {
+  favoriteSounds,
+  isFavoriteSound,
+  loadDefaultSounds,
+  loadGuildSounds,
+  sounds,
+  toggleFavoriteSound,
+  type Sound,
+} from '../lib/soundboard';
 import { state } from '../lib/store';
 import { attempt, toast } from '../lib/ui';
 import { previewSound, sendSound, voiceUi } from '../lib/voice';
@@ -16,10 +24,11 @@ import { GuildIcon } from './Avatar';
 import { EmojiPicker } from './EmojiPicker';
 import * as I from './Icons';
 
-/** One sound: click plays it in the call; the speaker previews it just for you. */
+/** One sound: click plays it in the call; the speaker previews it just for you, the star keeps it in Favorites. */
 function SoundButton(p: { sound: Sound; disabled?: boolean }) {
+  const fav = () => isFavoriteSound(p.sound.id);
   return (
-    <div class="sound" classList={{ disabled: p.disabled }}>
+    <div class="sound" classList={{ disabled: p.disabled, favorite: fav() }}>
       <button class="sound-play" disabled={p.disabled} onClick={() => sendSound(p.sound)} title={p.sound.name}>
         <span class="sound-emoji">{p.sound.emoji || '🔊'}</span>
         <span class="sound-name">{p.sound.name}</span>
@@ -32,11 +41,21 @@ function SoundButton(p: { sound: Sound; disabled?: boolean }) {
       >
         <I.Speaker size={14} />
       </button>
+      <button
+        class="sound-fav"
+        classList={{ on: fav() }}
+        aria-pressed={fav()}
+        aria-label={t(fav() ? 'Remove {name} from favorites' : 'Add {name} to favorites', { name: p.sound.name })}
+        data-tip={t(fav() ? 'Remove from favorites' : 'Add to favorites')}
+        onClick={() => toggleFavoriteSound(p.sound.id)}
+      >
+        <I.Star size={14} />
+      </button>
     </div>
   );
 }
 
-/** Popover with every sound you can play: the call's server first, your other servers, then the defaults. */
+/** Popover with every sound you can play: your favorites, the call's server, your other servers, then the defaults. */
 export function SoundboardPicker(p: { onClose: () => void; style?: Record<string, string> }) {
   let el!: HTMLDivElement;
   const [q, setQ] = createSignal('');
@@ -51,7 +70,17 @@ export function SoundboardPicker(p: { onClose: () => void; style?: Record<string
     guildIds().forEach((id) => loadGuildSounds(id));
   });
   const match = (s: Sound) => !q() || s.name.toLowerCase().includes(q().toLowerCase());
+  // Favorites in the order they were starred; sounds that no longer exist (deleted, server left) just drop out.
+  const favorites = createMemo(() => {
+    const byId = new Map<string, Sound>();
+    for (const s of sounds.defaults ?? []) byId.set(s.id, s);
+    for (const id of guildIds()) for (const s of sounds.guilds[id] ?? []) byId.set(s.id, s);
+    return favoriteSounds()
+      .map((id) => byId.get(id))
+      .filter((s): s is Sound => !!s);
+  });
   const sections = createMemo(() => [
+    ...[{ id: 'favorites', title: t('Favorites'), list: favorites().filter(match) }].filter((x) => x.list.length),
     ...guildIds()
       .map((id) => ({ id, title: state.guilds[id]?.name ?? '', list: (sounds.guilds[id] ?? []).filter(match) }))
       .filter((x) => x.list.length),
@@ -84,7 +113,10 @@ export function SoundboardPicker(p: { onClose: () => void; style?: Record<string
           {(sec) => (
             <section>
               <h4>
-                <Show when={sec.id !== 'default'} fallback={<I.Music size={14} />}>
+                <Show
+                  when={sec.id !== 'default' && sec.id !== 'favorites'}
+                  fallback={sec.id === 'favorites' ? <I.Star size={14} /> : <I.Music size={14} />}
+                >
                   <GuildIcon name={sec.title} icon={state.guilds[sec.id]?.icon} size={16} />
                 </Show>
                 {sec.title}

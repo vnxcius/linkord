@@ -2820,6 +2820,10 @@ body.resizing-x iframe { pointer-events: none; }
 .sound-preview { position: absolute; right: 3px; top: 3px; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--text-2); background: var(--bg-2); opacity: 0; transition: opacity 0.12s; }
 .sound:hover .sound-preview, .sound-preview:focus-visible { opacity: 1; }
 .sound-preview:hover { color: var(--gold); }
+.sound-fav { position: absolute; right: 27px; top: 3px; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--text-2); background: var(--bg-2); opacity: 0; transition: opacity 0.12s; }
+.sound:hover .sound-fav, .sound-fav:focus-visible { opacity: 1; }
+.sound-fav:hover, .sound-fav.on { color: var(--gold); }
+.sound-fav.on svg { fill: currentColor; }
 .sound-bubble { position: absolute; top: 10px; right: 12px; font-size: 22px; animation: pop 0.2s ease-out; }
 .voice-tile { position: relative; }
 .sound-mini { font-size: 13px; animation: pop 0.2s ease-out; }

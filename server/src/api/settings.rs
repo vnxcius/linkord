@@ -27,6 +27,8 @@ const KEYS: &[&str] = &[
     "release_seen",
     // The Christmas season whose greeting was seen.
     "christmas_seen",
+    // Soundboard sound ids starred in the picker, in the order they were added.
+    "favorite_sounds",
 ];
 
 pub fn routes() -> Router<AppState> {

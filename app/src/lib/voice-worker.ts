@@ -20,6 +20,8 @@ export type WorkerIn =
       capture: MessagePort | null;
       playback: MessagePort;
     }
+  /** A microphone that became available after connecting (joined listen-only, or it came back). */
+  | { type: 'capture'; port: MessagePort }
   | { type: 'screen_audio'; port: MessagePort | null }
   | { type: 'screen_audio_native'; on: boolean }
   | { type: 'screen_audio_pcm'; data: ArrayBuffer }
@@ -406,6 +408,10 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
   switch (m.type) {
     case 'connect':
       return void connect(m);
+    case 'capture':
+      if (connectMsg) connectMsg.capture = m.port;
+      m.port.onmessage = (e) => onCapture(e.data);
+      return;
     case 'screen_audio':
       if (!m.port) {
         screenEncoder?.free();

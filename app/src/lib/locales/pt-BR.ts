@@ -854,6 +854,7 @@ export const UI: Record<string, string> = {
   "Couldn't switch: {error}": 'Não foi possível trocar: {error}',
   'Could not start camera': 'Não foi possível ligar a câmera',
   'Could not open that microphone': 'Não foi possível abrir esse microfone',
+  'Unavailable device': 'Dispositivo indisponível',
   'Linkord — speaking': 'Linkord — falando',
   'Linkord — muted': 'Linkord — silenciado',
   'Linkord — deafened': 'Linkord — áudio desativado',
@@ -1250,6 +1251,14 @@ export const UI: Record<string, string> = {
   'Preview {name}': 'Ouvir {name}',
   "Couldn't play that sound": 'Não deu para tocar esse som',
   'Default sounds': 'Sons padrão',
+  Favorites: 'Favoritos',
+  'Add to favorites': 'Adicionar aos favoritos',
+  'Remove from favorites': 'Remover dos favoritos',
+  'Add {name} to favorites': 'Adicionar {name} aos favoritos',
+  'Remove {name} from favorites': 'Remover {name} dos favoritos',
+  'You have {n} favorite sounds — remove one to add another':
+    'Você tem {n} sons favoritos — remova um para adicionar outro',
+  "Couldn't save your favorites": 'Não foi possível salvar seus favoritos',
   'Search sounds': 'Buscar sons',
   'Join a voice channel to play sounds for everyone. The speaker plays one just for you.':
     'Entre em um canal de voz para tocar sons para todo mundo. O alto-falante toca só para você.',
