@@ -13,6 +13,7 @@ mod app_icon;
 mod capture;
 mod games;
 mod keybinds;
+mod league;
 #[cfg(windows)]
 mod overlay;
 
@@ -449,6 +450,8 @@ pub fn run() {
             capture::capture_audio_stats,
             capture::capture_video_stats,
             games::running_apps,
+            league::league_status,
+            league::league_invite,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

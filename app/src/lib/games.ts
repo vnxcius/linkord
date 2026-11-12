@@ -15,6 +15,7 @@ import {
   type LinkedApp,
 } from './game-match';
 import { t } from './i18n';
+import { leagueReport, watchLeague, type LeagueReport } from './league';
 import { isTauri } from './platform';
 import { prefs } from './prefs';
 import { toast } from './ui';
@@ -43,6 +44,8 @@ export interface CurrentGame {
   window: RunningApp['window'];
   /** Unix ms when we first saw it running. */
   startedAt: number;
+  /** League of Legends: what its client is doing (lobby, queue, champion select...). */
+  league?: LeagueReport;
 }
 
 const SCAN_MS = 15_000;
@@ -57,6 +60,9 @@ export { currentGame, runningApps };
 
 let index: GameIndex | null = null;
 let names = new Map<string, string>();
+/** League of Legends in the detectable list: its client counts as the game too (lobby, queue...). */
+let leagueGame: DetectableGame | null = null;
+const LEAGUE_CLIENT = /(^|[\\/])leagueclientux\.exe$/i;
 
 async function loadList() {
   if (index) return;
@@ -64,6 +70,7 @@ async function loadList() {
   if (!list) return;
   index = buildIndex(list);
   names = new Map(list.map((g) => [g[0], g[1]]));
+  leagueGame = list.find((g) => g[1] === 'League of Legends') ?? null;
 }
 
 /** A detectable game's name by application id (for the removed-games list). */
@@ -90,7 +97,8 @@ let lastReport = 0;
 let reported: string | null = null;
 
 async function report(game: CurrentGame | null) {
-  const key = game && prefs.shareActivity ? `${game.key}|${game.startedAt}` : null;
+  const key =
+    game && prefs.shareActivity ? `${game.key}|${game.startedAt}|${JSON.stringify(game.league ?? null)}` : null;
   const now = Date.now();
   if (key === reported && (!key || now - lastReport < REPORT_MS)) return;
   try {
@@ -99,6 +107,7 @@ async function report(game: CurrentGame | null) {
         application_id: game.applicationId,
         name: game.name,
         started_at: game.startedAt,
+        league: game.league,
       });
     else await api('DELETE', '/activities/playing');
     reported = key;
@@ -112,6 +121,19 @@ async function scan() {
   if (!getToken()) return;
   await loadList();
   const apps = await scanApps();
+  watchLeague(apps.find((a) => LEAGUE_CLIENT.test(a.path))?.path ?? null, () => void leagueChanged());
+  pick(apps);
+  await report(currentGame());
+}
+
+/** The League client changed phase, party or champion: report it now, not at the next scan. */
+async function leagueChanged() {
+  if (!getToken()) return;
+  pick(runningApps());
+  await report(currentGame());
+}
+
+function pick(apps: RunningApp[]) {
   // Several matches: prefer one with a window you can see (the game, not a helper process).
   const found = apps
     .map((app) => ({ app, game: gameFor(app) }))
@@ -119,18 +141,31 @@ async function scan() {
     .sort(
       (a, b) => Number(!!b.app.window && !b.app.window.minimized) - Number(!!a.app.window && !a.app.window.minimized),
     )[0];
-  const prev = currentGame();
-  if (!found) setCurrentGame(null);
-  else {
-    const same = prev?.key === found.game!.key;
-    setCurrentGame({
-      ...found.game!,
-      pid: found.app.pid,
-      window: found.app.window,
-      startedAt: same ? prev!.startedAt : Date.now(),
-    });
+  let next: Omit<CurrentGame, 'startedAt'> | null = found
+    ? { ...found.game!, pid: found.app.pid, window: found.app.window }
+    : null;
+  // League's client (lobby, queue, champion select) is League too, like on Discord; sitting idle in it gives way
+  // to another game you're playing.
+  const league = leagueReport();
+  const client = apps.find((a) => LEAGUE_CLIENT.test(a.path));
+  const lg = leagueGame;
+  if (league && lg && !prefs.hiddenGames.includes(lg[0])) {
+    const isLeague = next?.key === lg[0];
+    if (isLeague) next = { ...next!, league };
+    else if (client && (!next || league.phase !== 'client'))
+      next = {
+        key: lg[0],
+        applicationId: lg[0],
+        name: lg[1],
+        icon: gameIconUrl(lg),
+        pid: client.pid,
+        window: client.window,
+        league,
+      };
   }
-  await report(currentGame());
+  const prev = currentGame();
+  if (!next) setCurrentGame(null);
+  else setCurrentGame({ ...next, startedAt: prev?.key === next.key ? prev.startedAt : Date.now() });
 }
 
 /** Starts detection (desktop app on Windows). */

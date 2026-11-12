@@ -107,7 +107,12 @@ input::placeholder { color: var(--text-3); }
 .nav-group h3, .margin h3 { font: 400 11px var(--font-mono); color: var(--text-3); padding: 0 8px; margin-bottom: 4px; }
 .nav-group a { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 32px; padding: 0 8px; border-radius: 7px; color: var(--text-2); font-size: 13.5px; }
 .nav-group a:hover { background: var(--bg-hover); color: var(--text); }
-.nav-group a.active { background: var(--bg-active); color: var(--text); box-shadow: inset 2px 0 0 var(--gold); }
+.nav-group a { position: relative; }
+.nav-group a.active { background: var(--bg-active); color: var(--text); }
+/* A straight bar with round ends, clear of the link's corners (an inset shadow bends into thin sharp tips). */
+.nav-group a.active::before {
+  content: ''; position: absolute; left: 2px; top: 8px; bottom: 8px; width: 3px; border-radius: 999px; background: var(--gold);
+}
 .dock { margin-top: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 12px 8px 2px; border-top: 1px solid var(--line); }
 .dock-state { display: flex; gap: 8px; align-items: center; color: var(--text-2); min-width: 0; overflow-wrap: anywhere; }
 .running-head { display: flex; justify-content: space-between; gap: 12px; padding: 16px 0 12px; font: 400 11.5px var(--font-mono); color: var(--text-3); border-bottom: 1px solid var(--line); }
@@ -370,7 +375,7 @@ tr.clickable.open td { border-bottom-color: transparent; background: var(--bg-ho
   .nav-group { display: flex; gap: 2px; margin: 0; }
   .nav-group h3 { display: none; }
   .nav-group a { white-space: nowrap; }
-  .nav-group a.active { box-shadow: inset 0 -2px 0 var(--gold); }
+  .nav-group a.active::before { left: 8px; right: 8px; top: auto; bottom: 2px; width: auto; height: 3px; }
   .dock { display: none; }
   .page { border-radius: 0; padding: 0 16px 40px; overflow: visible; }
   .margin { display: flex; border-radius: 0; padding: 16px; }

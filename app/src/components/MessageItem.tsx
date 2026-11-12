@@ -44,6 +44,7 @@ import { isChristmas } from '../lib/theme';
 import { pauseChatVideo, VideoPlayer } from './VideoPlayer';
 import { VoiceMessage } from './VoiceNote';
 import { InviteCard, inviteCodes, isInviteUrl } from './InviteCard';
+import { LobbyInviteCard } from './League';
 
 export function formatTime(iso: string, withDate = true) {
   const d = new Date(iso);
@@ -308,7 +309,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   const mine = () => m().author.id === me();
   const isVoice = () => !!m().attachments[0]?.waveform;
   // Forwards can't be edited, like Discord.
-  const canEdit = () => mine() && !isVoice() && !m().forwarded;
+  const canEdit = () => mine() && !isVoice() && !m().forwarded && !m().type;
   const text = () => m().content || m().forwarded?.content || '';
   const forward = () => setUi('modal', { type: 'forward', message: m() });
   const channel = () => state.channels[m().channel_id];
@@ -611,7 +612,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
             <Show
               when={editing()}
               fallback={
-                <Show when={m().content && !linkOnlyImage(m())}>
+                <Show when={m().content && !linkOnlyImage(m()) && m().type !== 8}>
                   <div
                     class="content"
                     classList={{ jumbo: isJumbo(m().content) }}
@@ -666,7 +667,10 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               }
             </For>
             <For each={inviteCodes(m().content)}>{(code) => <InviteCard code={code} mine={mine()} />}</For>
-            <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>
+            <Show when={m().type === 8}>
+              <LobbyInviteCard message={m()} />
+            </Show>
+            <For each={m().type === 8 ? [] : m().embeds.filter((e) => !isInviteUrl(e.url))}>
               {(e) => <EmbedView e={e} eager={eager} guildId={p.guildId} />}
             </For>
             <Show when={m().thread_id ? state.channels[m().thread_id!] : undefined}>
@@ -1006,8 +1010,9 @@ function EmbedView(p: { e: Embed; eager: boolean; guildId?: string | null }) {
       <Match when={p.e.type === 'link' || p.e.type === 'rich'}>
         <div
           class="embed"
-          classList={{ rich: p.e.type === 'rich' }}
-          style={{ 'border-left-color': p.e.color != null ? `#${p.e.color.toString(16).padStart(6, '0')}` : undefined }}
+          classList={{ rich: p.e.type === 'rich', accent: p.e.color != null }}
+          // The embed's colour is a dot before its kicker (owner, 2026-11-12: never a coloured side border).
+          style={{ '--embed-accent': p.e.color != null ? `#${p.e.color.toString(16).padStart(6, '0')}` : undefined }}
         >
           <div class="embed-text">
             <Show when={p.e.site_name}>
@@ -1088,7 +1093,11 @@ function VideoLinkEmbed(p: { e: Embed; player: LinkPlayer }) {
     void openExternal(p.e.url);
   };
   return (
-    <div class="embed video-embed" style={{ 'border-left-color': p.player.color }}>
+    <div
+      class="embed video-embed"
+      classList={{ accent: !!p.player.color }}
+      style={{ '--embed-accent': p.player.color || undefined }}
+    >
       <div class="embed-text">
         <div class="embed-site video-embed-site">
           <span>

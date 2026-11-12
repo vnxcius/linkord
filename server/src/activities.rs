@@ -207,6 +207,9 @@ pub struct Games {
     pub expires: DashMap<Id, Instant>,
     /// Each user's last "Playing" report: the game and when, so the time between reports counts (stats.rs).
     pub last_report: DashMap<Id, (String, Instant)>,
+    /// Whose last report was League outside a match (client, lobby, queue, champion select, end of game): the time
+    /// until their next report isn't played time.
+    pub out_of_match: dashmap::DashSet<Id>,
 }
 
 /// Keeps Windows executables (minus launchers and argument-matched ones, which need a command line).
@@ -319,13 +322,15 @@ struct Playing {
     name: String,
     /// Unix ms when the game started.
     started_at: Option<i64>,
+    /// League of Legends: what the client is doing (lobby, queue, champion select...), read by the desktop app.
+    league: Option<crate::league::Rich>,
 }
 
 async fn set_playing(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<Playing>) -> ApiResult<StatusCode> {
     let now = Utc::now().timestamp_millis();
     let start = body.started_at.unwrap_or(now).clamp(now - 7 * 24 * 3600 * 1000, now);
     let known = body.application_id.as_ref().and_then(|id| st.games.list.read().unwrap().as_ref().and_then(|l| l.by_id.get(id).cloned()).map(|g| (id.clone(), g)));
-    let activity = match known {
+    let mut activity = match known {
         Some((id, (name, icon))) => json!({
             "type": PLAYING,
             "name": name,
@@ -341,14 +346,32 @@ async fn set_playing(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bo
             json!({ "type": PLAYING, "name": name, "timestamps": { "start": start } })
         }
     };
+    if let Some(rich) = &body.league {
+        if let Some(league) = crate::league::rich(&st, rich, now) {
+            // Teamfight Tactics runs in League's client and game: same icon, its own name.
+            if rich.is_tft() {
+                activity["name"] = json!("Teamfight Tactics");
+            }
+            activity["league"] = league;
+        }
+    }
     st.games.expires.insert(me, Instant::now() + GAME_TTL);
     // Time since the last report of the same game counts as played (reports come every minute; a longer gap is a
     // pause, closed app or sleeping PC, and doesn't count).
     let game = activity["name"].as_str().unwrap_or_default().to_string();
     let icon = activity["icon"].as_str().map(str::to_string);
     let previous = st.games.last_report.insert(me, (game.clone(), Instant::now()));
+    // League counts only time in a match: the stretch since the last report is spent in the phase that report gave.
+    let was_playing = !st.games.out_of_match.contains(&me);
+    if body.league.as_ref().is_some_and(|r| !r.in_match()) {
+        st.games.out_of_match.insert(me);
+    } else {
+        st.games.out_of_match.remove(&me);
+    }
     if let Some((_, at)) = previous.filter(|(last, at)| *last == game && at.elapsed() <= GAME_TTL) {
-        crate::stats::game_time(&st, me, &game, icon.as_deref(), at.elapsed().as_secs() as i64).await;
+        if was_playing {
+            crate::stats::game_time(&st, me, &game, icon.as_deref(), at.elapsed().as_secs() as i64).await;
+        }
     } else {
         crate::stats::bump(&st, me, "games_started");
     }
@@ -360,8 +383,9 @@ async fn set_playing(State(st): State<AppState>, AuthUser(me): AuthUser, Json(bo
 
 async fn clear_playing(State(st): State<AppState>, AuthUser(me): AuthUser) -> StatusCode {
     st.games.expires.remove(&me);
-    // The game closed: the stretch since its last report counts too.
-    if let Some((_, (game, at))) = st.games.last_report.remove(&me).filter(|(_, (_, at))| at.elapsed() <= GAME_TTL) {
+    let was_playing = st.games.out_of_match.remove(&me).is_none();
+    // The game closed: the stretch since its last report counts too (League: if it was in a match).
+    if let Some((_, (game, at))) = st.games.last_report.remove(&me).filter(|(_, (_, at))| at.elapsed() <= GAME_TTL && was_playing) {
         crate::stats::game_time(&st, me, &game, None, at.elapsed().as_secs() as i64).await;
     }
     if put_activity(&st, me, PLAYING, None) {
@@ -1004,6 +1028,9 @@ struct ActivitiesSnap {
     game_expires: Vec<(Id, u64)>,
     /// Each user's last game report and how long ago (ms).
     last_report: Vec<(Id, String, u64)>,
+    /// League outside a match at the last report (Games::out_of_match). Older snapshots lack it.
+    #[serde(default)]
+    out_of_match: Vec<Id>,
 }
 
 pub fn snapshot(st: &AppState) -> Value {
@@ -1012,6 +1039,7 @@ pub fn snapshot(st: &AppState) -> Value {
         activities: st.activities.iter().map(|a| (*a.key(), a.value().clone())).collect(),
         game_expires: st.games.expires.iter().map(|e| (*e.key(), e.value().saturating_duration_since(now).as_millis() as u64)).collect(),
         last_report: st.games.last_report.iter().map(|e| (*e.key(), e.0.clone(), e.1.elapsed().as_millis() as u64)).collect(),
+        out_of_match: st.games.out_of_match.iter().map(|e| *e).collect(),
     };
     serde_json::to_value(snap).unwrap_or_default()
 }
@@ -1032,6 +1060,9 @@ pub fn restore(st: &AppState, v: Value, age_ms: i64) -> anyhow::Result<()> {
     }
     for (user, game, ago) in snap.last_report {
         st.games.last_report.insert(user, (game, now.checked_sub(Duration::from_millis(ago) + age).unwrap_or(now)));
+    }
+    for user in snap.out_of_match {
+        st.games.out_of_match.insert(user);
     }
     Ok(())
 }

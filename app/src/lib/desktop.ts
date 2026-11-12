@@ -174,17 +174,21 @@ export async function initDesktop() {
   void checkForUpdates().then((found) => {
     if (found && launch && Date.now() - started < LAUNCH_WINDOW && !voiceUi.channelId) void installAtLaunch();
   });
-  setInterval(checkForUpdates, 30 * 60_000);
+  // Releases arrive at once (gateway APP_UPDATE, and a check on every connection); this is only a safety net.
+  setInterval(() => void checkForUpdates(), 6 * 3600_000);
   initGames();
 }
 
-export async function checkForUpdates(): Promise<boolean> {
+/** Asks the update feed. `version`: the server just announced this release (APP_UPDATE): check again even if the
+ *  banner already offers an older one, so it never installs a stale version. */
+export async function checkForUpdates(version?: string): Promise<boolean> {
   // `tauri dev` (Linkord Dev) never updates: the update is the released installer, which would replace the real app.
-  if (!isTauri || import.meta.env.DEV || update()) return !!update();
+  if (!isTauri || import.meta.env.DEV || updating()) return !!update();
+  if (update() && (!version || update()!.version === version)) return true;
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const u = await check();
-    if (!u) return false;
+    if (!u) return !!update();
     setUpdate({
       version: u.version,
       notes: u.body,

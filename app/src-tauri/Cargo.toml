@@ -40,6 +40,9 @@ xcap = "0.9"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 rayon = "1"
 base64 = "0.22"
+# The League client's local API (league.rs); both already in the tree through the updater (ring, no aws-lc).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 # The #[implement] COM macro expands to paths in windows-core.
 windows-core = "0.62"
 # A point in Direct2D's signatures (overlay.rs).

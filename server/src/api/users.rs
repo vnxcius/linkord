@@ -38,6 +38,7 @@ pub fn routes() -> Router<AppState> {
         .route("/users/@me/profile-song/search", get(search_songs))
         .route("/users/@me/profile-song/audio", post(song_audio))
         .route("/users/{id}", get(get_user))
+        .route("/users/{id}/game", get(game_of))
         .route("/users/{id}/profile", get(profile))
         .route("/users/{id}/note", axum::routing::put(set_note))
 }
@@ -104,8 +105,8 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     }
     let connections = crate::spotify::public(&st, id).await?;
     let favorite_games = favorite_games(&st, id).await?;
-    let (links, show_stats, show_top_songs): (sqlx::types::Json<Vec<Link>>, bool, bool) =
-        sqlx::query_as("SELECT links, show_stats, show_top_songs FROM users WHERE id = $1").bind(id).fetch_one(&st.db).await?;
+    let (links, show_stats, show_top_songs, show_league): (sqlx::types::Json<Vec<Link>>, bool, bool, bool) =
+        sqlx::query_as("SELECT links, show_stats, show_top_songs, show_league FROM users WHERE id = $1").bind(id).fetch_one(&st.db).await?;
     let note: Option<String> =
         sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
     let own = me == id;
@@ -122,7 +123,12 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     if show_stats || own {
         out["stats"] = public_stats(&st, id).await?;
     }
+    // League: just the Riot ID here; the widget loads the rest from Riot (league.rs) when its tab opens.
+    if (show_league || own) && crate::league::enabled(&st) {
+        out["league"] = crate::league::linked(&st, id).await?.into();
+    }
     if own {
+        out["show_league"] = show_league.into();
         out["show_stats"] = show_stats.into();
         out["show_top_songs"] = show_top_songs.into();
     }
@@ -466,6 +472,7 @@ struct ProfileUpdate {
     birthday: Option<String>,
     show_stats: Option<bool>,
     show_top_songs: Option<bool>,
+    show_league: Option<bool>,
 }
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<ProfileUpdate>) -> ApiResult<Json<serde_json::Value>> {
@@ -514,7 +521,8 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     let links = body.links.map(clean_links).transpose()?.map(sqlx::types::Json);
     sqlx::query(
         "UPDATE users SET display_name = $2, bio = $3, status = $4, accent_color = $5, pronouns = $6, birthday = $7,
-             links = COALESCE($8, links), show_stats = COALESCE($9, show_stats), show_top_songs = COALESCE($10, show_top_songs)
+             links = COALESCE($8, links), show_stats = COALESCE($9, show_stats), show_top_songs = COALESCE($10, show_top_songs),
+             show_league = COALESCE($11, show_league)
          WHERE id = $1",
     )
     .bind(me)
@@ -527,6 +535,7 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     .bind(links)
     .bind(body.show_stats)
     .bind(body.show_top_songs)
+    .bind(body.show_league)
     .execute(&st.db)
     .await?;
     let after = User::get(&st.db, me).await?;
@@ -542,6 +551,58 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
 const MAX_FAVORITE_GAMES: usize = 20;
 
 /// A user's favorite games, in their order, with art from the game catalog and the time Linkord saw them play it.
+#[derive(Deserialize)]
+struct GameQuery {
+    /// The game's name as their activity shows it ("Teamfight Tactics", a game added by hand...).
+    name: String,
+}
+
+/// GET /users/{id}/game?name=: their side of a game, for the game modal (opened from a "Playing" card): time played
+/// and when, where it ranks among their games, its place in their favorites, and the League widget's account for
+/// League / TFT when they show it. For whoever knows them, like the profile (playtime shows on favorites already).
+async fn game_of(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Query(q): Query<GameQuery>) -> ApiResult<Json<serde_json::Value>> {
+    let user = User::get(&st.db, id).await?;
+    if !knows(&st, me, &user).await? {
+        return Err(crate::error::ApiError::NotFound);
+    }
+    let name = q.name.trim();
+    if name.is_empty() || name.chars().count() > 128 {
+        return Err(bad("Game name must be 1-128 characters"));
+    }
+    let row: Option<(i64, DateTime<Utc>, i64, i64)> = sqlx::query_as(
+        "SELECT g.seconds, g.last_played,
+                (SELECT count(*) FROM user_games o WHERE o.user_id = g.user_id AND o.seconds > g.seconds) + 1,
+                (SELECT count(*) FROM user_games o WHERE o.user_id = g.user_id)
+         FROM user_games g WHERE g.user_id = $1 AND lower(g.name) = lower($2)",
+    )
+    .bind(id)
+    .bind(name)
+    .fetch_optional(&st.db)
+    .await?;
+    let favorite: Option<i16> = sqlx::query_scalar("SELECT position FROM favorite_games WHERE user_id = $1 AND lower(name) = lower($2)")
+        .bind(id)
+        .bind(name)
+        .fetch_optional(&st.db)
+        .await?;
+    let favorites: i64 = sqlx::query_scalar("SELECT count(*) FROM favorite_games WHERE user_id = $1").bind(id).fetch_one(&st.db).await?;
+    let league = if crate::league::enabled(&st) && matches!(name.to_lowercase().as_str(), "league of legends" | "teamfight tactics") {
+        let show: bool = sqlx::query_scalar("SELECT show_league FROM users WHERE id = $1").bind(id).fetch_one(&st.db).await?;
+        if me == id || show { crate::league::linked(&st, id).await? } else { None }
+    } else {
+        None
+    };
+    Ok(Json(json!({
+        "seconds": row.as_ref().map_or(0, |r| r.0),
+        "last_played": row.as_ref().map(|r| r.1),
+        "rank": row.as_ref().map(|r| r.2),
+        "games": row.as_ref().map_or(0, |r| r.3),
+        // 1-based (positions are stored 0-based and dense), of how many.
+        "favorite": favorite.map(|p| p as i64 + 1),
+        "favorites": favorites,
+        "league": league,
+    })))
+}
+
 pub async fn favorite_games(st: &AppState, user: Id) -> ApiResult<Vec<serde_json::Value>> {
     let rows: Vec<(Option<String>, String, Option<String>, Option<i64>)> = sqlx::query_as(
         "SELECT f.game_id, f.name, f.art, g.seconds FROM favorite_games f

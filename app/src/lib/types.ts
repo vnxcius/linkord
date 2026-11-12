@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import type { LeagueActivity } from './league';
 
 export type Status = 'online' | 'idle' | 'dnd' | 'invisible' | 'offline';
 
@@ -162,7 +163,8 @@ export interface Forwarded {
 
 export interface Message {
   id: string;
-  /** 0 (or missing) = a normal message; 6 = "pinned a message" (reply_to = the pin); 7 = "joined the server". */
+  /** 0 (or missing) = a normal message; 6 = "pinned a message" (reply_to = the pin); 7 = "joined the server";
+   *  8 = a League of Legends lobby invite (embeds[0].league = the lobby then). */
   type?: number;
   channel_id: string;
   author: User;
@@ -234,6 +236,8 @@ export interface Activity {
   /** Custom status: a Unicode emoji (name only) or a server emoji, and when it clears itself (unix ms). */
   emoji?: StatusEmoji;
   expires_at?: number;
+  /** League of Legends / Teamfight Tactics: what the client is doing (lib/league.ts). */
+  league?: LeagueActivity;
 }
 
 export interface StatusEmoji {

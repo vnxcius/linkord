@@ -16,6 +16,7 @@ import { setUi, toast, ui } from '../lib/ui';
 import { Avatar } from './Avatar';
 import { customPick, EmojiPicker } from './EmojiPicker';
 import * as I from './Icons';
+import { inviteChat, leagueCanInvite } from '../lib/league';
 import { createVoiceRecording, RecordingBar } from './VoiceNote';
 
 /** One autocomplete row: a member, role, @everyone, emoji, or slash command. */
@@ -442,6 +443,17 @@ export function Composer(p: { channel: Channel }) {
         >
           <I.Plus size={20} />
         </button>
+        {/* In a League lobby you may invite to: one click posts "join my lobby" here, like Discord's activity invite. */}
+        <Show when={leagueCanInvite() && canSend()}>
+          <button
+            class="icon-btn league-invite-btn"
+            aria-label={t('Invite to your League lobby')}
+            data-tip={t('Invite to your League lobby')}
+            onClick={() => void inviteChat(p.channel.id)}
+          >
+            <I.Gamepad size={20} />
+          </button>
+        </Show>
         <input
           ref={fileInput}
           type="file"

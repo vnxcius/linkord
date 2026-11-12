@@ -1,7 +1,8 @@
 import type { JSX } from 'solid-js';
 import { createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
-import type { Message } from './types';
+import type { Activity, Message } from './types';
+import type { FavoriteGame } from '../components/FavoriteGames';
 
 export type Modal =
   | { type: 'add-server' }
@@ -13,6 +14,9 @@ export type Modal =
   | { type: 'join-invite'; code: string }
   | { type: 'create-group'; channelId?: string }
   | { type: 'user-profile'; userId: string; guildId?: string }
+  /** A game (Game.tsx): one someone is playing (the activity it was opened from), or one of their favorites (the
+   *  list, to step through it, and which). */
+  | { type: 'game'; userId: string; activity?: Activity; favorites?: FavoriteGame[]; index?: number; guildId?: string }
   | { type: 'folder-settings'; folderId: string }
   | { type: 'go-live'; update?: boolean; switchSource?: boolean }
   | { type: 'nickname'; guildId: string; userId: string }

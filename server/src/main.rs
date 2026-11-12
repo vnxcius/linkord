@@ -8,6 +8,7 @@ mod error;
 mod gateway;
 mod handover;
 mod id;
+mod league;
 mod internal;
 mod logs;
 mod media;
@@ -107,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         activities: Default::default(),
         spotify_states: Default::default(),
         games: Default::default(),
+        league: Default::default(),
         music: Default::default(),
         steve: Default::default(),
         watches: Default::default(),
@@ -135,6 +137,9 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(gateway::presence_sweeper(st.clone()));
     tokio::spawn(voice::afk_sweeper(st.clone()));
     tokio::spawn(activities::keep_list(st.clone()));
+    tokio::spawn(league::keep_champions(st.clone()));
+    tokio::spawn(league::keep_cache(st.clone()));
+    tokio::spawn(api::updates::watch(st.clone()));
     tokio::spawn(activities::sweep_games(st.clone()));
     tokio::spawn(activities::keep_custom_statuses(st.clone()));
     if cfg.spotify_enabled() {
@@ -148,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::routes())
         .merge(spotify::routes())
         .merge(activities::routes())
+        .merge(league::routes())
         .merge(voice::routes())
         .merge(music::routes())
         .merge(steve::routes())

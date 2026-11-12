@@ -179,6 +179,8 @@ pub mod message_type {
     pub const PINNED: i16 = 6;
     /// "<user> joined the server."
     pub const JOIN: i16 = 7;
+    /// "Join my League of Legends lobby" (league.rs): embeds[0] = {type: "league_invite", league: the lobby then}.
+    pub const LEAGUE_INVITE: i16 = 8;
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

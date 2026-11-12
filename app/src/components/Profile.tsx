@@ -8,12 +8,14 @@ import { gameOf, memberRoles, nameOf, profileOf, spotifyOf, state } from '../lib
 import { openExternal } from '../lib/platform';
 import { displayName, Kind, Rel, type User } from '../lib/types';
 import { attempt, isMobile, setUi, ui, type MenuEntry } from '../lib/ui';
+import { LeagueCard, type LeagueAccount } from './League';
 import { GameCard, SpotifyCard, SpotifyIcon, StatusBubble } from './Activity';
 import { Avatar, GuildIcon } from './Avatar';
 import { MyStatusBubble } from './CustomStatus';
 import { Snowman } from './ChristmasArt';
 import { isChristmas } from '../lib/theme';
 import * as I from './Icons';
+import { inviteToLobby, leagueCanInvite } from '../lib/league';
 import { soundboardMenu, volumeMenu } from './Sidebar';
 import { type FavoriteGame, FavoriteGamesCard } from './FavoriteGames';
 import { voiceUi } from '../lib/voice';
@@ -83,6 +85,14 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   const me = state.me?.id;
   const items: MenuEntry[] = [];
   if (userId !== me) items.push({ label: t('Message'), run: () => attempt(() => openDm(userId)) });
+  // You're in a League lobby and may invite: invite them through Linkord (they accept, your client invites them).
+  if (userId !== me && !state.users[userId]?.bot && leagueCanInvite()) {
+    items.push({
+      label: t('Invite to League lobby'),
+      icon: () => <I.UserPlus size={16} />,
+      run: () => void inviteToLobby(userId, nameOf(userId, guildId)),
+    });
+  }
   if (voiceUi.channelId && userId !== me && state.voice[userId]?.channel_id === voiceUi.channelId) {
     items.push('separator', ...volumeMenu(userId));
   } else if (state.users[userId]?.bot && state.users[userId]?.username === 'steve') {
@@ -374,7 +384,7 @@ export function ProfilePopout() {
               <Show when={gameOf(u().id)}>
                 {(a) => (
                   <div class="profile-section">
-                    <GameCard activity={a()} />
+                    <GameCard activity={a()} userId={u().id} />
                   </div>
                 )}
               </Show>
@@ -508,7 +518,7 @@ export function DmProfile(p: { userId: string }) {
             <Show when={gameOf(u().id)}>
               {(a) => (
                 <div class="profile-section">
-                  <GameCard activity={a()} />
+                  <GameCard activity={a()} userId={u().id} />
                 </div>
               )}
             </Show>
@@ -574,13 +584,24 @@ function SideCard(p: { tabs: { id: string; label: string; body: () => JSX.Elemen
       <div class="games-card-inner">
         <Show when={p.tabs.length > 1}>
           <nav class="side-card-tabs">
-            <For each={p.tabs}>
-              {(x) => (
-                <button classList={{ active: current()?.id === x.id }} onClick={() => setTab(x.id)}>
-                  {x.label}
-                </button>
-              )}
-            </For>
+            <div class="side-card-tabs-track" role="tablist">
+              <For each={p.tabs}>
+                {(x) => (
+                  <button
+                    role="tab"
+                    aria-selected={current()?.id === x.id}
+                    classList={{ active: current()?.id === x.id }}
+                    onClick={(e) => {
+                      setTab(x.id);
+                      // Only matters when the labels overflow (long translations): keep the chosen one in view.
+                      e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    }}
+                  >
+                    {x.label}
+                  </button>
+                )}
+              </For>
+            </div>
           </nav>
         </Show>
         <Show when={current()} keyed>
@@ -606,6 +627,9 @@ interface FullProfile {
   snowballs?: Snowballs;
   show_top_songs?: boolean;
   show_stats?: boolean;
+  /** The linked Riot ID, when they show the League widget (yours always, with show_league). */
+  league?: LeagueAccount | null;
+  show_league?: boolean;
   connections?: { type: string; id: string; name: string }[];
   mutual_friends: User[];
   mutual_guilds: string[];
@@ -742,7 +766,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       <Show when={gameOf(u().id)}>
                         {(a) => (
                           <div class="profile-section">
-                            <GameCard activity={a()} />
+                            <GameCard activity={a()} userId={u().id} />
                           </div>
                         )}
                       </Show>
@@ -901,6 +925,22 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       id: 'snowballs',
                       label: t('Snowballs'),
                       body: () => <SnowballsCard snowballs={full()!.snowballs!} />,
+                    },
+                  ]
+                : []),
+              ...(full()?.league
+                ? [
+                    {
+                      id: 'league',
+                      label: t('League'),
+                      body: () => (
+                        <LeagueCard
+                          userId={u().id}
+                          account={full()!.league!}
+                          isMe={isMe()}
+                          shown={full()?.show_league}
+                        />
+                      ),
                     },
                   ]
                 : []),

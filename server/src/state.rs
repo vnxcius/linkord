@@ -48,6 +48,8 @@ pub struct Inner {
     pub activities: DashMap<Id, Vec<serde_json::Value>>,
     /// Detectable games list and game activity expiry (activities.rs).
     pub games: crate::activities::Games,
+    /// League of Legends: Riot API limits and caches, champion names (league.rs).
+    pub league: crate::league::League,
     /// Spotify connect: OAuth state -> (user, created).
     pub spotify_states: DashMap<String, (Id, Instant)>,
     /// Kass, the music bot.

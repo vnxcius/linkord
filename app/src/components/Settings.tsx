@@ -70,6 +70,7 @@ import * as I from './Icons';
 import { accentCss } from './Profile';
 import { StatsPage } from './StatsPage';
 import { KassPage } from './KassPage';
+import { LeagueSettings } from './League';
 import { StevePage } from './StevePage';
 import { showChristmas, showRelease, startTour } from './Onboarding';
 import { parseBirthday } from './Birthday';
@@ -120,7 +121,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
       ['stats', msg('Stats'), I.Chart],
       ['sessions', msg('Sessions'), I.Desktop],
       ['kass', msg('Kass'), I.Music],
-      ['steve', msg('Steve'), I.Gamepad],
+      ['steve', msg('Steve'), I.Pickaxe],
       ...(SHOW_CONNECTIONS
         ? [['connections', msg('Connections'), I.Link] as [Page, string, (p: { size?: number }) => JSX.Element]]
         : []),
@@ -921,6 +922,7 @@ function ProfilePage() {
               disabled={!mine()}
               onChange={(v) => void setWidget('show_top_songs', v)}
             />
+            <LeagueSettings />
           </div>
         </div>
         <div class="set-card studio-option wide">

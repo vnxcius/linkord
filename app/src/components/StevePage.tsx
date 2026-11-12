@@ -41,7 +41,7 @@ export function StevePage() {
           when={steve()}
           fallback={
             <span class="kass-hero-icon">
-              <I.Gamepad size={34} />
+              <I.Pickaxe size={34} />
             </span>
           }
         >

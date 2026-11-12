@@ -1,4 +1,5 @@
 import { onSnowball } from './snowball';
+import { onLeagueInvite, onLeagueJoinRequest } from './league';
 import { batch } from 'solid-js';
 import { t } from './i18n';
 import { produce, reconcile } from 'solid-js/store';
@@ -147,7 +148,12 @@ interface Ready {
 function handle(t: string, d: any) {
   switch (t) {
     case 'READY':
+      // Every connection checks for a release (someone offline when it came out gets it now).
+      void import('./desktop').then((m) => m.checkForUpdates());
       return onReady(d as Ready);
+    case 'APP_UPDATE':
+      // A release just went out: the banner shows now, not at the next periodic check.
+      return void import('./desktop').then((m) => m.checkForUpdates(d.version));
     case 'RESUMED':
       retry = 0;
       quiet = false;
@@ -255,6 +261,10 @@ function handle(t: string, d: any) {
       );
     case 'SNOWBALL':
       return onSnowball(d);
+    case 'LEAGUE_JOIN_REQUEST':
+      return onLeagueJoinRequest(d);
+    case 'LEAGUE_INVITE':
+      return onLeagueInvite(d);
     case 'WATCH_UPDATE':
       setServerNow(d.server_now);
       return putWatch(d.channel_id, d.watch);

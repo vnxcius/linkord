@@ -4,6 +4,10 @@
 //! manifest (`linux-x86_64-deb` / `-rpm`) and the updater picks the one it was installed from. /api/downloads
 //! lists what the web client's download page offers. `changelog.json` (newest first, appended by publish-windows.sh)
 //! feeds the patch notes page.
+//!
+//! Releases reach apps at once (owner, 2026-11-12): `watch` notices a new version in latest.json / linux.json and
+//! sends APP_UPDATE {version} to everyone connected; desktop apps check the feed then and show the banner. Apps also
+//! check whenever their gateway connects (READY), so whoever was offline gets it on their next connection.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -157,4 +161,37 @@ async fn changelog(State(st): State<AppState>) -> Json<Vec<Release>> {
     }
     let latest = tokio::fs::read(dir.join("latest.json")).await.ok().and_then(|raw| serde_json::from_slice::<Latest>(&raw).ok());
     Json(latest.map(|l| vec![Release { version: l.version, date: Some(l.pub_date), notes: l.notes }]).unwrap_or_default())
+}
+
+/// The versions the feeds offer now ("" when a feed is missing or being written).
+async fn feed_versions(st: &AppState) -> [String; 2] {
+    let dir = st.cfg.data_dir.join("updates");
+    let mut out = [String::new(), String::new()];
+    for (i, name) in ["latest.json", "linux.json"].iter().enumerate() {
+        if let Ok(raw) = tokio::fs::read(dir.join(name)).await {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                out[i] = v["version"].as_str().unwrap_or_default().to_string();
+            }
+        }
+    }
+    out
+}
+
+/// Background task: every few seconds, has a feed's version changed? Then tell every app (APP_UPDATE).
+pub async fn watch(st: AppState) {
+    let mut last = feed_versions(&st).await;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let now = feed_versions(&st).await;
+        for i in 0..2 {
+            // A feed caught mid-write reads as "": wait for it to be whole rather than announce nothing.
+            if now[i].is_empty() || now[i] == last[i] {
+                continue;
+            }
+            let users = st.hub.users();
+            tracing::info!(version = %now[i], feed = i, users = users.len(), "updates: new release, telling every app");
+            st.hub.send(&users, "APP_UPDATE", &json!({ "version": now[i], "linux": i == 1 }));
+            last[i] = now[i].clone();
+        }
+    }
 }

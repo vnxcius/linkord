@@ -169,12 +169,23 @@ export const Info = hero(informationCircle);
 export const Smile = hero(faceSmile);
 export const Paperclip = hero(paperClip);
 export const Screen = hero(computerDesktop);
+/** The controller, everywhere (owner, 2026-11-12): Lucide's gamepad-2 filled, with the d-pad and buttons cut out
+ *  (the outline's buttons vanished at small sizes). */
 export const Gamepad = icon(
-  path(
-    'M7.5 7.5h9a4.5 4.5 0 0 1 4.37 3.43l1.06 4.33a2.54 2.54 0 0 1-4.4 2.23l-1.78-1.99h-7.5l-1.78 1.99a2.54 2.54 0 0 1-4.4-2.23l1.06-4.33A4.5 4.5 0 0 1 7.5 7.5Z',
-  ) +
-    path('M8.25 10.5v3m-1.5-1.5h3') +
-    path('M15.75 11.25h.008v.008h-.008v-.008Zm1.5 1.5h.008v.008h-.008v-.008Z'),
+  '<path fill-rule="evenodd" d="' +
+    'M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z' +
+    // d-pad
+    'M7.1 9h1.8v1.1H10v1.8H8.9V13H7.1v-1.1H6v-1.8h1.1z' +
+    // buttons
+    'M13.75 12a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0z' +
+    'M16.75 10a1.25 1.25 0 1 0 2.5 0a1.25 1.25 0 1 0-2.5 0z' +
+    '"/>',
+  true,
+);
+/** Steve's pickaxe (owner, 2026-11-12): the pixel pickaxe of his picture (server/assets/steve.svg), filled. */
+export const Pickaxe = icon(
+  '<path d="M15.6 0.3 15.6 2.1 19.2 2.1 19.2 3.9 21 3.9 21 9.3 22.8 9.3 22.8 16.5 21 16.5 21 14.7 19.2 14.7 19.2 9.3 15.6 9.3 15.6 11.1 13.8 11.1 13.8 12.9 12 12.9 12 14.7 10.2 14.7 10.2 16.5 8.4 16.5 8.4 18.3 6.6 18.3 6.6 20.1 4.8 20.1 4.8 21.9 3 21.9 3 23.7 1.2 23.7 1.2 20.1 3 20.1 3 18.3 4.8 18.3 4.8 16.5 6.6 16.5 6.6 14.7 8.4 14.7 8.4 12.9 10.2 12.9 10.2 11.1 12 11.1 12 9.3 13.8 9.3 13.8 7.5 15.6 7.5 15.6 3.9 4.8 3.9 4.8 2.1 6.6 2.1 6.6 0.3Z"/>',
+  true,
 );
 export const Camera = hero(videoCamera);
 export const Hangup = hero(phoneXMark);
@@ -260,6 +271,7 @@ export const External = hero(arrowTopRightOnSquare);
 export const EnterFullscreen = hero(arrowsPointingOut);
 export const ExitFullscreen = hero(arrowsPointingIn);
 export const Rejoin = hero(arrowPath);
+export const Refresh = hero(arrowPath);
 export const ArrowRight = hero(arrowRight);
 
 /** The app icon (assets/icon.png): the Triforce on its dark tile, the same everywhere (window, tray, the app). */

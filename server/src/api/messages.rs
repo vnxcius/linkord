@@ -308,6 +308,25 @@ struct Draft {
     kind: i16,
 }
 
+/// A League of Legends lobby invite (league.rs), sent like a message by `me`: the text is for push and older clients,
+/// newer ones draw the card from the embed.
+pub async fn post_league_invite(st: &AppState, channel: Id, me: Id, lobby: serde_json::Value) -> ApiResult<Message> {
+    st.limits.check(format!("msg:{me}"), 8.0, 1.5)?;
+    let a = channel_for(st, channel, me).await?;
+    if !kind::has_messages(a.ch.kind) {
+        return Err(bad("cannot send messages in this channel"));
+    }
+    a.require(perms::SEND_MESSAGES)?;
+    check_not_blocked(st, &a, me).await?;
+    let draft = Draft {
+        kind: crate::models::message_type::LEAGUE_INVITE,
+        content: "League of Legends lobby invite".into(),
+        embeds: Some(json!([{ "type": "league_invite", "league": lobby }])),
+        ..Default::default()
+    };
+    post_message(st, &a, me, draft).await
+}
+
 /// A bot's answer to a slash command `name` used by `user`, with its own embeds.
 pub async fn post_bot_message(st: &AppState, a: &Access, bot: Id, user: Id, name: &str, content: String, embeds: serde_json::Value) -> ApiResult<Message> {
     post_bot_message_with(st, a, bot, Some((user, name)), content, embeds, vec![]).await

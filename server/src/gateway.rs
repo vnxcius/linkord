@@ -97,6 +97,11 @@ struct HubSnap {
 }
 
 impl Hub {
+    /// Everyone with a session (connected, or about to resume).
+    pub fn users(&self) -> Vec<Id> {
+        self.by_user.iter().filter(|e| !e.value().is_empty()).map(|e| *e.key()).collect()
+    }
+
     /// For the monitor: sessions, sessions with a live socket, users shown as online.
     pub fn snapshot(&self) -> (usize, usize, usize) {
         let attached = self.sessions.iter().filter(|s| s.tx.is_some()).count();

@@ -145,7 +145,7 @@ function ActiveNow() {
                   {(g) => <GameIcon src={g().icon} size={20} />}
                 </Show>
               </button>
-              <Show when={gameOf(id)}>{(a) => <GameCard activity={a()} compact />}</Show>
+              <Show when={gameOf(id)}>{(a) => <GameCard activity={a()} userId={id} compact />}</Show>
               <Show when={spotifyOf(id)}>{(a) => <SpotifyCard activity={a()} compact />}</Show>
             </div>
           )}

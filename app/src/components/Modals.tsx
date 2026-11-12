@@ -23,6 +23,7 @@ import * as I from './Icons';
 import { CustomStatusModal } from './CustomStatus';
 import { ForwardModal } from './Forward';
 import { accentCss, ProfileModal } from './Profile';
+import { GameModal } from './Game';
 import { ColorPicker } from './ColorPicker';
 import { railEntries, updateFolder } from './Rail';
 import { Settings } from './Settings';
@@ -117,6 +118,17 @@ export function ModalHost() {
               </Match>
               <Match when={m().type === 'user-profile' && (m() as Extract<Modal, { type: 'user-profile' }>)}>
                 {(x) => <ProfileModal userId={x().userId} guildId={x().guildId} />}
+              </Match>
+              <Match when={m().type === 'game' && (m() as Extract<Modal, { type: 'game' }>)}>
+                {(x) => (
+                  <GameModal
+                    userId={x().userId}
+                    activity={x().activity}
+                    favorites={x().favorites}
+                    index={x().index}
+                    guildId={x().guildId}
+                  />
+                )}
               </Match>
               <Match when={m().type === 'custom-status'}>
                 <CustomStatusModal />

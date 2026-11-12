@@ -18,6 +18,7 @@ import { ContextMenu, Lightbox } from './components/Overlays';
 import { MiniPlayer } from './components/MiniPlayer';
 import { QuickSwitcher } from './components/QuickSwitcher';
 import { Calls } from './components/Call';
+import { LeaguePrompts } from './components/League';
 import { ChristmasDecor, HolidayCountdown, SnowPile } from './components/Christmas';
 import { WatchHost, watchTheater } from './components/Watch';
 import { StreamPreviewHost } from './components/StreamPreview';
@@ -199,6 +200,7 @@ function Main() {
         <QuickSwitcher />
       </Show>
       <Calls />
+      <LeaguePrompts />
       <WatchHost />
       <StreamPreviewHost />
       <Show when={state.me?.needs_username}>

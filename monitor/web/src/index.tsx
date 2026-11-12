@@ -51,7 +51,6 @@ function Login() {
         <button class="btn primary" disabled={busy() || !password()}>
           Sign in
         </button>
-        <p class="muted small">The password is LINKORD_MONITOR_PASSWORD in monitor/.env on the server.</p>
       </form>
     </main>
   );

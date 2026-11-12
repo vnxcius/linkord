@@ -2430,12 +2430,14 @@ dependencies = [
 
 [[package]]
 name = "linkord"
-version = "1.1.2"
+version = "1.2.5"
 dependencies = [
  "base64 0.22.1",
  "glib",
  "image",
  "rayon",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",

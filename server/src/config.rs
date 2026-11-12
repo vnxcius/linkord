@@ -37,6 +37,10 @@ pub struct Config {
     pub spotify_poll: std::time::Duration,
     /// Discord's list of detectable games (executable names), for "Playing" activities.
     pub detectable_url: String,
+    /// Riot's API (league.rs: the League profile widget). Empty = the widget is off.
+    pub riot_api_key: String,
+    /// Tests point Riot's hosts at a mock: `<url>/<region>` stands for `https://<region>.api.riotgames.com`.
+    pub riot_api_url: Option<String>,
     /// Game cards look up Steam and Wikipedia; LINKORD_GAME_INFO=off skips them (tests run offline).
     pub game_info: bool,
     /// Direct access that skips Cloudflare (direct.rs): listen address, e.g. 0.0.0.0:8443. Off when unset.
@@ -85,6 +89,8 @@ impl Config {
             spotify_api_url: opt("SPOTIFY_API_URL").unwrap_or_else(|| "https://api.spotify.com".into()),
             spotify_poll: std::time::Duration::from_millis(opt("SPOTIFY_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(5000)),
             detectable_url: opt("LINKORD_DETECTABLE_URL").unwrap_or_else(|| "https://discord.com/api/v9/applications/detectable".into()),
+            riot_api_key: opt("RIOT_API_KEY").unwrap_or_default(),
+            riot_api_url: opt("RIOT_API_URL").map(|u| u.trim_end_matches('/').to_string()),
             game_info: opt("LINKORD_GAME_INFO").as_deref() != Some("off"),
             direct_bind: opt("LINKORD_DIRECT_BIND"),
             direct_host: opt("LINKORD_DIRECT_HOST").unwrap_or_default(),
