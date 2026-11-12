@@ -115,6 +115,7 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
         "snowballs": snowballs,
         "user": user, "mutual_friends": friends, "mutual_guilds": mutual_guilds, "created_at": created_at, "connections": connections,
         "favorite_games": favorite_games, "links": links.0, "note": note.unwrap_or_default(), "song": profile_song(&st, id, own).await?,
+        "badges": crate::badges::shown(&st, id).await?,
     });
     // Widgets: others see them when the person turned them on; you always see yours (with whether they're shown).
     if show_top_songs || own {

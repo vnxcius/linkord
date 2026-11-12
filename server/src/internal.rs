@@ -203,6 +203,7 @@ pub async fn serve(st: AppState) {
         .route("/metrics", get(metrics))
         .route("/moderation/remove", post(remove_media))
         .route("/moderation/suspend", post(suspend))
+        .route("/moderation/badge", post(badge))
         .layer(axum::middleware::from_fn(move |req: Request, next: Next| {
             let token = token.clone();
             async move { guard(&token, req, next).await }
@@ -357,6 +358,22 @@ async fn remove_upload(st: &AppState, base: &str, url: &str) -> u64 {
         let _ = tokio::fs::remove_dir_all(dir).await;
     }
     size
+}
+
+#[derive(Deserialize)]
+struct GiveBadge {
+    user_id: Id,
+    badge: String,
+    given: bool,
+}
+
+/// Gives or takes away a badge only admins hand out (badges::MANUAL: Bug Hunter, Tester...).
+async fn badge(State(st): State<AppState>, Json(b): Json<GiveBadge>) -> ApiResult<Json<Value>> {
+    if !crate::badges::set_manual(&st, b.user_id, &b.badge, b.given).await? {
+        return Err(ApiError::NotFound);
+    }
+    tracing::info!(target: "moderation", user = %b.user_id, badge = %b.badge, given = b.given, "badge changed");
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]

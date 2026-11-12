@@ -5,6 +5,14 @@ import { Columns } from '../charts';
 import { ago, api, bytes, count, date, dateTime, go, type J, mediaUrl, route, usePoll } from '../lib';
 import { Notice, Page, Section, Stat } from '../ui';
 
+/** The badges an admin gives (the app's badges.rs MANUAL), as the app names them. */
+const MANUAL_BADGES: [string, string][] = [
+  ['bug_hunter', 'Bug Hunter'],
+  ['tester', 'Tester'],
+  ['contributor', 'Contributor'],
+  ['helper', 'Helper'],
+];
+
 const KIND: Record<number, string> = { 0: 'Text', 2: 'Voice', 4: 'Category', 11: 'Thread' };
 
 export function Avatar(p: { url?: string | null; name: string; square?: boolean }) {
@@ -175,6 +183,15 @@ export function Servers() {
       alert((e as Error).message);
     }
   };
+  const setBadge = async (u: J, id: string, label: string, given: boolean) => {
+    if (!given && !confirm(`Take ${label} away from ${u.username}?`)) return;
+    try {
+      await api('POST', '/moderation/accounts/badge', { user_id: u.id, badge: id, given });
+      void accounts.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
   createEffect(
     on(
       debounced,
@@ -242,6 +259,8 @@ export function Servers() {
                 <th class="r">Messages</th>
                 <th class="r">Media</th>
                 <th class="r">Last message</th>
+                <th>Badges</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -311,7 +330,7 @@ export function Servers() {
               </tr>
             </thead>
             <tbody>
-              <For each={(accounts.data()?.accounts ?? []) as J[]} fallback={<tr><td colspan="11" class="empty">{accounts.loading() ? 'Loading…' : 'No account matches that.'}</td></tr>}>
+              <For each={(accounts.data()?.accounts ?? []) as J[]} fallback={<tr><td colspan="12" class="empty">{accounts.loading() ? 'Loading…' : 'No account matches that.'}</td></tr>}>
                 {(u: J) => (
                   <tr>
                     <td>
@@ -343,6 +362,22 @@ export function Servers() {
                     <td class="r mono nowrap">{bytes(u.upload_bytes, 0)}</td>
                     <td class="r mono nowrap">{Math.round(u.voice_seconds / 3600)} h</td>
                     <td class="r mono nowrap">{u.last_message ? ago(u.last_message) : 'Never'}</td>
+                    <td>
+                      <Show when={!u.bot && !u.deleted_at}>
+                        <span class="badge-toggles">
+                          <For each={MANUAL_BADGES}>
+                            {([id, label]) => {
+                              const has = () => (u.badges ?? []).includes(id);
+                              return (
+                                <button class="badge-toggle" aria-pressed={has()} title={has() ? `Take away ${label}` : `Give ${label}`} onClick={() => setBadge(u, id, label, !has())}>
+                                  {label}
+                                </button>
+                              );
+                            }}
+                          </For>
+                        </span>
+                      </Show>
+                    </td>
                     <td class="r">
                       <Show when={!u.bot && !u.deleted_at}>
                         <button class="btn" classList={{ danger: !u.suspended_at }} onClick={() => setSuspended(u)}>

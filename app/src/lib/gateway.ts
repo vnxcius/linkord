@@ -30,6 +30,7 @@ import {
 import type { Activity, Channel, Guild, Message, Rel, Settings, Status, User, VoiceState } from './types';
 import { Kind } from './types';
 import { onVoiceStateFromServer } from './voice';
+import { onBadgeEarned, onBadgesUpdate } from './badges';
 
 let ws: WebSocket | null = null;
 let retry = 0;
@@ -240,6 +241,10 @@ function handle(t: string, d: any) {
       return setState('customStatus', d.custom_status ?? null);
     case 'USER_CONNECTIONS_UPDATE':
       return setState('connectionsVersion', (n) => n + 1);
+    case 'BADGE_EARNED':
+      return onBadgeEarned(d.badges ?? []);
+    case 'BADGES_UPDATE':
+      return onBadgesUpdate(d);
     case 'USER_NOTE_UPDATE':
       return setState('notes', d.id, d.note);
     case 'USER_UPDATE':

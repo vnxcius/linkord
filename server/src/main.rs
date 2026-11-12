@@ -1,5 +1,6 @@
 mod activities;
 mod api;
+mod badges;
 mod auth;
 mod config;
 mod direct;
@@ -142,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(api::updates::watch(st.clone()));
     tokio::spawn(activities::sweep_games(st.clone()));
     tokio::spawn(activities::keep_custom_statuses(st.clone()));
+    tokio::spawn(badges::sweeper(st.clone()));
     if cfg.spotify_enabled() {
         tokio::spawn(spotify::poller(st.clone()));
     }
@@ -163,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(watch::routes())
         .merge(previews::routes())
         .merge(push::routes())
+        .merge(badges::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
         // The real limit per route is in security::api_limit.

@@ -4325,3 +4325,85 @@ img.emblem { display: inline-block; flex: none; object-fit: contain; user-select
 .xmas-modal .modal.release::before { background: var(--xmas-drift) 0 0 repeat-x, var(--xmas-lights) repeat-x; }
 .xmas-modal .modal.release::after { background: var(--xmas-glow) repeat-x; animation: xmas-twinkle 2.6s ease-in-out infinite; }
 .xmas-modal .modal-close { z-index: 2; }
+
+/* ---------- Profile badges (Badges.tsx, owner 2026-11-12) ----------
+   The art carries its own colors (assets/badges); the tier metals below only tint the tier's name and progress bars,
+   an approved exception to "gold is the only accent". */
+:root {
+  --tier-0: #e09a63; --tier-1: #c7d0dc; --tier-2: #f5b935; --tier-3: #7fe0d2; --tier-4: #b7a4ff;
+}
+:root[data-theme='light'] {
+  --tier-0: #a5582a; --tier-1: #66707f; --tier-2: #a8700f; --tier-3: #23756b; --tier-4: #5b45d6;
+}
+.tier-0 { color: var(--tier-0); } .tier-1 { color: var(--tier-1); } .tier-2 { color: var(--tier-2); }
+.tier-3 { color: var(--tier-3); } .tier-4 { color: var(--tier-4); }
+.tier-bg-0 { background: var(--tier-0); } .tier-bg-1 { background: var(--tier-1); } .tier-bg-2 { background: var(--tier-2); }
+.tier-bg-3 { background: var(--tier-3); } .tier-bg-4 { background: var(--tier-4); }
+.badge-art { display: block; flex: none; user-select: none; }
+.badge-art.faded { opacity: 0.4; filter: grayscale(0.6); }
+.badge-tier { font: 500 11px var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+
+.badge-strip {
+  display: inline-flex; align-items: center; gap: 2px; margin-top: 10px; padding: 3px 5px;
+  background: var(--bg-0); border: 1px solid var(--line); border-radius: 9px;
+}
+.badge-slot { display: block; border-radius: 6px; cursor: default; outline-offset: 1px; }
+.badge-slot:focus-visible { outline: 2px solid var(--gold); }
+.badge-more { padding: 0 4px; font: 500 11.5px var(--font-mono); color: var(--text-3); }
+
+.badge-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.badge-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px 3px 4px; font-size: 12.5px; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; cursor: default;
+}
+.badge-chip:hover, .badge-chip:focus-visible { color: var(--text); border-color: var(--line-strong); outline: none; }
+
+.badge-card {
+  position: fixed; left: 0; top: 0; z-index: 480; width: 250px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--bg-0); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); pointer-events: none;
+}
+.badge-card-head { display: flex; align-items: center; gap: 10px; }
+.badge-card-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.badge-card-head strong { font-size: 14px; font-weight: 600; }
+.badge-card-sub, .badge-card-line { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
+.badge-card-line.muted { color: var(--text-3); }
+.badge-card-next { display: flex; flex-direction: column; gap: 5px; font: 400 11px var(--font-mono); color: var(--text-3); }
+.badge-bar { display: block; height: 4px; border-radius: 999px; background: var(--bg-4); overflow: hidden; }
+.badge-bar > span { display: block; height: 100%; border-radius: 999px; }
+
+.badge-earned {
+  position: fixed; z-index: 465; right: 24px; bottom: 24px; width: 380px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px; padding: 12px 10px 12px 14px;
+  background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow);
+  animation: badge-in 0.22s ease-out;
+}
+@keyframes badge-in { from { opacity: 0; transform: translateY(10px); } }
+.badge-earned-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-2); }
+.badge-earned-text strong { font-size: 14.5px; color: var(--text); }
+.badge-earned-kicker { font: 500 10.5px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
+@media (max-width: 760px) { .badge-earned { right: 16px; left: 16px; bottom: 16px; width: auto; } }
+
+.badges-settings .badges-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 14px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
+.badges-settings .badges-preview .badge-strip { margin: 0; }
+.badges-bulk { margin-left: auto; display: flex; gap: 6px; text-transform: none; letter-spacing: 0; font-family: var(--font); }
+.badge-list { display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge-list > .empty-hint { margin: 0; padding: 14px; }
+.badge-row { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 6px; border-bottom: 1px solid var(--line); cursor: grab; }
+.badge-row:last-child { border-bottom: 0; }
+.badge-row.dragging { opacity: 0.4; }
+.badge-row.drop-before::after, .badge-row.drop-after::after {
+  content: ''; position: absolute; left: 12px; right: 12px; height: 3px; border-radius: 999px; background: var(--gold); pointer-events: none;
+}
+.badge-row.drop-before::after { top: -2px; }
+.badge-row.drop-after::after { bottom: -2px; }
+.badge-grip { color: var(--text-3); cursor: grab; }
+.badge-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.badge-row-text strong { font-weight: 500; font-size: 14.5px; }
+.badge-row.off .badge-row-text strong { color: var(--text-3); }
+.badge-row-text small { color: var(--text-3); font-size: 12.5px; }
+.badge-next-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.badge-next { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge-next-text { display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 0; }
+.badge-next-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13.5px; }
+.badge-next-head strong { font-weight: 500; }
+.badge-next-value { font: 400 11.5px var(--font-mono); color: var(--text-3); white-space: nowrap; }

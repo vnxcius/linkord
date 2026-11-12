@@ -69,6 +69,7 @@ import { UsernameEditor } from './Username';
 import * as I from './Icons';
 import { accentCss } from './Profile';
 import { StatsPage } from './StatsPage';
+import { BadgesPage } from './Badges';
 import { KassPage } from './KassPage';
 import { LeagueSettings } from './League';
 import { StevePage } from './StevePage';
@@ -82,6 +83,7 @@ type Page =
   | 'account'
   | 'sessions'
   | 'profile'
+  | 'badges'
   | 'stats'
   | 'kass'
   | 'steve'
@@ -117,6 +119,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
     pages: [
       ['account', msg('My Account'), I.Account],
       ['profile', msg('Profile'), I.EditProfile],
+      ['badges', msg('Badges'), I.Trophy],
       ['favorite-games', msg('Favorite Games'), I.Gamepad],
       ['stats', msg('Stats'), I.Chart],
       ['sessions', msg('Sessions'), I.Desktop],
@@ -149,6 +152,7 @@ const TITLES: Record<Page, string> = {
   account: msg('My Account'),
   sessions: msg('Sessions'),
   profile: msg('Profile'),
+  badges: msg('Badges'),
   stats: msg('Stats'),
   kass: msg('Kass'),
   steve: msg('Steve'),
@@ -167,6 +171,7 @@ export function Settings(p: { tab?: string }) {
   const legacy: Record<string, Page> = {
     connections: SHOW_CONNECTIONS ? 'connections' : 'account',
     profile: 'profile',
+    badges: 'badges',
     sessions: 'sessions',
     stats: 'stats',
     kass: 'kass',
@@ -253,6 +258,9 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'profile'}>
               <ProfilePage />
+            </Match>
+            <Match when={page() === 'badges'}>
+              <BadgesPage />
             </Match>
             <Match when={page() === 'stats'}>
               <StatsPage />

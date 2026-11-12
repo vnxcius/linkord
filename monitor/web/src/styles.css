@@ -397,3 +397,9 @@ tr.clickable.open td { border-bottom-color: transparent; background: var(--bg-ho
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Accounts -> Badges: one toggle per badge an admin gives. */
+.badge-toggles { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.badge-toggle { padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--text-3); font: 400 11px/18px var(--font-mono); white-space: nowrap; }
+.badge-toggle:hover { color: var(--text); }
+.badge-toggle[aria-pressed='true'] { border-color: var(--gold); background: rgba(227, 179, 65, 0.13); color: var(--text); }

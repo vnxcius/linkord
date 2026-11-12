@@ -21,6 +21,7 @@ import arrowsPointingOut from 'heroicons/24/outline/arrows-pointing-out.svg?raw'
 import arrowsRightLeft from 'heroicons/24/outline/arrows-right-left.svg?raw';
 import atSymbol from 'heroicons/24/outline/at-symbol.svg?raw';
 import bell from 'heroicons/24/outline/bell.svg?raw';
+import trophy from 'heroicons/24/outline/trophy.svg?raw';
 import bellSlash from 'heroicons/24/outline/bell-slash.svg?raw';
 import camera from 'heroicons/24/outline/camera.svg?raw';
 import chartBar from 'heroicons/24/outline/chart-bar.svg?raw';
@@ -155,6 +156,10 @@ export const Crown = icon(path('M3.75 18.75h16.5M4.5 15.75 3 6.75l5.25 4.5L12 4.
 export const Mic = hero(microphone);
 export const MicOff = icon(slashed(body(microphone)));
 export const Headphones = icon(headphones);
+/** Drag handle: two columns of dots. */
+export const GripVertical = icon(
+  path('M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01', ' stroke-width="2.6"'),
+);
 export const HeadphonesOff = icon(slashed(headphones));
 export const Gear = hero(cog6Tooth);
 export const Plus = hero(plus);
@@ -212,6 +217,7 @@ export const BellOff = hero(bellSlash);
 export const UserPlus = hero(userPlus);
 export const Download = hero(arrowDownTray);
 export const Star = hero(star);
+export const Trophy = hero(trophy);
 export const Copy = hero(documentDuplicate);
 export const Fullscreen = hero(arrowsPointingOut);
 export const Back = hero(chevronLeft);

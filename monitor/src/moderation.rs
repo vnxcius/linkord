@@ -109,6 +109,7 @@ pub async fn servers(State(st): State<AppState>, Query(s): Query<Search>) -> Api
          ORDER BY g.created_at DESC LIMIT 500",
     )
     .bind(&q)
+    .bind(MANUAL_BADGES.map(String::from).to_vec())
     .fetch_all(&st.db)
     .await
     .map_err(db_error)?;
@@ -214,6 +215,9 @@ pub async fn server(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResul
     })))
 }
 
+/// The badges an admin gives (the app's badges::MANUAL): Bug Hunter, Tester, Contributor, Helper.
+const MANUAL_BADGES: [&str; 4] = ["bug_hunter", "tester", "contributor", "helper"];
+
 pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> ApiResult {
     let q = s.q.unwrap_or_default();
     let rows = sqlx::query(
@@ -224,7 +228,8 @@ pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> Ap
             (SELECT count(*) FROM messages x WHERE x.author_id = u.id)::bigint AS messages,
             (SELECT COALESCE(SUM(jsonb_array_length(x.attachments)), 0)::bigint FROM messages x WHERE x.author_id = u.id AND x.attachments <> '[]'::jsonb) AS media,
             (SELECT MAX(x.created_at) FROM messages x WHERE x.author_id = u.id) AS last_message,
-            (SELECT count(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())::bigint AS sessions
+            (SELECT count(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())::bigint AS sessions,
+            ARRAY(SELECT b.badge FROM user_badges b WHERE b.user_id = u.id AND b.badge = ANY($2) ORDER BY b.badge) AS badges
          FROM users u
          WHERE $1 = '' OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%' OR u.discord_username ILIKE '%' || $1 || '%'
          ORDER BY u.created_at DESC LIMIT 500",
@@ -255,6 +260,7 @@ pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> Ap
                 "last_message": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_message"),
                 "sessions": n("sessions"),
                 "suspended_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_at"),
+                "badges": r.get::<Vec<String>, _>("badges"),
             })
         })
         .collect();
@@ -461,6 +467,31 @@ pub async fn suspend(State(st): State<AppState>, Json(body): Json<Suspend>) -> A
         return Err(unavailable("Can't read the app's internal token."));
     };
     let res = st.http.post(format!("{url}/moderation/suspend")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
+    let status = res.status();
+    let v: Value = res.json().await.unwrap_or(Value::Null);
+    if status.is_success() {
+        Ok(Json(v))
+    } else {
+        let message = v["error"].as_str().unwrap_or("The app refused.").to_string();
+        Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": message }))))
+    }
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct GiveBadge {
+    user_id: String,
+    badge: String,
+    given: bool,
+}
+
+/// Gives or takes away a badge, through the app (which tells the person's apps).
+pub async fn badge(State(st): State<AppState>, Json(body): Json<GiveBadge>) -> ApiResult {
+    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
+    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
+    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
+        return Err(unavailable("Can't read the app's internal token."));
+    };
+    let res = st.http.post(format!("{url}/moderation/badge")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
     let status = res.status();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     if status.is_success() {

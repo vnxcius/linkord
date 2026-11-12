@@ -21,6 +21,8 @@ import { type FavoriteGame, FavoriteGamesCard } from './FavoriteGames';
 import { voiceUi } from '../lib/voice';
 import { confetti } from '../lib/confetti';
 import { BirthdayCake, formatBirthday, isBirthdayToday } from './Birthday';
+import { BadgeChips, BadgeStrip } from './Badges';
+import { type Badge, rememberBadges } from '../lib/badges';
 import {
   NoteField,
   ProfileLinks,
@@ -381,6 +383,7 @@ export function ProfilePopout() {
                   <span class="tag">{t('Friend')}</span>
                 </Show>
               </div>
+              <BadgeStrip userId={u().id} />
               <Show when={gameOf(u().id)}>
                 {(a) => (
                   <div class="profile-section">
@@ -515,6 +518,7 @@ export function DmProfile(p: { userId: string }) {
                 <span class="tag">{t('Friend')}</span>
               </Show>
             </div>
+            <BadgeStrip userId={u().id} />
             <Show when={gameOf(u().id)}>
               {(a) => (
                 <div class="profile-section">
@@ -625,6 +629,8 @@ interface FullProfile {
   stats?: PublicStats;
   /** Older servers leave it out. */
   snowballs?: Snowballs;
+  /** The badges they show (older servers leave it out). */
+  badges?: Badge[];
   show_top_songs?: boolean;
   show_stats?: boolean;
   /** The linked Riot ID, when they show the League widget (yours always, with show_league). */
@@ -644,7 +650,11 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
   const [tab, setTab] = createSignal<'about' | 'servers' | 'friends'>('about');
   const [full] = createResource(
     () => p.userId,
-    (id) => api<FullProfile>('GET', `/users/${id}/profile`),
+    (id) =>
+      api<FullProfile>('GET', `/users/${id}/profile`).then((f) => {
+        if (f.badges) rememberBadges(id, f.badges);
+        return f;
+      }),
   );
   const user = () => state.users[p.userId] ?? full()?.user;
   // Their server profile (picture, banner, about me) when opened from a server.
@@ -740,6 +750,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                     <span class="tag">{t('Friend')}</span>
                   </Show>
                 </div>
+                <BadgeChips userId={u().id} badges={full()?.badges} />
                 <Show when={full()?.song}>
                   {(song) => <SongPlayer song={song()} autoplay={isMe() ? false : undefined} />}
                 </Show>
