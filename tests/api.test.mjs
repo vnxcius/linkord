@@ -2262,3 +2262,358 @@ test('snowballs: only at people who can see the channel, and the score reaches t
   assert.equal(profile.snowballs.taken, 1);
   assert.equal(profile.snowballs.top[0].user.id, a.id);
 });
+
+test('Steve: mc-manager drives him over the internal listener', async (t) => {
+  const INTERNAL = process.env.LINKORD_INTERNAL_TEST_URL ?? 'http://127.0.0.1:7704';
+  const dataDir = process.env.LINKORD_TEST_DATA_DIR;
+  const token = fs.readFileSync(path.join(dataDir, 'steve-token'), 'utf8').trim();
+  const bot = (method, p, body, tok = token) =>
+    fetch(`${INTERNAL}/bots/steve${p}`, {
+      method,
+      headers: { authorization: `Bearer ${tok}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  // Neither a wrong token nor the monitor's speaks as Steve.
+  assert.equal((await bot('GET', '/guilds', undefined, 'nope')).status, 401);
+  const monitorToken = fs.readFileSync(path.join(dataDir, 'internal-token'), 'utf8').trim();
+  assert.equal((await bot('GET', '/guilds', undefined, monitorToken)).status, 401);
+
+  const g = await gateway(member.token);
+  t.after(() => {
+    g.ws.close();
+    ws.close();
+  });
+  const ws = new WebSocket(`${INTERNAL.replace(/^http/, 'ws')}/bots/steve/gateway`, { headers: { authorization: `Bearer ${token}` } });
+  const inbox = [];
+  ws.onmessage = (e) => inbox.push(JSON.parse(e.data));
+  const hello = await until(() => inbox.find((m) => m.op === 'hello'));
+  assert.equal(hello.user.username, 'steve');
+  const steve = hello.user.id;
+  ws.send(
+    JSON.stringify({
+      op: 'commands',
+      commands: [
+        { name: 'status', description: 'Se o servidor está online' },
+        { name: 'play', description: "Kass's: dropped" },
+        { name: 'Não vale', description: 'bad name: dropped' },
+        { name: 'jockey-de-galinha', description: 'JOCKEY DE GALINHA!' },
+        { name: 'mods', description: 'A lista de mods', option: 'página', optional: true },
+      ],
+    }),
+  );
+  const update = await until(() => g.events.find((e) => e.t === 'BOT_COMMANDS_UPDATE' && e.d.commands.length));
+  assert.deepEqual(
+    update.d.commands.map((c) => c.name),
+    ['status', 'jockey-de-galinha', 'mods'],
+  );
+  assert.equal(update.d.commands[0].bot_id, steve);
+
+  // Not in the server yet; only Manage Server adds him.
+  let r = await call(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'status', query: '' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /isn't in this server/);
+  assert.equal((await call(member.token, 'POST', `/guilds/${guild.id}/bots/steve`)).status, 403);
+  await ok(owner.token, 'POST', `/guilds/${guild.id}/bots/steve`);
+  await until(() => g.events.find((e) => e.t === 'GUILD_MEMBER_ADD' && e.d.member.user.id === steve));
+
+  const seen = [];
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.op !== 'interaction') return;
+    seen.push(m);
+    const reply =
+      m.command === 'mods'
+        ? { ephemeral: true, content: `página ${m.query}`, embeds: [] }
+        : m.command === 'jockey-de-galinha'
+          ? { error: 'Calma aí: tente de novo em 5 s.' }
+          : {
+              embeds: [
+                {
+                  title: 'Servidor',
+                  description: '🟢 **Online** desde <t:1700000000:R>',
+                  color: 0x2ecc71,
+                  url: 'javascript:alert(1)',
+                  fields: [{ name: 'Jogadores', value: '**2**/20', inline: true }],
+                  footer: 'Status',
+                  timestamp: Date.now(),
+                },
+              ],
+              files: [{ name: 'Servidor-1.21.1.mrpack', data: Buffer.from('PK modpack').toString('base64') }],
+            };
+    ws.send(JSON.stringify({ op: 'reply', id: m.id, ...reply }));
+  };
+
+  const msg = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'status', query: '' });
+  assert.equal(msg.author.id, steve);
+  assert.equal(msg.interaction.name, 'status');
+  assert.equal(msg.interaction.user.id, member.id);
+  assert.equal(msg.embeds[0].type, 'rich');
+  assert.equal(msg.embeds[0].url, '', 'only http(s) links');
+  assert.deepEqual(msg.embeds[0].fields, [{ name: 'Jogadores', value: '**2**/20', inline: true }]);
+  assert.equal(msg.attachments[0].filename, 'Servidor-1.21.1.mrpack');
+  assert.equal(seen[0].user.id, member.id);
+  assert.equal(seen[0].guild_id, guild.id);
+  assert.equal(seen[0].channel_id, general.id);
+  assert.equal(seen[0].voice_channel_id, null);
+  // The same file in the same channel isn't stored twice.
+  const again = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'status', query: '' });
+  assert.equal(again.attachments[0].url, msg.attachments[0].url);
+
+  // Ephemeral: only the caller gets it, and it isn't stored.
+  const eph = await ok(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'mods', query: '2' });
+  assert.equal(eph.ephemeral, true);
+  assert.equal(eph.content, 'página 2');
+  const list = await ok(member.token, 'GET', `/channels/${general.id}/messages?limit=10`);
+  assert.ok(!list.some((m) => m.id === eph.id));
+  // His errors are the caller's alone.
+  r = await call(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'jockey-de-galinha', query: '' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Calma aí/);
+
+  // His own messages: the live status is posted once and then edited; others' messages aren't his to touch.
+  const live = await (await bot('POST', `/channels/${general.id}/messages`, { content: '', embeds: [{ title: 'Status ao vivo', description: 'x' }] })).json();
+  assert.equal(live.author.id, steve);
+  const edited = await (await bot('PATCH', `/channels/${general.id}/messages/${live.id}`, { content: '', embeds: [{ title: 'Status ao vivo', description: 'y' }] })).json();
+  assert.equal(edited.embeds[0].description, 'y');
+  assert.ok(edited.edited_at);
+  assert.equal((await bot('GET', `/channels/${general.id}/messages/${live.id}`)).status, 200);
+  const someone = await ok(member.token, 'POST', `/channels/${general.id}/messages`, { content: 'hi' });
+  assert.equal((await bot('GET', `/channels/${general.id}/messages/${someone.id}`)).status, 404);
+  assert.equal((await bot('PATCH', `/channels/${general.id}/messages/${someone.id}`, { content: 'x' })).status, 403);
+  const guilds = await (await bot('GET', '/guilds')).json();
+  const mine = guilds.find((x) => x.id === guild.id);
+  assert.ok(mine.channels.some((c) => c.id === general.id));
+
+  // Clips: Ogg or MP3 only.
+  const ogg = await fetch(`${INTERNAL}/bots/steve/sounds/o-nether`, { method: 'PUT', headers: { authorization: `Bearer ${token}` }, body: Buffer.from('OggS\0\x02rest') });
+  assert.match((await ogg.json()).url, /^\/uploads\/bots\/steve\/o-nether-[0-9a-f]+\.ogg$/);
+  const html = await fetch(`${INTERNAL}/bots/steve/sounds/evil`, { method: 'PUT', headers: { authorization: `Bearer ${token}` }, body: '<html>' });
+  assert.equal(html.status, 400);
+
+  // Presence mirrors the Minecraft server; going away shows him offline and takes his commands off.
+  ws.send(JSON.stringify({ op: 'presence', status: 'dnd', text: '🔴 Offline' }));
+  await until(() => g.events.find((e) => e.t === 'PRESENCE_UPDATE' && e.d.user_id === steve && e.d.status === 'dnd' && e.d.activities?.[0]?.state === '🔴 Offline'));
+  ws.close();
+  await until(() => g.events.find((e) => e.t === 'PRESENCE_UPDATE' && e.d.user_id === steve && e.d.status === 'offline'));
+  await until(() => g.events.findLast((e) => e.t === 'BOT_COMMANDS_UPDATE')?.d.commands.length === 0);
+  r = await call(member.token, 'POST', `/channels/${general.id}/commands`, { name: 'status', query: '' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /away/);
+  // Steve can't be banned, only removed.
+  assert.equal((await call(owner.token, 'PUT', `/guilds/${guild.id}/bans/${steve}`)).status, 400);
+  await ok(owner.token, 'DELETE', `/guilds/${guild.id}/bots/steve`);
+});
+
+test("Steve's picture is his own: admins change it without touching Kass's", async () => {
+  const png = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', 'pipe:1']);
+  const form = () => {
+    const fd = new FormData();
+    fd.append('file', new Blob([png], { type: 'image/png' }), 'steve.png');
+    return fd;
+  };
+  assert.equal((await call(member.token, 'POST', '/bots/steve/avatar', form())).status, 403);
+  const { token: admin } = await ok(null, 'POST', '/auth/dev', { username: 'logadmin' });
+  const kassAvatar = async () => {
+    const g = await gateway(owner.token);
+    g.ws.close();
+    return g.first.d.guilds.find((x) => x.id === guild.id).members.find((m) => m.user.username === 'kass').user.avatar;
+  };
+  const kassBefore = await kassAvatar();
+  const steve = await ok(admin, 'POST', '/bots/steve/avatar', form());
+  assert.equal(steve.username, 'steve');
+  assert.match(steve.avatar, /^\/uploads\/bots\//);
+  const reset = await ok(admin, 'DELETE', '/bots/steve/avatar');
+  assert.equal(reset.avatar, '/uploads/bots/steve.svg');
+  assert.equal(await kassAvatar(), kassBefore, "Kass's picture didn't change");
+});
+
+/** A v2 voice client (reconnects by itself, says `leave`): resolves with the socket, its `ready` and its close code. */
+function voiceV2(u, channelId) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/voice/connect`);
+    const closed = new Promise((r) => ws.addEventListener('close', (e) => r(e.code)));
+    ws.onopen = () => ws.send(JSON.stringify({ token: u.token, channel_id: channelId, v: 2 }));
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      const m = JSON.parse(e.data);
+      if (m.op === 'ready') resolve({ ws, ready: m, closed });
+    };
+    ws.onerror = reject;
+  });
+}
+
+test('voice: a dropped connection keeps the seat for a reconnect, quietly; leaving ends it at once', async () => {
+  const [a, b] = await Promise.all([login('seata'), login('seatb')]);
+  const { voice, invite } = await serverWithVoice(a);
+  await ok(b.token, 'POST', `/invites/${invite.code}`);
+  const watcher = await gateway(b.token);
+  const states = (from) => watcher.events.slice(from).filter((e) => e.t === 'VOICE_STATE_UPDATE' && e.d.user_id === a.id);
+  const left = (from) => states(from).some((e) => e.d.channel_id === null);
+
+  const first = await voiceV2(a, voice.id);
+  assert.equal(first.ready.resumed, false);
+  await until(() => states(0).some((e) => e.d.channel_id === voice.id));
+  const mark = watcher.events.length;
+  // The connection drops (no `leave`): the seat waits and nobody hears about it.
+  first.ws.close();
+  await new Promise((r) => setTimeout(r, 400));
+  const back = await voiceV2(a, voice.id);
+  assert.equal(back.ready.resumed, true, 'the seat was kept');
+  // The same login taking a seat that still has a live socket (the client noticed a dead connection first).
+  const again = await voiceV2(a, voice.id);
+  assert.equal(again.ready.resumed, true);
+  assert.equal(await back.closed, 4006, 'the replaced socket is told why');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(states(mark).length, 0, 'nobody saw a leave or a join');
+  // Saying leave ends it right away.
+  again.ws.send(JSON.stringify({ op: 'leave' }));
+  assert.equal(await again.closed, 1000);
+  await until(() => left(mark));
+
+  // Nobody coming back: the seat ends after the grace (1.5 s in tests).
+  const lone = await voiceV2(a, voice.id);
+  assert.equal(lone.ready.resumed, false);
+  const mark2 = watcher.events.length;
+  lone.ws.close();
+  await new Promise((r) => setTimeout(r, 700));
+  assert.ok(!left(mark2), 'still seated during the grace');
+  await until(() => left(mark2), 4000);
+
+  // Older clients (no `v`) leave as soon as their socket closes, as before.
+  const old = await voiceJoin(a, voice.id);
+  const mark3 = watcher.events.length;
+  old.onclose = null;
+  old.close();
+  await until(() => left(mark3), 1500);
+  watcher.ws.close();
+});
+
+test('push: encrypted notifications reach a phone when it should, and only then', async () => {
+  const http = await import('node:http');
+  const crypto = await import('node:crypto');
+  // A push service (LINKORD_PUSH_HOSTS=localhost:7708 in run-local.sh); /gone answers like an expired subscription.
+  const got = [];
+  const service = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      got.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks) });
+      res.statusCode = req.url.includes('gone') ? 410 : 201;
+      res.end();
+    });
+  });
+  await new Promise((r) => service.listen(7708, '127.0.0.1', r));
+  const b64 = (x) => Buffer.from(x).toString('base64url');
+  const device = () => {
+    const ecdh = crypto.createECDH('prime256v1');
+    ecdh.generateKeys();
+    return { ecdh, auth: crypto.randomBytes(16) };
+  };
+  // RFC 8291 decryption with Node's own crypto: an independent check of the server's encryption.
+  const open = (body, { ecdh, auth }) => {
+    const salt = body.subarray(0, 16);
+    const idlen = body[20];
+    const keyid = body.subarray(21, 21 + idlen);
+    const ct = body.subarray(21 + idlen);
+    const info = Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), keyid]);
+    const ikm = Buffer.from(crypto.hkdfSync('sha256', ecdh.computeSecret(keyid), auth, info, 32));
+    const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16));
+    const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
+    const d = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+    d.setAuthTag(ct.subarray(ct.length - 16));
+    const plain = Buffer.concat([d.update(ct.subarray(0, ct.length - 16)), d.final()]);
+    assert.equal(plain.at(-1), 2, 'last-record delimiter');
+    return JSON.parse(plain.subarray(0, -1));
+  };
+  const sub = (path, dev, lang) => ({ endpoint: `http://localhost:7708/push/${path}`, keys: { p256dh: b64(dev.ecdh.getPublicKey()), auth: b64(dev.auth) }, lang });
+  const pushesTo = (path) => got.filter((g) => g.url === `/push/${path}`);
+  const settle = () => new Promise((r) => setTimeout(r, 400));
+
+  const [a, b] = await Promise.all([login('pusha'), login('pushb')]);
+  const { g, text, invite } = await serverWithVoice(b);
+  await ok(a.token, 'POST', `/invites/${invite.code}`);
+  const dm = await ok(b.token, 'POST', '/users/@me/channels', { recipient_id: a.id });
+  const { public_key } = await ok(a.token, 'GET', '/push/key');
+  const phone = device();
+
+  assert.equal((await call(a.token, 'POST', '/push/subscriptions', { ...sub('x', phone), endpoint: 'https://evil.example/x' })).status, 400, 'unknown push services are refused');
+  assert.equal((await call(a.token, 'POST', '/push/subscriptions', { ...sub('x', phone), keys: { p256dh: 'AAAA', auth: b64(phone.auth) } })).status, 400);
+  await ok(a.token, 'POST', '/push/subscriptions', sub('a', phone, 'pt-BR'));
+
+  // A DM: one push, signed with the server's key, encrypted for this phone only.
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'oi <@' + a.id + '>' });
+  await until(() => pushesTo('a').length === 1);
+  const first = pushesTo('a')[0];
+  assert.equal(first.headers['content-encoding'], 'aes128gcm');
+  assert.equal(first.headers.urgency, 'high');
+  const [, t, k] = first.headers.authorization.match(/^vapid t=([^,]+), k=(.+)$/);
+  assert.equal(k, public_key);
+  const [h, c, sig] = t.split('.');
+  const raw = Buffer.from(k, 'base64url');
+  const key = crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: b64(raw.subarray(1, 33)), y: b64(raw.subarray(33)) }, format: 'jwk' });
+  assert.ok(crypto.verify('sha256', Buffer.from(`${h}.${c}`), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url')), 'VAPID signature');
+  assert.equal(JSON.parse(Buffer.from(c, 'base64url')).aud, 'http://localhost:7708');
+  const n = open(first.body, phone);
+  assert.match(n.title, /pushb/);
+  assert.match(n.body, /^oi @pusha/, 'mentions written out');
+  assert.equal(n.url, `/channels/@me/${dm.id}`);
+  assert.equal(n.channel_id, dm.id);
+
+  // Using Linkord on another device: no push. In the background: pushes again.
+  const desk = await gateway(a.token);
+  desk.ws.send(JSON.stringify({ op: 'active' }));
+  await settle();
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'are you there?' });
+  await settle();
+  assert.equal(pushesTo('a').length, 1, 'no push while in use');
+  desk.ws.send(JSON.stringify({ op: 'away' }));
+  await settle();
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: '' , attachments: [] }).catch(() => {});
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'now?' });
+  await until(() => pushesTo('a').some((p) => open(p.body, phone).body === 'now?'));
+  desk.ws.close();
+
+  // Server channels follow the notification level: "All messages" by default, then mentions only.
+  const before = pushesTo('a').length;
+  await ok(b.token, 'POST', `/channels/${text.id}/messages`, { content: 'hello server' });
+  await until(() => pushesTo('a').length === before + 1);
+  assert.match(open(pushesTo('a').at(-1).body, phone).title, new RegExp(`#sec-text, Sec ${run}`));
+  await ok(a.token, 'PATCH', '/users/@me/settings', { guild_notifications: { [g.id]: 'mentions' } });
+  await ok(b.token, 'POST', `/channels/${text.id}/messages`, { content: 'no ping' });
+  await settle();
+  assert.equal(pushesTo('a').length, before + 1, 'mentions only: a plain message stays quiet');
+  await ok(b.token, 'POST', `/channels/${text.id}/messages`, { content: `<@${a.id}> look` });
+  await until(() => pushesTo('a').length === before + 2);
+  // Muted server: even mentions are quiet... except direct ones (like the app).
+  await ok(a.token, 'PATCH', '/users/@me/settings', { guild_notifications: { [g.id]: 'none' } });
+  await ok(b.token, 'POST', `/channels/${text.id}/messages`, { content: `<@${a.id}> nothing` });
+  await settle();
+  assert.equal(pushesTo('a').length, before + 2, '"Nothing" silences mentions too');
+
+  // "Send a test", in the phone's language.
+  const sent = await ok(a.token, 'POST', '/push/test');
+  assert.equal(sent.sent, 1);
+  assert.match(open(pushesTo('a').at(-1).body, phone).body, /funcionando/);
+
+  // The service worker's receipt: only for a real subscription, no login needed.
+  assert.equal((await call(null, 'POST', '/push/received', { endpoint: sub('a', phone).endpoint, shown: true })).status, 204);
+  assert.equal((await call(null, 'POST', '/push/received', { endpoint: 'http://localhost:7708/push/nobody', shown: false, error: 'x' })).status, 204);
+
+  // An expired subscription is dropped after the first 410.
+  const old = device();
+  await ok(a.token, 'POST', '/push/subscriptions', sub('gone', old));
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'one' });
+  await until(() => pushesTo('gone').length === 1);
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'two' });
+  await settle();
+  assert.equal(pushesTo('gone').length, 1);
+
+  // Signing out removes this login's subscription.
+  const tablet = await ok(null, 'POST', '/auth/dev', { username: `pusha.${run}` });
+  await ok(tablet.token, 'POST', '/push/subscriptions', sub('tablet', device()));
+  await call(tablet.token, 'POST', '/auth/logout');
+  await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'three' });
+  await until(() => pushesTo('a').length >= before + 5);
+  assert.equal(pushesTo('tablet').length, 0, 'gone with its login');
+  service.close();
+});

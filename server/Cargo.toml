@@ -40,6 +40,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 urlencoding = "2"
 x509-parser = "0.18"
 imagesize = "0.15.0"
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+hkdf = "0.12"
+aes-gcm = "0.10"
 
 [profile.release]
 lto = "thin"

@@ -103,6 +103,7 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
                     .interaction
                     .and_then(|i| Some(Interaction { user: users.get(&i.user_id)?.clone(), name: i.0.name })),
                 nonce: None,
+                ephemeral: false,
             })
         })
         .collect())
@@ -309,8 +310,34 @@ struct Draft {
 
 /// A bot's answer to a slash command `name` used by `user`, with its own embeds.
 pub async fn post_bot_message(st: &AppState, a: &Access, bot: Id, user: Id, name: &str, content: String, embeds: serde_json::Value) -> ApiResult<Message> {
-    let interaction = Some(InteractionRow { name: name.to_string(), user_id: user });
-    post_message(st, a, bot, Draft { content, embeds: Some(embeds), interaction, ..Default::default() }).await
+    post_bot_message_with(st, a, bot, Some((user, name)), content, embeds, vec![]).await
+}
+
+/// A bot's message with files, answering a command (`(user, name)`) or on its own (Steve's status, announcements).
+pub async fn post_bot_message_with(
+    st: &AppState,
+    a: &Access,
+    bot: Id,
+    command: Option<(Id, &str)>,
+    content: String,
+    embeds: serde_json::Value,
+    attachments: Vec<Attachment>,
+) -> ApiResult<Message> {
+    let interaction = command.map(|(user, name)| InteractionRow { name: name.to_string(), user_id: user });
+    post_message(st, a, bot, Draft { content, embeds: Some(embeds), interaction, attachments, ..Default::default() }).await
+}
+
+/// A bot changes its own message's text and embeds (Steve's live status).
+pub async fn edit_bot_message(st: &AppState, a: &Access, mid: Id, content: String, embeds: serde_json::Value) -> ApiResult<Message> {
+    let row = sqlx::query_as::<_, MessageRow>(&format!(
+        "UPDATE messages SET content = $2, embeds = $3, edited_at = now() WHERE id = $1 RETURNING {MESSAGE_COLS}"
+    ))
+    .bind(mid)
+    .bind(&content)
+    .bind(sqlx::types::Json(&embeds))
+    .fetch_one(&st.db)
+    .await?;
+    broadcast_message(st, a, row).await
 }
 
 /// A system message (see models::message_type) by `author` in a channel: no permission checks, no link previews.
@@ -358,6 +385,7 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     let mut msg = hydrate(st, vec![row]).await?.pop().ok_or(ApiError::NotFound)?;
     msg.nonce = d.nonce;
     st.hub.send(&audience, "MESSAGE_CREATE", &msg);
+    crate::push::on_message(st, &ch, &msg, &audience);
     if !d.content.is_empty() && d.embeds.is_none() {
         embeds::spawn(st.clone(), ch, mid, d.content);
     }

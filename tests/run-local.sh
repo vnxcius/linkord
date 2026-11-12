@@ -2,7 +2,8 @@
 # Runs the API and UI test suites against a throwaway server instance (port 7701, database
 # linkord_test, dev login on). Production is never touched.
 #   tests/run-local.sh              everything (do this before deploying)
-#   tests/run-local.sh --api        API tests only (~10 s)
+#   tests/run-local.sh --api        API tests only (~10 s), plus the restart handover test
+#   tests/run-local.sh --handover   only the restart handover test
 #   tests/run-local.sh --ui [regex] browser steps matching regex (plus setup), stopping at the first
 #                                   failure with 5 s waits; screenshots of failures go to $SHOTS if set
 #   tests/run-local.sh --monitor    the monitor (monitor/) against the throwaway server; $SHOTS gets its screens
@@ -13,6 +14,7 @@ case "${1:-}" in
   --api) mode=api ;;
   --ui) mode=ui; only="${2:-}" ;;
   --monitor) mode=monitor ;;
+  --handover) mode=handover ;;
 esac
 root="$(cd "$(dirname "$0")/.." && pwd)"
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -27,7 +29,7 @@ data=$(native "$(mktemp -d)")
 cp -r "$root/server/nameplates" "$data/nameplates"
 
 docker exec linkord-postgres-1 createdb -U linkord linkord_test 2>/dev/null || true
-[[ $mode == api ]] || (cd "$root/app" && bun run build >/dev/null)
+[[ $mode == api || $mode == handover ]] || (cd "$root/app" && bun run build >/dev/null)
 if [[ $mode == all || $mode == monitor ]]; then
   (cd "$root/monitor/web" && bun install --frozen-lockfile >/dev/null && bun run build >/dev/null)
   (cd "$root/monitor" && cargo build -q)
@@ -49,10 +51,10 @@ fi
 cd "$root/server"
 SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=500 \
   SPOTIFY_ACCOUNTS_URL=http://localhost:7702 SPOTIFY_API_URL=http://localhost:7702 LINKORD_DETECTABLE_URL=http://localhost:7702/detectable \
-  LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704 \
+  LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704 LINKORD_VOICE_GRACE_MS=1500 LINKORD_PUSH_HOSTS=localhost:7708 \
   LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off \
   DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" \
-  LINKORD_YTDLP="$ytdlp" LINKORD_YTDLP_ARGS="$ytdlp_args" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true LINKORD_GAME_INFO=off LINKORD_ADMINS=logadmin DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702 \
+  LINKORD_YTDLP="$ytdlp" LINKORD_YTDLP_ARGS="$ytdlp_args" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true LINKORD_SIGNUP=invite LINKORD_GAME_INFO=off LINKORD_ADMINS=logadmin DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702 \
   "${CARGO_TARGET_DIR:-target}/debug/linkord-server" >"$data/server.log" 2>&1 &
 server=$!
 monitor=
@@ -76,7 +78,11 @@ cd "$root/tests"
 export LINKORD_TEST_URL=http://localhost:7701 LINKORD_TEST_DATA_DIR="$data"
 # Chromium for the UI tests: cd tests && npx playwright-core install chromium
 export CHROMIUM="${CHROMIUM:-$chromium}"
-[[ $mode == ui || $mode == monitor ]] || node --test --test-timeout=20000 api.test.mjs
+[[ $mode == ui || $mode == monitor || $mode == handover ]] || node --test --test-timeout=20000 api.test.mjs
+# Restarts without dropping calls: its own servers on :7706 (server/src/handover.rs).
+[[ $mode == ui || $mode == monitor ]] || LINKORD_SERVER_BIN="$(native "$(cd "$root/server" && cd "${CARGO_TARGET_DIR:-target}" && pwd)/debug/linkord-server")" \
+  LINKORD_TEST_DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" LINKORD_YTDLP="$ytdlp" \
+  node --test --test-timeout=120000 handover.test.mjs
 if [[ $mode == all || $mode == monitor ]]; then
   MONITOR_TEST_URL=http://localhost:7705 LINKORD_INTERNAL_TEST_URL=http://127.0.0.1:7704 SHOTS="${SHOTS:-}" \
     node --test --test-timeout=120000 monitor.test.mjs || { cat "$data/monitor.log"; exit 1; }

@@ -1361,6 +1361,28 @@ export const UI: Record<string, string> = {
   'Kass was removed': 'O Kass foi removido',
   'Ask an admin': 'Peça a um admin',
   'Add Kass': 'Adicionar o Kass',
+  'Dismiss Message': 'Descartar mensagem',
+  'Only you can see this': 'Só você pode ver isto',
+  'Dismiss message': 'Descartar mensagem',
+  Steve: 'Steve',
+  'Steve left the server': 'O Steve saiu do servidor',
+  'Steve joined the server': 'O Steve entrou no servidor',
+  "The Minecraft server's bot: whether it's online, who is playing, the address, the mods and the modpack. The Minecraft panel decides what he says.":
+    'O bot do servidor de Minecraft: se está online, quem está jogando, o endereço, os mods e o modpack. Quem decide o que ele diz é o painel do Minecraft.',
+  'Steve is here': 'O Steve está aqui',
+  'Not in this server': 'Não está neste servidor',
+  'Add Steve': 'Adicionar o Steve',
+  'Clip start': 'Início do trecho',
+  'Clip end': 'Fim do trecho',
+  'Hold a handle still to zoom in and place it to the millisecond. Arrow keys move a handle by 10 ms.':
+    'Segure uma alça parada para dar zoom e acertar no milissegundo. As setas movem a alça de 10 em 10 ms.',
+  'How loud his movie lines play for you in calls. Only on this device; also in his right-click menu.':
+    'O volume das falas do filme dele nas chamadas, para você. Só neste dispositivo; também no menu do botão direito dele.',
+  "Steve is away: the Minecraft panel isn't connected, so his commands are off for now.":
+    'O Steve está ausente: o painel do Minecraft não está conectado, então os comandos dele estão desligados por enquanto.',
+  'Add Steve to a server to see his commands.': 'Adicione o Steve a um servidor para ver os comandos dele.',
+  'Type them in any text channel of a server with Steve.':
+    'Digite em qualquer canal de texto de um servidor com o Steve.',
   'Type them in any text channel of a server with Kass, while you are in a voice channel.':
     'Digite em qualquer canal de texto de um servidor com o Kass, enquanto estiver num canal de voz.',
   'How you show up in {server}.': 'Como você aparece em {server}.',
@@ -1723,10 +1745,57 @@ export const UI: Record<string, string> = {
   '{n} selected (up to {max}s)': '{n} selecionado (até {max}s)',
   'Title (optional)': 'Título (opcional)',
   'Artist — Song': 'Artista — Música',
+  // Push notifications (lib/push.ts, PushBanner.tsx, Settings -> Notifications)
+  'Notifications are on for this phone.': 'As notificações estão ativadas neste celular.',
+  'Notifications are blocked for this site in your browser settings.':
+    'As notificações deste site estão bloqueadas nas configurações do navegador.',
+  "Couldn't turn notifications on. Try again from Settings → Notifications.":
+    'Não deu para ativar as notificações. Tenta de novo em Configurações → Notificações.',
+  'To get notifications on this phone, add Linkord to your Home Screen: tap Share, then Add to Home Screen.':
+    'Para receber notificações neste celular, adicione o Linkord à Tela de Início: toque em Compartilhar e depois em Adicionar à Tela de Início.',
+  'Get notifications on this phone for DMs and mentions.': 'Receba notificações de DMs e menções neste celular.',
+  'Turn on': 'Ativar',
+  "Couldn't turn notifications on. Try again in a moment.":
+    'Não deu para ativar as notificações. Tenta de novo daqui a pouco.',
+  'A test arrives in {n} seconds: close Linkord or lock the phone to see it like a real notification.':
+    'Um teste chega em {n} segundos: feche o Linkord ou bloqueie o celular para ver como uma notificação de verdade.',
+  "The test didn't reach this device. On Android, check that the browser may run in the background (battery settings) and has notifications allowed.":
+    'O teste não chegou a este dispositivo. No Android, confira se o navegador pode rodar em segundo plano (configurações de bateria) e tem permissão de notificações.',
+  "The test arrived but couldn't be shown: {error}": 'O teste chegou, mas não deu para mostrar: {error}',
+  "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Linkord.":
+    'O teste chegou e foi mostrado. Não está vendo? O Android pode estar escondendo as notificações deste navegador: permita nas configurações do Android para o navegador e para o Linkord.',
+  'Notifications on this device': 'Notificações neste dispositivo',
+  "For your phone or this browser: DMs, mentions and calls arrive even when Linkord is closed. They aren't sent while you're using Linkord on another device.":
+    'Para o seu celular ou este navegador: DMs, menções e chamadas chegam mesmo com o Linkord fechado. Elas não são enviadas enquanto você está usando o Linkord em outro dispositivo.',
+  "This browser can't get notifications while Linkord is closed.":
+    'Este navegador não recebe notificações com o Linkord fechado.',
+  'On iPhone and iPad, add Linkord to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.':
+    'No iPhone e no iPad, adicione o Linkord à Tela de Início primeiro (Compartilhar, depois Adicionar à Tela de Início) e ative isto por lá.',
+  'Notifications are blocked for this site. Allow them in your browser settings, then come back here.':
+    'As notificações deste site estão bloqueadas. Permita nas configurações do navegador e volte aqui.',
+  'Push notifications': 'Notificações push',
+  'Only on this device. Every phone or browser you use turns them on by itself.':
+    'Só neste dispositivo. Cada celular ou navegador que você usa ativa por conta própria.',
 };
 
 /** Error messages from the server (server/src), shown as they arrive. */
 export const SERVER: Record<string, string> = {
+  "Steve can't be banned; remove him from the server instead": 'O Steve não pode ser banido; remova ele do servidor',
+  "Steve isn't in this server. Someone with Manage Server can add him in Settings → Steve.":
+    'O Steve não está neste servidor. Quem tem Gerenciar Servidor pode adicioná-lo em Configurações → Steve.',
+  "Steve is away right now: the Minecraft panel isn't connected":
+    'O Steve está ausente agora: o painel do Minecraft não está conectado',
+  'Steve lost the connection to the Minecraft panel. Try again in a moment.':
+    'O Steve perdeu a conexão com o painel do Minecraft. Tente de novo daqui a pouco.',
+  'Steve took too long to answer': 'O Steve demorou demais para responder',
+  'Steve had nothing to say': 'O Steve não tinha nada para dizer',
+  'bad file': 'Arquivo inválido',
+  'that file is too big for Linkord': 'Esse arquivo é grande demais para o Linkord',
+  'not a server text channel': 'Não é um canal de texto de servidor',
+  'bad sound name': 'Nome de som inválido',
+  'a sound must be at most 1 MB': 'Um som pode ter no máximo 1 MB',
+  'too many sounds': 'Sons demais',
+  'sounds must be Ogg or MP3': 'Os sons precisam ser Ogg ou MP3',
   "you can't throw a snowball at yourself": 'Você não pode jogar uma bola de neve em si mesmo',
   "they can't see this channel": 'Essa pessoa não vê este canal',
   "you can't throw a snowball at them": 'Você não pode jogar uma bola de neve nessa pessoa',
@@ -1913,6 +1982,9 @@ export const SERVER: Record<string, string> = {
   'songs must be mp3, ogg, wav, webm or m4a files': 'músicas precisam ser arquivos mp3, ogg, wav, webm ou m4a',
   "couldn't read that song": 'não deu para ler essa música',
   'profile songs can be at most 30 seconds long': 'músicas do perfil podem ter no máximo 30 segundos',
+  "this browser's push service isn't supported": 'o serviço de notificações deste navegador não é suportado',
+  'bad subscription keys': 'chaves de inscrição inválidas',
+  "notifications aren't on for this device": 'as notificações não estão ativadas neste dispositivo',
 };
 
 export default { ...UI, ...SERVER } as Record<string, string>;

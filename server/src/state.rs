@@ -52,6 +52,8 @@ pub struct Inner {
     pub spotify_states: DashMap<String, (Id, Instant)>,
     /// Kass, the music bot.
     pub music: crate::music::Music,
+    /// Steve, the Minecraft bot mc-manager drives.
+    pub steve: crate::steve::Steve,
     /// Watch together: what each call is watching (watch.rs).
     pub watches: DashMap<Id, crate::watch::Watch>,
     /// Stream previews (previews.rs): each streamer's latest JPEG and when it came (unix ms).

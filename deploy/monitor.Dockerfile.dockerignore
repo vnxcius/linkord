@@ -1,0 +1,7 @@
+*
+!monitor/
+monitor/target
+monitor/data
+monitor/.env
+monitor/web/node_modules
+monitor/web/dist

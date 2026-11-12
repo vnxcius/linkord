@@ -1423,6 +1423,45 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await ctx.close();
 });
 
+await step('notifications on a phone: the offer under the channel list, the service worker, the setting', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const pg = await ctx.newPage();
+  pg.on('pageerror', (e) => errors.push(`phone push: ${e.message}`));
+  await pg.goto(BASE);
+  await pg.fill('.dev-login input', `pushphone.${run}`);
+  await pg.click('.dev-login button');
+  await pg.waitForSelector('.tour:not(.anchored) .tour-card');
+  await pg.click('.tour .tour-skip');
+  // Installable: the manifest and a service worker in charge of the page.
+  assert.equal(await pg.evaluate(() => document.querySelector('link[rel=manifest]')?.getAttribute('href')), '/manifest.webmanifest');
+  const manifest = await (await fetch(`${BASE}/manifest.webmanifest`)).json();
+  assert.equal(manifest.display, 'standalone');
+  assert.ok(await pg.evaluate(async () => !!(await navigator.serviceWorker.ready).active));
+  // The offer sits in the channel list's panel, never over the chat; dismissing it is remembered.
+  const banner = pg.locator('.dock .push-banner');
+  await banner.waitFor();
+  assert.match(await banner.innerText(), /notifications on this phone/);
+  await pg.tap('.push-banner-close');
+  await banner.waitFor({ state: 'detached' });
+  await pg.reload();
+  // A reload goes back to where you were, maybe a chat: step back to the channel list.
+  await pg.waitForSelector('.sidebar:visible, .main .mobile-back:visible');
+  if (await pg.locator('.main .mobile-back').isVisible()) await pg.tap('.main .mobile-back');
+  await pg.waitForSelector('.dock');
+  await pg.waitForTimeout(500);
+  assert.equal(await banner.count(), 0, 'stays dismissed');
+  await ctx.close();
+  // On a computer's browser: the switch in Settings -> Notifications (the desktop app has its own notifications).
+  await a.page.click('[aria-label="Settings"]');
+  await a.page.click('.settings-nav button:has-text("Notifications")');
+  await a.page.waitForSelector('text=Notifications on this device');
+  const section = a.page.locator('.set-section:has(h2:text("Notifications on this device"))');
+  // Headless Chromium may refuse notifications outright; a real browser shows the switch.
+  const shown = await section.innerText();
+  assert.ok(/Push notifications|blocked for this site|can't get notifications/.test(shown), shown);
+  await a.page.click('.settings-close');
+});
+
 await step('sidebars: drag the handles to resize, remembered, double-click resets', async () => {
   const { page: pg } = await user('wren', { language: 'en' });
   const width = (sel) => pg.$eval(sel, (e) => e.getBoundingClientRect().width);

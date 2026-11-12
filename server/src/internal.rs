@@ -54,8 +54,45 @@ pub struct Counters {
     pub queue_drops: AtomicU64,
     /// Media too old to send (MEDIA_MAX_AGE): the listener's connection can't keep up.
     pub stale_media: AtomicU64,
+    /// Voice connections that dropped without leaving (the seat waited for a reconnect).
+    pub voice_drops: AtomicU64,
+    /// Seats taken back by a reconnect (after a drop or a restart).
+    pub voice_resumes: AtomicU64,
     lag_last_us: AtomicU64,
     lag_max_us: AtomicU64,
+}
+
+/// How many migrations this build has (main.rs sets it), so the monitor can tell whether some are waiting.
+pub static MIGRATIONS: OnceLock<usize> = OnceLock::new();
+
+fn tools() -> &'static std::sync::RwLock<Value> {
+    static T: OnceLock<std::sync::RwLock<Value>> = OnceLock::new();
+    T.get_or_init(|| std::sync::RwLock::new(Value::Null))
+}
+
+/// The first line of `program args`, or None if it can't run.
+async fn version_of(mut cmd: tokio::process::Command) -> Option<String> {
+    cmd.kill_on_drop(true).stdin(std::process::Stdio::null());
+    let out = tokio::time::timeout(Duration::from_secs(10), cmd.output()).await.ok()?.ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    out.status.success().then(|| text.lines().next().unwrap_or("").trim().to_string())
+}
+
+/// Checks ffmpeg, yt-dlp and Node (yt-dlp's JavaScript runtime); at startup and after each yt-dlp update.
+pub async fn probe_tools(st: &AppState) {
+    let ff = {
+        let mut c = tokio::process::Command::new("ffmpeg");
+        c.args(["-hide_banner", "-version"]);
+        version_of(c).await.map(|v| v.split(" Copyright").next().unwrap_or(&v).to_string())
+    };
+    let ytdlp = version_of(crate::music::ytdlp_version_cmd(st)).await;
+    let node = version_of({
+        let mut c = tokio::process::Command::new("node");
+        c.arg("--version");
+        c
+    })
+    .await;
+    *tools().write().unwrap() = json!({ "ffmpeg": ff, "yt_dlp": ytdlp, "node": node });
 }
 
 pub fn counters() -> &'static Counters {
@@ -120,9 +157,9 @@ async fn watch_runtime_lag() {
 
 // ---------- listener ----------
 
-/// The monitor reads the same file, so nothing needs configuring.
-async fn load_token(st: &AppState) -> std::io::Result<String> {
-    let path = st.cfg.data_dir.join("internal-token");
+/// The monitor reads the same file (mc-manager reads `steve-token`), so nothing needs configuring.
+async fn load_token(st: &AppState, file: &str) -> std::io::Result<String> {
+    let path = st.cfg.data_dir.join(file);
     if let Ok(t) = tokio::fs::read_to_string(&path).await {
         if t.trim().len() >= 32 {
             return Ok(t.trim().to_string());
@@ -147,14 +184,14 @@ pub async fn serve(st: AppState) {
         tracing::warn!("LINKORD_INTERNAL_BIND must be a loopback address, not starting it: {bind}");
         return;
     };
-    let token = match load_token(&st).await {
-        Ok(t) => t,
-        Err(e) => {
+    let (token, steve_token) = match (load_token(&st, "internal-token").await, load_token(&st, "steve-token").await) {
+        (Ok(t), Ok(s)) => (t, s),
+        (Err(e), _) | (_, Err(e)) => {
             tracing::warn!("internal api off, can't write its token: {e}");
             return;
         }
     };
-    let listener = match tokio::net::TcpListener::bind(addr).await {
+    let listener = match crate::handover::listener("internal", &addr.to_string()).and_then(tokio::net::TcpListener::from_std) {
         Ok(l) => l,
         // A second instance on this machine (tests next to a dev server). The app itself doesn't need this.
         Err(e) => {
@@ -170,11 +207,20 @@ pub async fn serve(st: AppState) {
             let token = token.clone();
             async move { guard(&token, req, next).await }
         }))
+        // Steve (steve.rs), driven by mc-manager, has his own token: the monitor's can't speak as him and his can't
+        // moderate.
+        .merge(crate::steve::bot_routes().layer(axum::middleware::from_fn(move |req: Request, next: Next| {
+            let token = steve_token.clone();
+            async move { guard(&token, req, next).await }
+        })))
         .with_state(st);
     tracing::info!("internal api on {addr}");
-    if let Err(e) = axum::serve(listener, app).await {
-        tracing::warn!("internal api stopped: {e}");
-    }
+    crate::handover::until_drained(async {
+        if let Err(e) = axum::serve(listener, app).with_graceful_shutdown(crate::handover::stop_accepting()).await {
+            tracing::warn!("internal api stopped: {e}");
+        }
+    })
+    .await;
 }
 
 async fn guard(token: &str, req: Request, next: Next) -> Response {
@@ -225,6 +271,12 @@ async fn metrics(State(st): State<AppState>) -> Json<Value> {
         "pid": std::process::id(),
         "started_at": started().1,
         "uptime_s": started().0.elapsed().as_secs(),
+        "version": env!("CARGO_PKG_VERSION"),
+        // Docker slot (deploy/docker-compose.yml) serving; empty outside Docker.
+        "slot": std::env::var("LINKORD_SLOT").unwrap_or_default(),
+        // What the server itself can run: the monitor lives in another container and can't check these on its own.
+        "tools": tools().read().unwrap().clone(),
+        "migrations_in_code": MIGRATIONS.get().copied(),
         "config": {
             "dev_login": st.cfg.dev_login,
             "discord_login": st.cfg.discord_enabled(),
@@ -245,6 +297,8 @@ async fn metrics(State(st): State<AppState>) -> Json<Value> {
             "media_bytes": c.media_bytes.load(Relaxed),
             "queue_drops": c.queue_drops.load(Relaxed),
             "stale_media": c.stale_media.load(Relaxed),
+            "voice_drops": c.voice_drops.load(Relaxed),
+            "voice_resumes": c.voice_resumes.load(Relaxed),
         },
         "features": {
             "music_playing": st.music.is_playing(),

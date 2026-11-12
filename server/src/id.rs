@@ -1,5 +1,6 @@
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,6 +15,18 @@ const EPOCH_MS: i64 = 1_767_225_600_000;
 pub struct Id(pub i64);
 
 static GEN: Mutex<(i64, i64)> = Mutex::new((0, 0));
+/// The lowest bit of every id this process makes. During a handover (handover.rs) the old and the new process both
+/// make ids for a moment; each uses the other parity, so they can never make the same one.
+static PARITY: AtomicI64 = AtomicI64::new(0);
+
+/// 0 or 1; the next process takes the other one.
+pub fn parity() -> u8 {
+    PARITY.load(Ordering::Relaxed) as u8
+}
+
+pub fn set_parity(p: u8) {
+    PARITY.store((p & 1) as i64, Ordering::Relaxed);
+}
 
 impl Id {
     pub fn new() -> Id {
@@ -23,11 +36,11 @@ impl Id {
             *g = (now, 0);
         } else {
             g.1 += 1;
-            if g.1 >= 1 << 22 {
+            if g.1 >= 1 << 21 {
                 *g = (g.0 + 1, 0);
             }
         }
-        Id((g.0 << 22) | g.1)
+        Id((g.0 << 22) | (g.1 << 1) | PARITY.load(Ordering::Relaxed))
     }
 }
 

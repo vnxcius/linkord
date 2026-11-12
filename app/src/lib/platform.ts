@@ -20,6 +20,11 @@ export interface NotifyTarget {
 let onNotificationClick: ((target: NotifyTarget) => void) | null = null;
 let actionListener: Promise<unknown> | null = null;
 
+/** A notification was clicked somewhere else (the service worker, lib/push.ts): go where it leads. */
+export function openNotificationTarget(target: NotifyTarget) {
+  onNotificationClick?.(target);
+}
+
 /** What a click on a notification does (desktop.ts / App: bring the window up and go there). */
 export function setNotificationClickHandler(handler: (target: NotifyTarget) => void) {
   onNotificationClick = handler;

@@ -14,7 +14,7 @@ import { MyStatusBubble } from './CustomStatus';
 import { Snowman } from './ChristmasArt';
 import { isChristmas } from '../lib/theme';
 import * as I from './Icons';
-import { volumeMenu } from './Sidebar';
+import { soundboardMenu, volumeMenu } from './Sidebar';
 import { type FavoriteGame, FavoriteGamesCard } from './FavoriteGames';
 import { voiceUi } from '../lib/voice';
 import { confetti } from '../lib/confetti';
@@ -85,6 +85,9 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   if (userId !== me) items.push({ label: t('Message'), run: () => attempt(() => openDm(userId)) });
   if (voiceUi.channelId && userId !== me && state.voice[userId]?.channel_id === voiceUi.channelId) {
     items.push('separator', ...volumeMenu(userId));
+  } else if (state.users[userId]?.bot && state.users[userId]?.username === 'steve') {
+    // Steve is never in the call, but his sound commands play in it.
+    items.push(...soundboardMenu(userId));
   }
   if (guildId) items.push(...voiceModItems(userId, guildId));
   if (guildId) {
@@ -128,7 +131,7 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
       });
     }
   }
-  if (state.users[userId]?.bot && state.admin) items.push('separator', ...botPictureItems());
+  if (state.users[userId]?.bot && state.admin) items.push('separator', ...botPictureItems(userId));
   const friends = state.users[userId]?.bot ? [] : friendItems(userId);
   if (friends.length) items.push('separator', ...friends);
   items.push('separator', {
@@ -181,8 +184,13 @@ function voiceModItems(userId: string, guildId: string): MenuEntry[] {
   return items;
 }
 
-/** Admins (LINKORD_ADMINS) choose the music bot's picture. */
-function botPictureItems(): MenuEntry[] {
+/** Each bot's own picture endpoint (Kass: music.rs, Steve: steve.rs). */
+const BOT_AVATAR: Record<string, string> = { kass: '/bots/music/avatar', steve: '/bots/steve/avatar' };
+
+/** Admins (LINKORD_ADMINS) choose the bots' pictures. */
+function botPictureItems(userId: string): MenuEntry[] {
+  const path = BOT_AVATAR[state.users[userId]?.username ?? ''];
+  if (!path) return [];
   const pick = () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -192,13 +200,13 @@ function botPictureItems(): MenuEntry[] {
       if (!file) return;
       const fd = new FormData();
       fd.append('file', file, file.name);
-      void attempt(() => api('POST', '/bots/music/avatar', fd), t('Picture updated'));
+      void attempt(() => api('POST', path, fd), t('Picture updated'));
     };
     input.click();
   };
   return [
     { label: t('Change Picture'), icon: () => <I.AddImage size={16} />, run: pick },
-    { label: t('Reset Picture'), run: () => attempt(() => api('DELETE', '/bots/music/avatar')) },
+    { label: t('Reset Picture'), run: () => attempt(() => api('DELETE', path)) },
   ];
 }
 

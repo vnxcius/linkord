@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use base64::Engine;
 use rand::RngCore;
 use sqlx::PgPool;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -547,6 +547,9 @@ pub async fn sweep(st: AppState) {
     let mut tick = tokio::time::interval(Duration::from_secs(60));
     loop {
         tick.tick().await;
+        if crate::handover::retired() {
+            return;
+        }
         st.oauth_states.retain(|_, o| o.created.elapsed() < LOGIN_TTL);
         st.pending_logins.retain(|_, p| p.created.elapsed() < LOGIN_TTL);
         st.limits.sweep();
@@ -570,4 +573,50 @@ mod tests {
         assert_eq!(normalize_username("Old Name"), "old_name");
         assert_eq!(normalize_username("a..b"), "a.b");
     }
+}
+
+// ---------- handover (handover.rs): sign-ins halfway through survive a restart ----------
+
+#[derive(Serialize, Deserialize, Default)]
+struct AuthSnap {
+    /// (code, user, challenge, age ms)
+    pending: Vec<(String, Id, String, u64)>,
+    /// (state, desktop (port, state, challenge), invite, age ms)
+    oauth: Vec<(String, Option<(u16, String, String)>, Option<String>, u64)>,
+    /// (state, user, age ms)
+    spotify: Vec<(String, Id, u64)>,
+}
+
+pub fn snapshot(st: &AppState) -> serde_json::Value {
+    let ms = |t: Instant| t.elapsed().as_millis() as u64;
+    let snap = AuthSnap {
+        pending: st.pending_logins.iter().map(|p| (p.key().clone(), p.user, p.challenge.clone(), ms(p.created))).collect(),
+        oauth: st
+            .oauth_states
+            .iter()
+            .map(|o| (o.key().clone(), o.desktop.as_ref().map(|d| (d.port, d.state.clone(), d.challenge.clone())), o.invite.clone(), ms(o.created)))
+            .collect(),
+        spotify: st.spotify_states.iter().map(|s| (s.key().clone(), s.0, ms(s.1))).collect(),
+    };
+    serde_json::to_value(snap).unwrap_or_default()
+}
+
+pub fn restore(st: &AppState, v: serde_json::Value, age_ms: i64) -> anyhow::Result<()> {
+    if v.is_null() {
+        return Ok(());
+    }
+    let snap: AuthSnap = serde_json::from_value(v)?;
+    let now = Instant::now();
+    let ago = |ms: u64| now.checked_sub(Duration::from_millis(ms + age_ms.max(0) as u64)).unwrap_or(now);
+    for (code, user, challenge, age) in snap.pending {
+        st.pending_logins.insert(code, crate::state::PendingLogin { user, challenge, created: ago(age) });
+    }
+    for (state, desktop, invite, age) in snap.oauth {
+        let desktop = desktop.map(|(port, state, challenge)| crate::state::DesktopLogin { port, state, challenge });
+        st.oauth_states.insert(state, crate::state::OAuthState { desktop, invite, created: ago(age) });
+    }
+    for (state, user, age) in snap.spotify {
+        st.spotify_states.insert(state, (user, ago(age)));
+    }
+    Ok(())
 }

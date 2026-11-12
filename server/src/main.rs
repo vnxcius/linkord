@@ -6,6 +6,7 @@ mod direct;
 mod embeds;
 mod error;
 mod gateway;
+mod handover;
 mod id;
 mod internal;
 mod logs;
@@ -14,6 +15,7 @@ mod models;
 mod music;
 mod perms;
 mod previews;
+mod push;
 mod ratelimit;
 mod security;
 mod snowball;
@@ -21,6 +23,7 @@ mod soundboard;
 mod spotify;
 mod state;
 mod stats;
+mod steve;
 mod uploads;
 mod voice;
 mod watch;
@@ -74,13 +77,22 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET not set: Discord login disabled");
     }
 
-    let db = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&cfg.database_url)
-        .await
-        .context("connecting to postgres")?;
-    sqlx::migrate!("./migrations").run(&db).await.context("running migrations")?;
+    // At boot Postgres may still be starting.
+    let mut attempt = 0;
+    let db = loop {
+        match PgPoolOptions::new().max_connections(20).acquire_timeout(Duration::from_secs(5)).connect(&cfg.database_url).await {
+            Ok(db) => break db,
+            Err(e) if attempt < 30 => {
+                attempt += 1;
+                tracing::warn!("connecting to postgres: {e} (retrying)");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            Err(e) => return Err(e).context("connecting to postgres"),
+        }
+    };
+    let migrator = sqlx::migrate!("./migrations");
+    let _ = internal::MIGRATIONS.set(migrator.iter().count());
+    migrator.run(&db).await.context("running migrations")?;
     tokio::fs::create_dir_all(cfg.uploads_dir()).await?;
     tokio::fs::create_dir_all(&cfg.nameplates_dir).await?;
 
@@ -96,12 +108,26 @@ async fn main() -> anyhow::Result<()> {
         spotify_states: Default::default(),
         games: Default::default(),
         music: Default::default(),
+        steve: Default::default(),
         watches: Default::default(),
         previews: Default::default(),
         db,
         cfg: cfg.clone(),
     }));
+    push::init(&st).context("setting up push notifications")?;
     music::init(&st).await.context("creating the music bot")?;
+    steve::init(&st).await.context("creating steve")?;
+
+    // Everything that can fail is done: take over from the running server (a deploy), or pick up what a server that
+    // just stopped saved. Either way people in calls stay in them (handover.rs).
+    let (snapshot, incoming) = match handover::take_over(&cfg).await? {
+        Some(mut i) => (Some(std::mem::take(&mut i.snapshot)), Some(i)),
+        None => (handover::saved_snapshot(&cfg), None),
+    };
+    if let Some(snap) = snapshot {
+        id::set_parity(snap.parity ^ 1);
+        handover::restore(&st, snap).await;
+    }
     tokio::spawn(music::keep_ytdlp_updated(st.clone()));
     tokio::spawn(auth::sweep(st.clone()));
     tokio::spawn(uploads::backfill_image_sizes(st.clone()));
@@ -124,11 +150,13 @@ async fn main() -> anyhow::Result<()> {
         .merge(activities::routes())
         .merge(voice::routes())
         .merge(music::routes())
+        .merge(steve::routes())
         .merge(logs::routes())
         .merge(soundboard::routes())
         .merge(snowball::routes())
         .merge(watch::routes())
         .merge(previews::routes())
+        .merge(push::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
         // The real limit per route is in security::api_limit.
@@ -149,7 +177,9 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(st.clone());
-    let direct_st = st;
+    let direct_st = st.clone();
+    let signal_st = st.clone();
+    let successor_st = st;
 
     if cfg.direct_bind.is_some() && cfg.direct_host.is_empty() {
         anyhow::bail!("LINKORD_DIRECT_BIND needs LINKORD_DIRECT_HOST");
@@ -161,16 +191,24 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind(&cfg.bind).await.with_context(|| format!("binding {}", cfg.bind))?;
+    let listener = handover::listener("main", &cfg.bind).and_then(tokio::net::TcpListener::from_std).with_context(|| format!("binding {}", cfg.bind))?;
     tracing::info!("linkord listening on {} (public url {})", cfg.bind, cfg.public_url);
-    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
+    tokio::spawn(handover::on_signal(signal_st));
+    if let Some(i) = incoming {
+        i.ready(successor_st.clone()).await;
+    }
+    handover::mark_live(&cfg);
+    tokio::spawn(handover::serve_successors(successor_st));
+    handover::until_drained(async {
+        if let Err(e) = axum::serve(listener, app).with_graceful_shutdown(handover::stop_accepting()).await {
+            tracing::error!("server stopped: {e}");
+        }
+    })
+    .await;
+    handover::finish().await;
     Ok(())
 }
 
 fn cached<S>(svc: S, value: &'static str) -> tower_http::set_header::SetResponseHeader<S, axum::http::HeaderValue> {
     tower_http::set_header::SetResponseHeader::if_not_present(svc, axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static(value))
-}
-
-async fn shutdown() {
-    let _ = tokio::signal::ctrl_c().await;
 }

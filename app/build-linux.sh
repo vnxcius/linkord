@@ -8,7 +8,8 @@ key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
 rm -f out/*.deb out/*.rpm
 
 start=$SECONDS
-DOCKER_BUILDKIT=1 docker build -f desktop-linux.Dockerfile \
+# Our own builder: the default one throws the caches away after 48 h (deploy/buildkitd.toml).
+docker buildx build --builder "$(../deploy/builder.sh)" -f desktop-linux.Dockerfile \
   --build-arg VITE_DEFAULT_SERVER="$server" \
   --secret id=tauri_key,src="$key" \
   --output out .

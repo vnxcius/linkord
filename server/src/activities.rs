@@ -374,6 +374,12 @@ async fn clear_playing(State(st): State<AppState>, AuthUser(me): AuthUser) -> St
 pub async fn sweep_games(st: AppState) {
     loop {
         tokio::time::sleep(Duration::from_secs(15)).await;
+        if crate::handover::retired() {
+            return;
+        }
+        if crate::handover::paused() {
+            continue;
+        }
         let now = Instant::now();
         let expired: Vec<Id> = st.games.expires.iter().filter(|e| *e.value() <= now).map(|e| *e.key()).collect();
         for user in expired {
@@ -408,7 +414,7 @@ struct SetCustom {
 const CUSTOM_TEXT_MAX: usize = 128;
 
 /// The activity everyone sees: `{"type": 4, "name": "Custom Status", "state": text, "emoji": ..., "expires_at": ms}`.
-fn custom_activity(text: Option<&str>, emoji: Option<&StatusEmoji>, expires_at: Option<i64>) -> Value {
+pub fn custom_activity(text: Option<&str>, emoji: Option<&StatusEmoji>, expires_at: Option<i64>) -> Value {
     let mut a = json!({ "type": CUSTOM, "name": "Custom Status" });
     if let Some(t) = text {
         a["state"] = json!(t);
@@ -507,6 +513,12 @@ pub async fn keep_custom_statuses(st: AppState) {
     }
     loop {
         tokio::time::sleep(Duration::from_secs(15)).await;
+        if crate::handover::retired() {
+            return;
+        }
+        if crate::handover::paused() {
+            continue;
+        }
         let now = Utc::now().timestamp_millis();
         let expired: Vec<Id> = st
             .activities
@@ -981,4 +993,45 @@ mod tests {
         assert_eq!(format_wikidata_date("2017-03-00T00:00:00Z", 10, "en"), "2017");
         assert_eq!(format_wikidata_date("2017-00-00T00:00:00Z", 9, "en"), "2017");
     }
+}
+
+// ---------- handover (handover.rs) ----------
+
+#[derive(Serialize, Deserialize, Default)]
+struct ActivitiesSnap {
+    activities: Vec<(Id, Vec<Value>)>,
+    /// Game activities: ms until each expires.
+    game_expires: Vec<(Id, u64)>,
+    /// Each user's last game report and how long ago (ms).
+    last_report: Vec<(Id, String, u64)>,
+}
+
+pub fn snapshot(st: &AppState) -> Value {
+    let now = Instant::now();
+    let snap = ActivitiesSnap {
+        activities: st.activities.iter().map(|a| (*a.key(), a.value().clone())).collect(),
+        game_expires: st.games.expires.iter().map(|e| (*e.key(), e.value().saturating_duration_since(now).as_millis() as u64)).collect(),
+        last_report: st.games.last_report.iter().map(|e| (*e.key(), e.0.clone(), e.1.elapsed().as_millis() as u64)).collect(),
+    };
+    serde_json::to_value(snap).unwrap_or_default()
+}
+
+pub fn restore(st: &AppState, v: Value, age_ms: i64) -> anyhow::Result<()> {
+    if v.is_null() {
+        return Ok(());
+    }
+    let snap: ActivitiesSnap = serde_json::from_value(v)?;
+    let now = Instant::now();
+    let age = Duration::from_millis(age_ms.max(0) as u64);
+    // Custom statuses were loaded from the database already; what the snapshot has is newer.
+    for (user, list) in snap.activities {
+        st.activities.insert(user, list);
+    }
+    for (user, left) in snap.game_expires {
+        st.games.expires.insert(user, now + Duration::from_millis(left).saturating_sub(age));
+    }
+    for (user, game, ago) in snap.last_report {
+        st.games.last_report.insert(user, (game, now.checked_sub(Duration::from_millis(ago) + age).unwrap_or(now)));
+    }
+    Ok(())
 }

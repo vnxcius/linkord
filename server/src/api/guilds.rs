@@ -392,6 +392,9 @@ async fn ban(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, user)
     if crate::music::bot_id(&st) == Some(user) {
         return Err(bad("Kass can't be banned; remove him from the server instead"));
     }
+    if crate::steve::bot_id(&st) == Some(user) {
+        return Err(bad("Steve can't be banned; remove him from the server instead"));
+    }
     let member: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM members WHERE guild_id = $1 AND user_id = $2)").bind(id).bind(user).fetch_one(&st.db).await?;
     if member {
         outranks(&st.db, id, me, user).await?;

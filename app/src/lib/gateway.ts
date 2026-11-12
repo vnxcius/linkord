@@ -24,6 +24,7 @@ import {
   setRoles,
   setState,
   state,
+  type BotCommand,
 } from './store';
 import type { Activity, Channel, Guild, Message, Rel, Settings, Status, User, VoiceState } from './types';
 import { Kind } from './types';
@@ -33,12 +34,40 @@ let ws: WebSocket | null = null;
 let retry = 0;
 let stopped = false;
 let seq = 0;
+/** Reconnecting after a server restart (close 4100): quiet unless it takes a while. */
+let quiet = false;
+let quietTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Tells the server whether Linkord is being used here, so phones only get notifications (server push.rs) when it
+ * isn't: `active` on input (at most every 30 s, while focused), `away` as soon as the window or tab goes to the
+ * background (minimized, switched apps on a phone).
+ */
+let lastActive = 0;
+function reportActivity(force = false) {
+  if (ws?.readyState !== WebSocket.OPEN) return;
+  if (document.visibilityState !== 'visible') {
+    if (lastActive || force) ws.send(JSON.stringify({ op: 'away' }));
+    lastActive = 0;
+    return;
+  }
+  if (!document.hasFocus()) return;
+  const now = Date.now();
+  if (!force && now - lastActive < 30_000) return;
+  lastActive = now;
+  ws.send(JSON.stringify({ op: 'active' }));
+}
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart'])
+  addEventListener(ev, () => reportActivity(), { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => reportActivity(true));
+addEventListener('focus', () => reportActivity(true));
+addEventListener('pagehide', () => reportActivity(true));
 
 export function connectGateway() {
   stopped = false;
   const token = getToken();
   if (!token) return;
-  setState('connection', retry ? 'reconnecting' : 'connecting');
+  if (!quiet) setState('connection', retry ? 'reconnecting' : 'connecting');
   const sock = new WebSocket(serverUrl().replace(/^http/, 'ws') + '/api/gateway');
   ws = sock;
   sock.onopen = () => {
@@ -70,8 +99,21 @@ export function connectGateway() {
       return;
     }
     if (stopped) return;
-    setState('connection', 'reconnecting');
-    const delay = Math.min(30_000, 500 * 2 ** retry++) * (0.75 + Math.random() * 0.5);
+    // 4100: the server is restarting and the next one is already listening. Resume right away, without the
+    // "reconnecting" banner unless it takes more than a couple of seconds.
+    if (e.code === 4100 && !quiet) {
+      quiet = true;
+      retry = 0;
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => {
+        quiet = false;
+        if (state.connection !== 'open') setState('connection', 'reconnecting');
+      }, 2500);
+      setTimeout(connectGateway, 50 + Math.random() * 300);
+      return;
+    }
+    if (!quiet) setState('connection', 'reconnecting');
+    const delay = Math.min(quiet ? 1000 : 30_000, 500 * 2 ** retry++) * (0.75 + Math.random() * 0.5);
     setTimeout(connectGateway, delay);
   };
 }
@@ -96,6 +138,7 @@ interface Ready {
   voice_states: VoiceState[];
   voice_channel_statuses?: { channel_id: string; status: string }[];
   admin?: boolean;
+  bot_commands?: BotCommand[];
   calls?: { channel_id: string; ringing: string[] }[];
   watches?: { channel_id: string; watch: Watch }[];
   server_now?: number;
@@ -107,6 +150,10 @@ function handle(t: string, d: any) {
       return onReady(d as Ready);
     case 'RESUMED':
       retry = 0;
+      quiet = false;
+      clearTimeout(quietTimer);
+      lastActive = 0;
+      reportActivity(true);
       return setState('connection', 'open');
     case 'GUILD_CREATE':
       return addGuild(d as Guild);
@@ -181,6 +228,8 @@ function handle(t: string, d: any) {
         setState('presences', d.user_id, d.status);
         setState('activities', d.user_id, reconcile(d.activities ?? []));
       });
+    case 'BOT_COMMANDS_UPDATE':
+      return setState('botCommands', d.commands ?? []);
     case 'CUSTOM_STATUS_UPDATE':
       return setState('customStatus', d.custom_status ?? null);
     case 'USER_CONNECTIONS_UPDATE':
@@ -234,10 +283,15 @@ const isPrivateKind = (k: Kind) => k === Kind.Dm || k === Kind.GroupDm;
 
 function onReady(d: Ready) {
   retry = 0;
+  quiet = false;
+  clearTimeout(quietTimer);
+  lastActive = 0;
+  queueMicrotask(() => reportActivity(true));
   seq = 0;
   batch(() => {
     setState('sessionId', d.session_id);
     setState('admin', !!d.admin);
+    setState('botCommands', d.bot_commands ?? []);
     setServerNow(d.server_now);
     setWatches(reconcile(Object.fromEntries((d.watches ?? []).map((w) => [w.channel_id, w.watch]))));
     setState('calls', reconcile(Object.fromEntries((d.calls ?? []).map((c) => [c.channel_id, c.ringing]))));

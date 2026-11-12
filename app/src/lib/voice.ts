@@ -98,6 +98,11 @@ let micSource: MediaStreamAudioSourceNode | null = null;
 let captureNode: AudioWorkletNode | null = null;
 let generation = 0;
 let retries = 0;
+/** The worker is getting our seat back after a dropped connection (or a server restart). */
+let reconnecting = false;
+/** Shows "connecting" only if getting the seat back takes a while: a restart takes well under a second. */
+let reconnectingTimer: number | undefined;
+let droppedAt = 0;
 
 const send = (m: WorkerIn, transfer: Transferable[] = []) => worker?.postMessage(m, transfer);
 
@@ -197,15 +202,31 @@ export async function joinVoice(channelId: string) {
 
 function onWorker(m: WorkerOut, channelId: string) {
   switch (m.type) {
-    case 'ready':
-      if (!retries) sounds.selfJoin();
+    case 'ready': {
+      const again = retries > 0 || reconnecting;
+      if (!again) sounds.selfJoin();
+      if (reconnecting && !m.resumed)
+        report('warn', 'Voice: seat was gone after reconnecting', { ms: Date.now() - droppedAt });
       retries = 0;
+      reconnecting = false;
+      clearTimeout(reconnectingTimer);
       if (!voiceUi.joinedAt) setVoiceUi('joinedAt', Date.now());
       setVoiceUi('connecting', false);
       // After a reconnect, resume watching what we were watching.
       for (const [id, on] of Object.entries(voiceUi.watching)) if (on) send({ type: 'watch', user_id: id, on: true });
       send({ type: 'media_playing', on: mediaPlaying });
-      if (voiceUi.muted || voiceUi.deafened) syncState();
+      // A kept seat has the state from before the drop; anything changed meanwhile is sent now.
+      if (again || voiceUi.muted || voiceUi.deafened) syncState();
+      return;
+    }
+    case 'reconnecting':
+      // Mic, audio and our own stream keep running: the worker reconnects and the server kept our seat.
+      reconnecting = true;
+      droppedAt = Date.now();
+      clearTimeout(reconnectingTimer);
+      reconnectingTimer = window.setTimeout(() => reconnecting && setVoiceUi('connecting', true), 1500);
+      // 4100 = a server restart (expected); anything else is worth knowing about (logs.rs, the monitor).
+      if (m.code !== 4100) report('warn', 'Voice: connection dropped, reconnecting', { code: m.code });
       return;
     case 'speaking':
       return setVoiceUi('speaking', m.id === 'me' ? state.me!.id : m.id, m.on);
@@ -249,9 +270,11 @@ function onWorker(m: WorkerOut, channelId: string) {
     case 'video_dropped':
       return onVideoDropped(m.kind);
     case 'closed': {
-      const intentional = m.code === 4002 || m.code === 4001 || m.code === 4004;
+      const intentional = m.code === 4002 || m.code === 4001 || m.code === 4004 || m.code === 4006;
+      reconnecting = false;
+      clearTimeout(reconnectingTimer);
       teardown();
-      if (m.code === 4002) toast(t('Voice moved to another session'));
+      if (m.code === 4002 || m.code === 4006) toast(t('Voice moved to another session'));
       // Network blip: rejoin quietly a few times before giving up.
       if (!intentional && retries < 5) {
         retries++;
@@ -279,7 +302,13 @@ function teardown() {
   closePopOut();
   stopPublish('camera');
   stopPublish('screen');
-  worker?.terminate();
+  if (worker) {
+    // The worker tells the server we left (or the seat would wait for a reconnect) and then closes itself.
+    const w = worker;
+    w.onmessage = null;
+    w.postMessage({ type: 'leave' } satisfies WorkerIn);
+    setTimeout(() => w.terminate(), 1500);
+  }
   worker = null;
   mic?.getTracks().forEach((t) => t.stop());
   mic = null;

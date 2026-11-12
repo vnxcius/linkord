@@ -40,10 +40,15 @@ export type WorkerIn =
   /** Watch together is playing out loud here (its audio can reach the mic and confuse speech detection). */
   | { type: 'media_playing'; on: boolean }
   /** Play a soundboard sound for everyone in the channel. */
-  | { type: 'sound'; sound_id: string };
+  | { type: 'sound'; sound_id: string }
+  /** Leaving the call: tells the server (so the seat ends now, not after the reconnect grace) and closes. */
+  | { type: 'leave' };
 
 export type WorkerOut =
-  | { type: 'ready' }
+  /** Connected. `resumed`: the server kept our seat (after a dropped connection or a server restart). */
+  | { type: 'ready'; resumed: boolean }
+  /** The connection dropped; the worker is getting the seat back by itself. */
+  | { type: 'reconnecting'; code: number }
   | { type: 'closed'; code: number }
   | { type: 'speaking'; id: string; on: boolean }
   | { type: 'video'; id: string; source: 'camera' | 'screen'; data: ArrayBuffer }
@@ -341,11 +346,24 @@ function openMedia() {
     if (media !== sock) return;
     media = null;
     // Keep video flowing after network blips, as long as voice itself is still connected.
-    setTimeout(openMedia, 1000);
+    setTimeout(openMedia, 300);
   };
 }
 
 let pingTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Closes after which we don't reconnect: signed out, the session moved to another device, not allowed in the
+ * channel, or our seat was taken back by another connection of this login. */
+const FINAL_CODES = new Set([4001, 4002, 4004, 4006]);
+/** How long to keep trying to get the seat back before telling the app the connection is lost. */
+const RECONNECT_FOR_MS = 60_000;
+/** Nothing at all from the server for this long (pongs come every 2 s) = a dead connection the OS hasn't noticed. */
+const SILENT_MS = 7000;
+let leaving = false;
+/** When the connection dropped (0 = connected). */
+let lostAt = 0;
+let attempt = 0;
+let lastHeardAt = 0;
 
 async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
   connectMsg = msg;
@@ -361,19 +379,32 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
     complexity: 8,
   });
   if (msg.capture) msg.capture.onmessage = (e) => onCapture(e.data);
+  openVoice();
+}
 
+/** Opens the voice socket. `v: 2` = we reconnect by ourselves and say `leave` when leaving, so a dropped connection
+ * keeps our seat on the server for a while and nobody sees us leave. */
+function openVoice() {
+  const msg = connectMsg;
+  if (!msg || leaving) return;
   const sock = new WebSocket(msg.url);
   ws = sock;
   sock.binaryType = 'arraybuffer';
-  sock.onopen = () => sock.send(JSON.stringify({ token: msg.token, channel_id: msg.channelId }));
+  sock.onopen = () => sock.send(JSON.stringify({ token: msg.token, channel_id: msg.channelId, v: 2 }));
   sock.onmessage = (e) => {
+    lastHeardAt = performance.now();
     if (typeof e.data !== 'string') return onBinary(e.data);
     const m = JSON.parse(e.data);
     if (m.op === 'ready') {
-      post({ type: 'ready' });
+      lostAt = 0;
+      attempt = 0;
+      post({ type: 'ready', resumed: !!m.resumed });
       openMedia();
       clearInterval(pingTimer);
-      pingTimer = setInterval(() => sendJson({ op: 'ping', t: performance.now() }), 2000);
+      pingTimer = setInterval(() => {
+        if (performance.now() - lastHeardAt > SILENT_MS) return lose(sock, 4000);
+        sendJson({ op: 'ping', t: performance.now() });
+      }, 2000);
       sendJson({ op: 'ping', t: performance.now() });
     } else if (m.op === 'pong') post({ type: 'ping', ms: Math.round(performance.now() - m.t) });
     else if (m.op === 'video_stop') {
@@ -384,13 +415,34 @@ async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
     else if (m.op === 'move') post({ type: 'move', channelId: m.channel_id, reason: m.reason, by: m.by });
     else if (m.op === 'sound') post({ type: 'sound', userId: m.user_id, sound: m.sound });
   };
-  sock.onclose = (e) => {
-    clearInterval(pingTimer);
-    const m = media;
-    media = null;
-    m?.close();
-    post({ type: 'closed', code: e.code });
-  };
+  sock.onclose = (e) => lose(sock, e.code);
+}
+
+/** The voice socket is gone (closed, or silent too long): try to get the seat back, unless it's over for good. */
+function lose(sock: WebSocket, code: number) {
+  if (ws !== sock) return;
+  ws = null;
+  clearInterval(pingTimer);
+  sock.onclose = null;
+  sock.close();
+  const m = media;
+  media = null;
+  m?.close();
+  if (leaving) return;
+  const now = performance.now();
+  if (FINAL_CODES.has(code) || (lostAt && now - lostAt > RECONNECT_FOR_MS)) {
+    lostAt = 0;
+    return post({ type: 'closed', code });
+  }
+  if (!lostAt) {
+    lostAt = now;
+    post({ type: 'reconnecting', code });
+  }
+  // 4100: the server is restarting and the next one is already listening; spread the reconnects a little.
+  const delay =
+    attempt === 0 ? (code === 4100 ? 50 + Math.random() * 250 : 100) : Math.min(2000, 250 * 2 ** (attempt - 1));
+  attempt++;
+  setTimeout(openVoice, delay);
 }
 
 setInterval(() => {
@@ -476,6 +528,19 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       return sendJson({ op: 'request_keyframe', user_id: m.user_id, source: m.source });
     case 'sound':
       return sendJson({ op: 'sound', sound_id: m.sound_id });
+    case 'leave': {
+      leaving = true;
+      sendJson({ op: 'leave' });
+      const sock = ws;
+      ws = null;
+      clearInterval(pingTimer);
+      media?.close();
+      media = null;
+      // A normal close sends what's queued (the leave) first.
+      sock?.close(1000);
+      setTimeout(() => self.close(), 500);
+      return;
+    }
     case 'gain':
       gains.set(m.id, m.gain);
       playback?.postMessage({ id: m.id, gain: m.gain });

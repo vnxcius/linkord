@@ -89,9 +89,17 @@ pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
     let addr: SocketAddr = bind.parse()?;
     let app = app.layer(middleware::from_fn_with_state(st.clone(), direct_request)).into_make_service_with_connect_info::<SocketAddr>();
     let conns = ConnLimit::default();
+    // Taken (or inherited, handover.rs) before waiting for a certificate, so the next process can always have it.
+    let listener = crate::handover::listener("direct", &addr.to_string()).with_context(|| format!("binding {addr}"))?;
+    let handle = axum_server::Handle::new();
+    let stopper = handle.clone();
+    tokio::spawn(async move {
+        crate::handover::stop_accepting().await;
+        stopper.graceful_shutdown(Some(crate::handover::DRAIN_TIMEOUT));
+    });
     if !cfg.direct_tls {
         tracing::info!("direct access (plain HTTP) on {addr} for {}", cfg.direct_host);
-        let mut server = axum_server::bind(addr).acceptor(Limited { inner: axum_server::accept::DefaultAcceptor::new(), conns });
+        let mut server = axum_server::from_tcp(listener)?.handle(handle).acceptor(Limited { inner: axum_server::accept::DefaultAcceptor::new(), conns });
         harden(server.http_builder());
         server.serve(app).await?;
         return Ok(());
@@ -127,7 +135,7 @@ pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
     });
     tracing::info!("direct access on {addr} for https://{}", cfg.direct_host);
     let acceptor = axum_server::tls_rustls::RustlsAcceptor::new(tls);
-    let mut server = axum_server::bind(addr).acceptor(Limited { inner: acceptor, conns });
+    let mut server = axum_server::from_tcp(listener)?.handle(handle).acceptor(Limited { inner: acceptor, conns });
     harden(server.http_builder());
     server.serve(app).await?;
     Ok(())

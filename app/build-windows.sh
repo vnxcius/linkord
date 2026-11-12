@@ -39,7 +39,8 @@ case "$(uname -s)" in
     ;;
   *)
     $signed || { echo "The Docker build needs the signing key (bun tauri signer generate --ci -w $key)"; exit 1; }
-    DOCKER_BUILDKIT=1 docker build -f desktop.Dockerfile \
+    # Our own builder: the default one throws the caches away after 48 h (deploy/buildkitd.toml).
+    docker buildx build --builder "$(../deploy/builder.sh)" -f desktop.Dockerfile \
       --build-arg PROFILE="$profile" \
       --build-arg VITE_DEFAULT_SERVER="$server" \
       --secret id=tauri_key,src="$key" \

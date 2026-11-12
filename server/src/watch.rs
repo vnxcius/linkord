@@ -14,7 +14,7 @@ use crate::error::{bad, ApiResult};
 use crate::id::Id;
 use crate::state::AppState;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Watch {
     /// youtube | twitch | kick
     pub provider: String,
@@ -282,4 +282,21 @@ mod tests {
         assert_eq!(parse("https://evil.com/watch?v=x"), None);
         assert_eq!(parse("https://youtube.com/watch?v=<script>"), None);
     }
+}
+
+// ---------- handover (handover.rs) ----------
+
+pub fn snapshot(st: &AppState) -> serde_json::Value {
+    let all: Vec<(Id, Watch)> = st.watches.iter().map(|w| (*w.key(), w.value().clone())).collect();
+    serde_json::to_value(all).unwrap_or_default()
+}
+
+pub fn restore(st: &AppState, v: serde_json::Value) -> anyhow::Result<()> {
+    if v.is_null() {
+        return Ok(());
+    }
+    for (channel, w) in serde_json::from_value::<Vec<(Id, Watch)>>(v)? {
+        st.watches.insert(channel, w);
+    }
+    Ok(())
 }

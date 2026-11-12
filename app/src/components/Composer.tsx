@@ -3,7 +3,7 @@ import { prefs } from '../lib/prefs';
 import { loadedVersion, misspelled, spellLanguage } from '../lib/spellcheck';
 import { MAX_MESSAGE, resetTyping, runCommand, sendMessage, sendTyping } from '../lib/actions';
 import { emojiUrl } from '../lib/api';
-import { COMMANDS, parseCommand } from '../lib/commands';
+import { commandsIn, parseCommand } from '../lib/commands';
 import { throwSnowball } from '../lib/snowball';
 import { searchEmoji } from '../lib/emoji-data';
 import { toRaw, type Tokens } from '../lib/mentions';
@@ -68,7 +68,7 @@ export function Composer(p: { channel: Channel }) {
   const [caret, setCaret] = createSignal(0);
   const trigger = createMemo(() => {
     const before = text().slice(0, caret());
-    const cmd = gid() && before.match(/^\/(\w{0,32})$/);
+    const cmd = gid() && before.match(/^\/([\w-]{0,32})$/);
     if (cmd) return { kind: '/', q: cmd[1].toLowerCase() };
     const m = before.match(/(?:^|\s)([@:])([\w.]{0,32})$/);
     if (!m || (m[1] === ':' && m[2].length < 2)) return null;
@@ -78,13 +78,27 @@ export function Composer(p: { channel: Channel }) {
     const tr = trigger();
     if (!tr) return [];
     if (tr.kind === '/') {
-      return COMMANDS.filter((c) => c.name.startsWith(tr.q)).map((c) => ({
-        key: c.name,
-        insert: `/${c.name}`,
-        label: !c.option ? `/${c.name}` : c.optional ? `/${c.name} [${t(c.option)}]` : `/${c.name} <${t(c.option)}>`,
-        hint: t(c.description),
-        icon: () => <span class="ac-command">/</span>,
-      }));
+      // Kass's texts are translated; another bot's come from whoever drives it.
+      const tr2 = (c: { botId?: string }, s: string) => (c.botId ? s : t(s));
+      return commandsIn(gid())
+        .filter((c) => c.name.startsWith(tr.q))
+        .slice(0, 25)
+        .map((c) => ({
+          key: c.name,
+          insert: `/${c.name}`,
+          label: !c.option
+            ? `/${c.name}`
+            : c.optional
+              ? `/${c.name} [${tr2(c, c.option)}]`
+              : `/${c.name} <${tr2(c, c.option)}>`,
+          hint: tr2(c, c.description),
+          icon: () =>
+            c.botId && state.users[c.botId] ? (
+              <Avatar user={state.users[c.botId]} size={20} />
+            ) : (
+              <span class="ac-command">/</span>
+            ),
+        }));
     }
     if (tr.kind === ':') {
       const custom = Object.values(state.emojis)
@@ -257,7 +271,7 @@ export function Composer(p: { channel: Channel }) {
       autosize();
       return;
     }
-    const cmd = !files().length ? parseCommand(content) : null;
+    const cmd = !files().length ? parseCommand(content, gid()) : null;
     if (cmd?.command.name === 'snowball') {
       // Not one of Kass's commands: it works in DMs too, where "/snowball" alone means the other person.
       const others = (p.channel.recipients ?? []).filter((u) => u.id !== state.me?.id);
@@ -307,7 +321,7 @@ export function Composer(p: { channel: Channel }) {
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         // A complete command that needs nothing more ("/stop", "/repeat") runs right away.
-        const typed = parseCommand(text().trim());
+        const typed = parseCommand(text().trim(), gid());
         if (e.key === 'Enter' && typed && (!typed.command.option || typed.command.optional)) submit();
         else insertSuggestion(matches()[Math.min(mentionIdx(), matches().length - 1)]);
         return;

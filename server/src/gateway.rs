@@ -33,9 +33,14 @@ const RESUME_WINDOW: Duration = Duration::from_secs(180);
 /// How long a user stays "online" after their last connection drops (covers reconnects).
 const PRESENCE_GRACE: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+/// A session that hasn't answered a ping (every 25 s) for this long isn't "in use" any more (push.rs).
+const SEEN_WITHIN: Duration = Duration::from_secs(40);
 
 /// Told to a session's socket through its queue: the session ended, close with 4001.
 const CLOSE: &str = "\0close";
+/// Told to a session's socket through its queue: this server is handing over (handover.rs), close with 4100 so the
+/// client resumes right away.
+const RESTART: &str = "\0restart";
 /// One person's open sessions; a new one past this ends their oldest.
 const MAX_SESSIONS: usize = 16;
 
@@ -49,7 +54,16 @@ struct Session {
     seq: u64,
     buffer: VecDeque<(u64, Arc<str>)>,
     detached_at: Option<Instant>,
+    /// Last input in the app (op `active`); None while it's in the background (op `away`). push.rs skips people who
+    /// are using Linkord somewhere.
+    active_at: Option<Instant>,
+    /// Last frame from the client (it answers our pings every 25 s): a phone app closed without saying `away` stops
+    /// counting as "in use" once this goes stale, before the socket times out.
+    seen_at: Instant,
 }
+
+/// An event someone missed while frozen: who it's for and its JSON.
+pub type Forwarded = (Vec<Id>, String);
 
 #[derive(Default)]
 pub struct Hub {
@@ -57,6 +71,29 @@ pub struct Hub {
     by_user: DashMap<Id, Vec<String>>,
     /// Users we last announced as online.
     announced: DashSet<Id>,
+    /// Held for writing while the hub freezes, so no event is half in the snapshot.
+    gate: std::sync::RwLock<()>,
+    /// While handing over: events go here (to the next process) instead of to sessions.
+    forward: std::sync::Mutex<Option<mpsc::UnboundedSender<Forwarded>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SessionSnap {
+    id: String,
+    user: Id,
+    token: String,
+    seq: u64,
+    buffer: Vec<(u64, String)>,
+    /// How long it had been detached, if it was.
+    detached_ms: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct HubSnap {
+    sessions: Vec<SessionSnap>,
+    /// Each user's sessions, oldest first.
+    by_user: Vec<(Id, Vec<String>)>,
+    announced: Vec<Id>,
 }
 
 impl Hub {
@@ -68,7 +105,7 @@ impl Hub {
 
     fn create(&self, user: Id, token: Vec<u8>, tx: Tx) -> String {
         let id = random_token(16);
-        self.sessions.insert(id.clone(), Session { user, token, tx: Some(tx), attach: 0, seq: 0, buffer: VecDeque::new(), detached_at: None });
+        self.sessions.insert(id.clone(), Session { user, token, tx: Some(tx), attach: 0, seq: 0, buffer: VecDeque::new(), detached_at: None, active_at: None, seen_at: Instant::now() });
         let oldest = {
             let mut ids = self.by_user.entry(user).or_default();
             ids.push(id.clone());
@@ -119,6 +156,7 @@ impl Hub {
         s.tx = Some(tx);
         s.attach += 1;
         s.detached_at = None;
+        s.seen_at = Instant::now();
         Some((s.attach, missed))
     }
 
@@ -131,6 +169,26 @@ impl Hub {
         }
     }
 
+    /// Someone is using Linkord right now: a connected session with input within `within`, not in the background.
+    pub fn in_use(&self, user: Id, within: Duration) -> bool {
+        let Some(ids) = self.by_user.get(&user).map(|v| v.clone()) else { return false };
+        ids.iter().any(|id| {
+            self.sessions.get(id).is_some_and(|s| s.tx.is_some() && s.seen_at.elapsed() < SEEN_WITHIN && s.active_at.is_some_and(|t| t.elapsed() < within))
+        })
+    }
+
+    fn set_active(&self, id: &str, active: bool) {
+        if let Some(mut s) = self.sessions.get_mut(id) {
+            s.active_at = active.then(Instant::now);
+        }
+    }
+
+    fn seen(&self, id: &str) {
+        if let Some(mut s) = self.sessions.get_mut(id) {
+            s.seen_at = Instant::now();
+        }
+    }
+
     pub fn is_online(&self, user: Id) -> bool {
         self.by_user.get(&user).is_some_and(|ids| {
             ids.iter().any(|id| {
@@ -140,9 +198,14 @@ impl Hub {
     }
 
     pub fn presence(&self, user: &User) -> String {
-        // Bots have no session but are always there.
+        // Bots have no session but are always there; Steve shows the Minecraft server's state, and offline while
+        // the panel driving him is away ('invisible').
         if user.bot {
-            "online".into()
+            match user.status.as_str() {
+                "invisible" => "offline".into(),
+                "idle" | "dnd" => user.status.clone(),
+                _ => "online".into(),
+            }
         } else if self.is_online(user.id) && user.status != "invisible" {
             user.status.clone()
         } else {
@@ -155,6 +218,23 @@ impl Hub {
             Ok(s) => s,
             Err(e) => return tracing::error!("event serialization failed: {e}"),
         };
+        self.send_raw(users, &body);
+    }
+
+    /// Sends an event already serialized as `{"t": ..., "d": ...}`.
+    pub fn send_raw(&self, users: &[Id], body: &str) {
+        let _gate = self.gate.read().unwrap();
+        if let Some(fwd) = self.forward.lock().unwrap().as_ref() {
+            let _ = fwd.send((users.to_vec(), body.to_string()));
+            return;
+        }
+        self.deliver(users, body);
+    }
+
+    fn deliver(&self, users: &[Id], body: &str) {
+        if !body.starts_with('{') {
+            return;
+        }
         for u in users {
             let Some(ids) = self.by_user.get(u).map(|v| v.clone()) else { continue };
             for id in ids {
@@ -170,6 +250,95 @@ impl Hub {
                         let _ = tx.send(msg);
                     }
                 }
+            }
+        }
+    }
+
+    /// From now on events are kept for the next process (handover.rs) instead of sent. Returns where they go.
+    pub fn freeze(&self) -> mpsc::UnboundedReceiver<Forwarded> {
+        let _gate = self.gate.write().unwrap();
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.forward.lock().unwrap() = Some(tx);
+        rx
+    }
+
+    /// The handover didn't happen: events flow again, starting with the ones kept meanwhile.
+    pub fn unfreeze(&self, held: Vec<Forwarded>) {
+        let _gate = self.gate.write().unwrap();
+        *self.forward.lock().unwrap() = None;
+        for (users, body) in held {
+            self.deliver(&users, &body);
+        }
+    }
+
+    /// Every session, its buffered events and who's online, for the next process. Call while frozen.
+    pub fn snapshot_state(&self) -> serde_json::Value {
+        let sessions = self
+            .sessions
+            .iter()
+            .map(|s| SessionSnap {
+                id: s.key().clone(),
+                user: s.user,
+                token: hex::encode(&s.token),
+                seq: s.seq,
+                buffer: s.buffer.iter().map(|(n, m)| (*n, m.to_string())).collect(),
+                detached_ms: if s.tx.is_some() { None } else { s.detached_at.map(|t| t.elapsed().as_millis() as u64) },
+            })
+            .collect();
+        let snap = HubSnap {
+            sessions,
+            by_user: self.by_user.iter().map(|e| (*e.key(), e.value().clone())).collect(),
+            announced: self.announced.iter().map(|u| *u).collect(),
+        };
+        serde_json::to_value(snap).unwrap_or_default()
+    }
+
+    /// Puts sessions back, all detached: their clients reconnect and resume, missing nothing.
+    pub fn restore_state(&self, v: serde_json::Value, age_ms: i64) -> anyhow::Result<()> {
+        if v.is_null() {
+            return Ok(());
+        }
+        let snap: HubSnap = serde_json::from_value(v)?;
+        let now = Instant::now();
+        let age = Duration::from_millis(age_ms.max(0) as u64);
+        let count = snap.sessions.len();
+        for s in snap.sessions {
+            // Counted from the snapshot: a session that was connected then left a moment ago.
+            let since = Duration::from_millis(s.detached_ms.unwrap_or(0)) + age;
+            let Ok(token) = hex::decode(&s.token) else { continue };
+            self.sessions.insert(
+                s.id,
+                Session {
+                    user: s.user,
+                    token,
+                    tx: None,
+                    attach: 0,
+                    seq: s.seq,
+                    buffer: s.buffer.into_iter().map(|(n, m)| (n, Arc::from(m))).collect(),
+                    detached_at: Some(now.checked_sub(since).unwrap_or(now)),
+                    active_at: None,
+                    seen_at: now,
+                },
+            );
+        }
+        for (user, ids) in snap.by_user {
+            let ids: Vec<String> = ids.into_iter().filter(|id| self.sessions.contains_key(id)).collect();
+            if !ids.is_empty() {
+                self.by_user.insert(user, ids);
+            }
+        }
+        for u in snap.announced {
+            self.announced.insert(u);
+        }
+        tracing::info!(sessions = count, "handover: gateway sessions restored");
+        Ok(())
+    }
+
+    /// Closes every socket with 4100: clients reconnect at once and resume (on the next process).
+    pub fn close_all_restarting(&self) {
+        for s in self.sessions.iter() {
+            if let Some(tx) = &s.tx {
+                let _ = tx.send(RESTART.into());
             }
         }
     }
@@ -305,6 +474,12 @@ pub async fn presence_sweeper(st: AppState) {
     let mut tick = tokio::time::interval(Duration::from_secs(3));
     loop {
         tick.tick().await;
+        if crate::handover::retired() {
+            return;
+        }
+        if crate::handover::paused() {
+            continue;
+        }
         let (online, offline) = st.hub.sweep();
         for u in online.into_iter().chain(offline) {
             if let Ok(user) = User::get(&st.db, u).await {
@@ -345,6 +520,8 @@ struct Ready<'a> {
     features: Features,
     /// LINKORD_ADMINS: can change the music bot's picture.
     admin: bool,
+    /// Slash commands of bots driven from outside (Steve, steve.rs), while they're connected.
+    bot_commands: serde_json::Value,
 }
 
 async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<String> {
@@ -386,6 +563,7 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         server_now: chrono::Utc::now().timestamp_millis(),
         features: Features { gifs: false },
         admin: auth::is_admin(st, user_id).await,
+        bot_commands: crate::steve::commands_for_ready(st),
     };
     Ok(serde_json::to_string(&serde_json::json!({ "t": "READY", "d": ready })).map_err(anyhow::Error::from)?)
 }
@@ -486,6 +664,10 @@ async fn run(st: AppState, mut socket: WebSocket, agent: Option<String>) {
                     let _ = sink.send(WsMsg::Close(Some(CloseFrame { code: 4001, reason: "signed out".into() }))).await;
                     break;
                 }
+                Some(m) if m.as_ref() == RESTART => {
+                    let _ = sink.send(WsMsg::Close(Some(CloseFrame { code: 4100, reason: "server restarting".into() }))).await;
+                    break;
+                }
                 // A client that stopped reading loses the socket rather than filling memory; it can resume.
                 Some(m) => match tokio::time::timeout(SEND_TIMEOUT, sink.send(WsMsg::Text(m.as_ref().into()))).await {
                     Ok(Ok(())) => {}
@@ -495,13 +677,28 @@ async fn run(st: AppState, mut socket: WebSocket, agent: Option<String>) {
             },
             inc = stream.next() => match inc {
                 Some(Ok(WsMsg::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => last_seen = Instant::now(),
+                Some(Ok(m)) => {
+                    last_seen = Instant::now();
+                    st.hub.seen(&session_id);
+                    // The only things clients say after identifying: whether they're being used (push.rs).
+                    if let WsMsg::Text(t) = &m {
+                        match serde_json::from_str::<serde_json::Value>(t).ok().as_ref().and_then(|v| v["op"].as_str()) {
+                            Some("active") => st.hub.set_active(&session_id, true),
+                            Some("away") => st.hub.set_active(&session_id, false),
+                            _ => {}
+                        }
+                    }
+                }
             },
             _ = ping.tick() => {
                 if last_seen.elapsed() > Duration::from_secs(80) { break }
                 if sink.send(WsMsg::Ping(Default::default())).await.is_err() { break }
             }
         }
+    }
+    // Handed over: the session lives on in the next process.
+    if crate::handover::retired() {
+        return;
     }
     // Voice has its own socket and presence has a grace period, so a brief reconnect changes nothing visible.
     st.hub.detach(&session_id, attach);

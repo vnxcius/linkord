@@ -1,7 +1,8 @@
 .env
 node_modules/
 dist/
-target/
+# Cargo build output (on this machine a symlink to the external HDD, so no trailing slash).
+target
 /server/data/
 /monitor/data/
 /app/out/

@@ -23,6 +23,25 @@ fn is_real_disk(mount: &str, fs: &str) -> bool {
     !(mount.starts_with("/snap") || mount.starts_with("/var/lib/docker") || mount.starts_with("/run") || mount.starts_with("/boot/efi") || fs == "squashfs" || fs == "overlay" || fs == "tmpfs")
 }
 
+/// In a container (deploy/docker-compose.yml) every bind mount shows up as a "disk". The host's own mount points, read
+/// from its init process (the monitor sees the host's processes): device -> its shortest mount point.
+fn host_mounts() -> std::collections::HashMap<String, String> {
+    let mut out: std::collections::HashMap<String, String> = Default::default();
+    if !std::path::Path::new("/.dockerenv").exists() {
+        return out;
+    }
+    let Ok(text) = std::fs::read_to_string("/proc/1/mountinfo") else { return out };
+    for line in text.lines() {
+        let Some((left, right)) = line.split_once(" - ") else { continue };
+        let (Some(mount), Some(source)) = (left.split(' ').nth(4), right.split(' ').nth(1)) else { continue };
+        let keep = out.get(source).is_none_or(|m| mount.len() < m.len());
+        if keep {
+            out.insert(source.to_string(), mount.to_string());
+        }
+    }
+    out
+}
+
 /// Percentile from cumulative-free histogram counts: the upper bound of the bucket it lands in, interpolated.
 pub fn percentile(bounds: &[f64], counts: &[u64], p: f64) -> Option<f64> {
     let total: u64 = counts.iter().sum();
@@ -216,11 +235,21 @@ pub async fn run(st: AppState) {
 
         let mut disk_rows = vec![];
         let (mut read_total, mut write_total) = (0.0, 0.0);
+        let host = host_mounts();
+        let mut seen = std::collections::HashSet::new();
         for d in disks.iter() {
-            let mount = d.mount_point().to_string_lossy().to_string();
+            let mut mount = d.mount_point().to_string_lossy().to_string();
             let fs = d.file_system().to_string_lossy().to_string();
             if !is_real_disk(&mount, &fs) || d.total_space() == 0 {
                 continue;
+            }
+            // One row per device (bind mounts of the same disk would count its traffic again), named as on the host.
+            let device = d.name().to_string_lossy().to_string();
+            if !seen.insert(device.clone()) {
+                continue;
+            }
+            if let Some(m) = host.get(&device) {
+                mount = m.clone();
             }
             let usage = d.usage();
             let (read, written) = (usage.read_bytes as f64 / dt, usage.written_bytes as f64 / dt);
@@ -241,8 +270,18 @@ pub async fn run(st: AppState) {
         let data_disk = disk_of(&disk_rows, &st.cfg.app_data).cloned();
 
         let app = read_app(&st, &mut prev).await;
-        let app_pid = app.as_ref().and_then(|a| a["pid"].as_u64()).map(|p| p as u32);
         let wanted = st.cfg.app_process.to_lowercase();
+        let named = |p: &sysinfo::Process| {
+            let lower = p.name().to_string_lossy().to_lowercase();
+            lower == wanted || lower == format!("{wanted}.exe")
+        };
+        // The pid the app reports, unless it's from its own container's pid namespace (then: by name, the newest,
+        // which is the one serving while two run during a handover).
+        let app_pid = app
+            .as_ref()
+            .and_then(|a| a["pid"].as_u64())
+            .map(|p| p as u32)
+            .filter(|id| sys.process(sysinfo::Pid::from_u32(*id)).is_some_and(|p| named(p)));
 
         let mut procs = vec![];
         let mut app_proc = None;
@@ -268,7 +307,7 @@ pub async fn run(st: AppState) {
             });
             let is_app = match app_pid {
                 Some(id) => id == pid.as_u32(),
-                None => lower == wanted || lower == format!("{wanted}.exe"),
+                None => named(p) && app_proc.as_ref().is_none_or(|a: &Value| a["run_time"].as_u64().is_none_or(|t| p.run_time() < t)),
             };
             if is_app {
                 app_proc = Some(json!({

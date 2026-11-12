@@ -52,3 +52,24 @@ async fn fetch(State(st): State<AppState>, AuthUser(me): AuthUser, Path(user): P
     )
         .into_response())
 }
+
+// ---------- handover (handover.rs) ----------
+
+pub fn snapshot(st: &AppState) -> serde_json::Value {
+    use base64::Engine as _;
+    let all: Vec<(Id, String, i64)> = st.previews.iter().map(|p| (*p.key(), base64::engine::general_purpose::STANDARD.encode(&p.0), p.1)).collect();
+    serde_json::to_value(all).unwrap_or_default()
+}
+
+pub fn restore(st: &AppState, v: serde_json::Value) -> anyhow::Result<()> {
+    use base64::Engine as _;
+    if v.is_null() {
+        return Ok(());
+    }
+    for (user, jpeg, at) in serde_json::from_value::<Vec<(Id, String, i64)>>(v)? {
+        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(jpeg) {
+            st.previews.insert(user, (Bytes::from(bytes), at));
+        }
+    }
+    Ok(())
+}

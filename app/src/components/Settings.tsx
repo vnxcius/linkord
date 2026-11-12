@@ -46,6 +46,7 @@ import {
 } from '../lib/keys';
 import { dateLocale, LANGUAGES, msg, plural, systemLang, t, type LangPref } from '../lib/i18n';
 import { isTauri, notify, openExternal } from '../lib/platform';
+import { disablePush, enablePush, pushState, TEST_DELAY, testPush } from '../lib/push';
 import { openPage } from '../lib/route';
 import { getMic } from '../lib/media-devices';
 import { prefs, setPrefs, type SoundKind } from '../lib/prefs';
@@ -69,6 +70,7 @@ import * as I from './Icons';
 import { accentCss } from './Profile';
 import { StatsPage } from './StatsPage';
 import { KassPage } from './KassPage';
+import { StevePage } from './StevePage';
 import { showChristmas, showRelease, startTour } from './Onboarding';
 import { parseBirthday } from './Birthday';
 import { brandOf } from '../lib/brand-icons';
@@ -81,6 +83,7 @@ type Page =
   | 'profile'
   | 'stats'
   | 'kass'
+  | 'steve'
   | 'connections'
   | 'voice'
   | 'keybinds'
@@ -117,6 +120,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
       ['stats', msg('Stats'), I.Chart],
       ['sessions', msg('Sessions'), I.Desktop],
       ['kass', msg('Kass'), I.Music],
+      ['steve', msg('Steve'), I.Gamepad],
       ...(SHOW_CONNECTIONS
         ? [['connections', msg('Connections'), I.Link] as [Page, string, (p: { size?: number }) => JSX.Element]]
         : []),
@@ -146,6 +150,7 @@ const TITLES: Record<Page, string> = {
   profile: msg('Profile'),
   stats: msg('Stats'),
   kass: msg('Kass'),
+  steve: msg('Steve'),
   connections: msg('Connections'),
   voice: msg('Voice & Video'),
   keybinds: msg('Keybinds'),
@@ -164,6 +169,7 @@ export function Settings(p: { tab?: string }) {
     sessions: 'sessions',
     stats: 'stats',
     kass: 'kass',
+    steve: 'steve',
     voice: 'voice',
     keybinds: 'keybinds',
     notifications: 'notifications',
@@ -252,6 +258,9 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'kass'}>
               <KassPage />
+            </Match>
+            <Match when={page() === 'steve'}>
+              <StevePage />
             </Match>
             <Match when={page() === 'connections'}>
               <ConnectionsPage
@@ -2257,6 +2266,98 @@ const SOUND_KINDS: [SoundKind, string, string, () => void][] = [
   ],
 ];
 
+/** Push notifications for this phone or browser (lib/push.ts), web only. */
+function PushSection() {
+  const toggle = async (on: boolean) => {
+    try {
+      if (!on) return await disablePush();
+      if (!(await enablePush()) && pushState() === 'blocked')
+        toast(t('Notifications are blocked for this site in your browser settings.'), 6000);
+    } catch {
+      toast(t("Couldn't turn notifications on. Try again in a moment."), 5000);
+    }
+  };
+  const test = async () => {
+    try {
+      toast(
+        t('A test arrives in {n} seconds: close Linkord or lock the phone to see it like a real notification.', {
+          n: TEST_DELAY,
+        }),
+        8000,
+      );
+      const r = await testPush();
+      if (r.result === 'not-arrived')
+        toast(
+          t(
+            "The test didn't reach this device. On Android, check that the browser may run in the background (battery settings) and has notifications allowed.",
+          ),
+          9000,
+        );
+      else if (r.result === 'not-shown')
+        toast(t("The test arrived but couldn't be shown: {error}", { error: r.error ?? '' }), 9000);
+      else
+        toast(
+          t(
+            "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Linkord.",
+          ),
+          9000,
+        );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 5000);
+    }
+  };
+  return (
+    <Section
+      title={t('Notifications on this device')}
+      description={t(
+        "For your phone or this browser: DMs, mentions and calls arrive even when Linkord is closed. They aren't sent while you're using Linkord on another device.",
+      )}
+    >
+      <div class="set-card">
+        <Switch>
+          <Match when={pushState() === 'unsupported'}>
+            <p class="muted set-note">{t("This browser can't get notifications while Linkord is closed.")}</p>
+          </Match>
+          <Match when={pushState() === 'install'}>
+            <p class="muted set-note">
+              {t(
+                'On iPhone and iPad, add Linkord to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.',
+              )}
+            </p>
+          </Match>
+          <Match when={pushState() === 'blocked'}>
+            <p class="muted set-note">
+              {t('Notifications are blocked for this site. Allow them in your browser settings, then come back here.')}
+            </p>
+          </Match>
+          <Match when={true}>
+            <SwitchRow
+              label={t('Push notifications')}
+              hint={t('Only on this device. Every phone or browser you use turns them on by itself.')}
+              checked={pushState() === 'on'}
+              disabled={pushState() === 'working'}
+              onChange={(v) => void toggle(v)}
+              extra={
+                <Show when={pushState() === 'on'}>
+                  <button
+                    class="btn small-btn"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void test();
+                    }}
+                  >
+                    {t('Send a test')}
+                  </button>
+                </Show>
+              }
+            />
+          </Match>
+        </Switch>
+      </div>
+    </Section>
+  );
+}
+
 function NotificationsPage() {
   return (
     <>
@@ -2285,6 +2386,9 @@ function NotificationsPage() {
           />
         </div>
       </Section>
+      <Show when={!isTauri}>
+        <PushSection />
+      </Show>
       <Section title={t('Sounds')}>
         <div class="set-card">
           <SwitchRow

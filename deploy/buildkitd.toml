@@ -1,0 +1,22 @@
+# Settings for linkord's own BuildKit builder (deploy/builder.sh). Docker's default builder deletes cache mounts unused
+# for 48 h or past 2.83 GiB in total, so the desktop build (3.6 GB of caches: cargo target, crates, the MSVC SDK)
+# started from nothing almost every release (316 s instead of ~110 s). Here caches are kept much longer.
+# Each rule counts everything its filter matches; keep the catch-all's limit well above the cache mounts' own, or it
+# evicts them (the least recently used go first).
+# After changing this file: deploy/builder.sh --recreate (the caches survive).
+
+[worker.oci]
+  gc = true
+
+  # Cache mounts (cargo targets and registries, cargo-xwin's MSVC SDK, bun): what makes builds fast.
+  [[worker.oci.gcpolicy]]
+    filters = ["type==exec.cachemount"]
+    keepDuration = "4320h"
+    maxUsedSpace = "25GB"
+
+  # Everything (layers, base images, the caches above): 45 GB in all, and never below 15 GB free on disk.
+  [[worker.oci.gcpolicy]]
+    all = true
+    keepDuration = "4320h"
+    maxUsedSpace = "45GB"
+    minFreeSpace = "15GB"

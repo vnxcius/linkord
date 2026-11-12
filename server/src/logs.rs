@@ -120,7 +120,8 @@ impl DailyFile {
             return;
         }
         if let Some(f) = &mut self.file {
-            let _ = writeln!(f, "{line}");
+            // One write per line: during a handover two processes append to the same file.
+            let _ = f.write_all(format!("{line}\n").as_bytes());
             self.written += line.len() as u64 + 1;
             if self.written >= MAX_DAY_BYTES {
                 let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

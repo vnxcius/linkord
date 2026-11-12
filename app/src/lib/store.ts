@@ -74,6 +74,16 @@ export interface State {
   admin: boolean;
   /** DM calls going on: channel id -> who is being rung. */
   calls: Record<string, string[]>;
+  /** Slash commands of bots driven from outside (Steve), while they're connected. */
+  botCommands: BotCommand[];
+}
+
+export interface BotCommand {
+  bot_id: string;
+  name: string;
+  description: string;
+  option?: string | null;
+  optional?: boolean;
 }
 
 export const [state, setState] = createStore<State>({
@@ -107,6 +117,7 @@ export const [state, setState] = createStore<State>({
   highlight: null,
   admin: false,
   calls: {},
+  botCommands: [],
 });
 
 export function putUser(u: User) {

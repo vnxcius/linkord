@@ -13,14 +13,14 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::extract::{Multipart, Path, State};
 use axum::routing::post;
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -47,6 +47,8 @@ const MAX_QUEUE: usize = 100;
 const AVATAR: &str = include_str!("../assets/kass.svg");
 const DEFAULT_AVATAR: &str = "/uploads/bots/kass.svg";
 const GOLD: i32 = 0xe3b341;
+/// Kass's slash commands (and the client's /snowball): another bot (steve.rs) can't take these names.
+pub const COMMANDS: &[&str] = &["play", "skip", "pause", "resume", "queue", "repeat", "remove", "stop", "snowball"];
 
 #[derive(Default)]
 pub struct Music {
@@ -61,7 +63,7 @@ impl Music {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Track {
     /// What yt-dlp plays: a YouTube URL, or `ytsearch1:<artist> - <title>` for songs from Spotify (looked up
     /// only when they're about to play, so a whole playlist queues at once).
@@ -76,7 +78,7 @@ struct Track {
     requested_by: Id,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum Repeat {
     Off,
     /// The current song plays again until skipped.
@@ -101,6 +103,10 @@ struct Player {
     stop: AtomicBool,
     /// Wakes the player after any change above.
     wake: Notify,
+    /// How far into the current song it is (ms), for a handover.
+    position_ms: AtomicU64,
+    /// After a restart: the song that was playing and where to pick it up (ms).
+    resume_at: Mutex<Option<(String, u64)>>,
 }
 
 impl Player {
@@ -263,6 +269,13 @@ fn ytdlp_cmd(st: &AppState) -> Command {
     cmd
 }
 
+/// `yt-dlp --version`, for the monitor (internal.rs probe_tools).
+pub fn ytdlp_version_cmd(st: &AppState) -> Command {
+    let mut cmd = Command::new(ytdlp(st));
+    cmd.arg("--version");
+    cmd
+}
+
 /// YouTube breaks old yt-dlp versions regularly, so keep it current.
 pub async fn keep_ytdlp_updated(st: AppState) {
     loop {
@@ -275,7 +288,11 @@ pub async fn keep_ytdlp_updated(st: AppState) {
             }
             Err(e) => tracing::warn!("yt-dlp not available ({e}): /play won't work until it's installed"),
         }
+        crate::internal::probe_tools(&st).await;
         tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
+        if crate::handover::retired() {
+            return;
+        }
     }
 }
 
@@ -418,6 +435,9 @@ struct CommandBody {
 /// everything else is answered by Kass in the channel.
 async fn run_command(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<CommandBody>) -> ApiResult<Json<Message>> {
     st.limits.check(format!("cmd:{me}"), 10.0, 1.0)?;
+    if crate::steve::has_command(&st, &body.name) {
+        return crate::steve::run(&st, me, id, &body.name, body.query.trim()).await.map(Json);
+    }
     let a = channel_for(&st, id, me).await?;
     let Some(guild) = a.ch.guild_id.filter(|_| kind::has_messages(a.ch.kind)) else {
         return Err(bad("commands only work in server channels"));
@@ -679,9 +699,12 @@ async fn start(st: &AppState, bot: Id, guild: Id, channel: Id, text_channel: Id)
         skip: AtomicBool::new(false),
         stop: AtomicBool::new(false),
         wake: Notify::new(),
+        position_ms: AtomicU64::new(0),
+        resume_at: Mutex::new(None),
     });
     *st.music.player.lock().unwrap() = Some(player.clone());
-    let (conn, mut rx) = voice::join(st, bot, Some(guild), channel, false, true).await;
+    // After a restart Kass's seat is waiting for him (voice.rs restore): he takes it back without a join.
+    let voice::Joined { conn, mut rx, .. } = voice::join(st, bot, Some(guild), channel, false, true, None).await;
     // Nobody talks to Kass, but his queue must be drained; a close means he was disconnected (kicked, server deleted).
     let p = player.clone();
     tokio::spawn(async move {
@@ -770,6 +793,10 @@ async fn run(st: AppState, p: Arc<Player>, bot: Id, conn: u64) {
 /// A song counts for its requester's top songs (profile widget) once it played half its length or 30 s: songs
 /// skipped right away don't.
 async fn count_play(st: &AppState, t: &Track, played: Duration) {
+    // Cut short by a handover: the next process finishes the song and counts it.
+    if crate::handover::retired() {
+        return;
+    }
     let enough = t.duration.map_or(30.0, |d| (d * 0.5).min(30.0));
     if played.as_secs_f64() < enough {
         return;
@@ -821,14 +848,22 @@ impl Drop for Pipeline {
 impl Pipeline {
     /// `target` is a YouTube URL or `ytsearch1:<query>`.
     fn spawn(st: &AppState, target: &str) -> anyhow::Result<Pipeline> {
+        Self::spawn_at(st, target, 0)
+    }
+
+    /// The same, starting `ms` into the song (after a restart).
+    fn spawn_at(st: &AppState, target: &str, ms: u64) -> anyhow::Result<Pipeline> {
         let mut dl = ytdlp_cmd(st)
             .args(["-f", "bestaudio/best", "--no-playlist", "--no-part", "--quiet", "--no-warnings", "-o", "-", "--", target])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
         let input: Stdio = dl.stdout.take().ok_or_else(|| anyhow::anyhow!("no yt-dlp output"))?.try_into()?;
+        let skip = format!("{:.3}", ms as f64 / 1000.0);
         let mut ff = Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-af", "volume=0.5", "-ac", "2", "-ar", "48000"])
+            .args(["-hide_banner", "-loglevel", "error", "-i", "pipe:0"])
+            .args(if ms > 0 { vec!["-ss", skip.as_str()] } else { vec![] })
+            .args(["-vn", "-af", "volume=0.5", "-ac", "2", "-ar", "48000"])
             .args(["-c:a", "libopus", "-b:a", "128k", "-frame_duration", "20", "-application", "audio", "-f", "ogg", "pipe:1"])
             .stdin(input)
             .stdout(Stdio::piped())
@@ -867,12 +902,19 @@ async fn play(st: &AppState, p: &Player, bot: Id, conn: u64, t: &Track) -> anyho
     tracing::info!(channel = %p.channel_id, title = %t.title, "music: playing");
     let ready = p.prepared.lock().unwrap().take().filter(|(url, _)| *url == t.url).map(|(_, pipe)| pipe);
     tracing::debug!("playing {} ({})", t.url, if ready.is_some() { "started early" } else { "starting now" });
-    let mut pipe = match ready {
-        Some(pipe) => pipe,
-        None => Pipeline::spawn(st, &t.url)?,
+    let resume = p.resume_at.lock().unwrap().take().filter(|(url, _)| *url == t.url).map(|(_, ms)| ms);
+    let mut pipe = match (ready, resume) {
+        (_, Some(ms)) => Pipeline::spawn_at(st, &t.url, ms)?,
+        (Some(pipe), None) => pipe,
+        (None, None) => Pipeline::spawn(st, &t.url)?,
     };
+    let start_ms = resume.unwrap_or(0);
+    p.position_ms.store(start_ms, Ordering::Relaxed);
     // Packet count at which to prefetch (right away for short songs).
-    let prefetch_at = t.duration.map(|d| ((Duration::from_secs_f64(d).saturating_sub(PREFETCH).as_millis() / FRAME.as_millis()) as u64).max(1));
+    let prefetch_at = t.duration.map(|d| {
+        let left = Duration::from_secs_f64(d).saturating_sub(Duration::from_millis(start_ms)).saturating_sub(PREFETCH);
+        ((left.as_millis() / FRAME.as_millis()) as u64).max(1)
+    });
     // A song whose prefetch couldn't start (so it isn't retried every packet).
     let mut failed: Option<String> = None;
     let mut sent = 0u64;
@@ -911,6 +953,7 @@ async fn play(st: &AppState, p: &Player, bot: Id, conn: u64, t: &Track) -> anyho
         }
         voice::send_music(st, p.channel_id, conn, bot, &packet);
         sent += 1;
+        p.position_ms.store(start_ms + sent * FRAME.as_millis() as u64, Ordering::Relaxed);
         // Keeps checking from then on: the next song may be queued (or /removed) during the last seconds.
         if prefetch_at.is_some_and(|at| sent >= at) && p.prepared.lock().unwrap().is_none() {
             prefetch(st, p, t, &mut failed);
@@ -1273,4 +1316,56 @@ mod spotify {
             assert_eq!(list.tracks[0].page, "https://open.spotify.com/track/7bx");
         }
     }
+}
+
+// ---------- handover (handover.rs) ----------
+
+#[derive(Serialize, Deserialize)]
+struct PlayerSnap {
+    guild_id: Id,
+    channel_id: Id,
+    text_channel: Id,
+    queue: Vec<Track>,
+    now: Option<Track>,
+    position_ms: u64,
+    repeat: Repeat,
+    paused: bool,
+}
+
+pub fn snapshot(st: &AppState) -> serde_json::Value {
+    let Some(p) = current(st) else { return serde_json::Value::Null };
+    let snap = PlayerSnap {
+        guild_id: p.guild_id,
+        channel_id: p.channel_id,
+        text_channel: *p.text_channel.lock().unwrap(),
+        queue: p.queue.lock().unwrap().iter().cloned().collect(),
+        now: p.now.lock().unwrap().clone(),
+        position_ms: p.position_ms.load(Ordering::Relaxed),
+        repeat: *p.repeat.lock().unwrap(),
+        paused: p.paused.load(Ordering::Relaxed),
+    };
+    serde_json::to_value(snap).unwrap_or_default()
+}
+
+/// Kass goes on with his queue, picking the song up where it was (yt-dlp takes a few seconds to start again).
+pub async fn restore(st: &AppState, v: serde_json::Value, age_ms: i64) -> anyhow::Result<()> {
+    if v.is_null() {
+        return Ok(());
+    }
+    let snap: PlayerSnap = serde_json::from_value(v)?;
+    let Some(bot) = bot_id(st) else { return Ok(()) };
+    let p = start(st, bot, snap.guild_id, snap.channel_id, snap.text_channel).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    if let Some(now) = &snap.now {
+        // It kept playing in the old process until the handover.
+        let at = snap.position_ms + if snap.paused { 0 } else { age_ms.max(0) as u64 };
+        *p.resume_at.lock().unwrap() = Some((now.url.clone(), at));
+    }
+    // The current song before the queue: the player would otherwise start the queue's first one.
+    *p.repeat.lock().unwrap() = snap.repeat;
+    p.paused.store(snap.paused, Ordering::Relaxed);
+    *p.now.lock().unwrap() = snap.now;
+    *p.queue.lock().unwrap() = snap.queue.into();
+    p.poke();
+    tracing::info!(channel = %snap.channel_id, "handover: Kass is back");
+    Ok(())
 }

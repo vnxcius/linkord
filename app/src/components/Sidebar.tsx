@@ -69,6 +69,7 @@ import * as I from './Icons';
 import { UserVolumeSlider } from './VolumeControl';
 import { comboLabel } from '../lib/keys';
 import { currentGame, toggleGameStream } from '../lib/games';
+import { PushBanner } from './PushBanner';
 
 export function Sidebar() {
   return (
@@ -125,6 +126,7 @@ export function GuildBanner() {
 export function Dock() {
   return (
     <div class="dock">
+      <PushBanner />
       <GamePanel />
       <VoicePanel />
       <UserPanel />
@@ -800,7 +802,7 @@ export function volumeMenu(userId: string): MenuEntry[] {
 }
 
 /** Your volume for someone's soundboard sounds (0 mutes them), in their right-click menu. */
-function soundboardMenu(userId: string): MenuEntry[] {
+export function soundboardMenu(userId: string): MenuEntry[] {
   const [v, setV] = createSignal(prefs.soundboardUserVolumes[userId] ?? 1);
   const set = (x: number) => {
     setV(x);

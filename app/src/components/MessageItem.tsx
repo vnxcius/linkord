@@ -66,6 +66,39 @@ const SANITIZE = {
   ALLOW_DATA_ATTR: false,
 };
 
+/** <t:unix:style> as Discord shows it, in the reader's language (R = "3 hours ago"). */
+function discordTime(unix: number, style: string) {
+  const d = new Date(unix * 1000);
+  const loc = dateLocale();
+  switch (style) {
+    case 't':
+      return d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+    case 'T':
+      return d.toLocaleTimeString(loc);
+    case 'd':
+      return d.toLocaleDateString(loc);
+    case 'D':
+      return d.toLocaleDateString(loc, { dateStyle: 'long' });
+    case 'F':
+      return d.toLocaleString(loc, { dateStyle: 'full', timeStyle: 'short' });
+    case 'R': {
+      const secs = (unix * 1000 - Date.now()) / 1000;
+      const units: [Intl.RelativeTimeFormatUnit, number][] = [
+        ['year', 31_536_000],
+        ['month', 2_592_000],
+        ['day', 86_400],
+        ['hour', 3600],
+        ['minute', 60],
+      ];
+      const rtf = new Intl.RelativeTimeFormat(loc, { numeric: 'auto' });
+      for (const [unit, n] of units) if (Math.abs(secs) >= n) return rtf.format(Math.round(secs / n), unit);
+      return rtf.format(Math.round(secs), 'second');
+    }
+    default:
+      return d.toLocaleString(loc, { dateStyle: 'long', timeStyle: 'short' });
+  }
+}
+
 export function renderContent(content: string, guildId?: string | null) {
   const html = renderMarkdown(content, {
     userName: (id) => nameOf(id, guildId),
@@ -75,6 +108,8 @@ export function renderContent(content: string, guildId?: string | null) {
       return r && { name: r.name, color: r.color ? `#${r.color.toString(16).padStart(6, '0')}` : undefined };
     },
     emojiUrl,
+    channelName: (id) => state.channels[id]?.name,
+    time: discordTime,
   });
   return DOMPurify.sanitize(html, SANITIZE);
 }
@@ -347,6 +382,12 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   const copy = (text: string, done: string) => navigator.clipboard.writeText(text).then(() => toast(done));
 
   const menu = (e: MouseEvent): MenuEntry[] => {
+    // Only here, never stored: copying is all there is to do with it.
+    if (m().ephemeral)
+      return [
+        { label: t('Copy Text'), icon: () => <I.Copy size={16} />, run: () => copy(m().content, t('Text copied')) },
+        { label: t('Dismiss Message'), icon: () => <I.Close size={16} />, run: () => dismissMessage(m()) },
+      ];
     // It never reached the server: nothing else on the menu could work on it.
     if (m().failed)
       return [
@@ -454,7 +495,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
   // Decided once, as the message appears: the newest ones are what opening a channel shows.
   const eager = nearLatest(m().channel_id, m().id);
   const selecting = () => ui.selection?.channelId === m().channel_id;
-  const selectable = () => !m().pending && !m().failed && (mine() || canManage());
+  const selectable = () => !m().pending && !m().failed && !m().ephemeral && (mine() || canManage());
   const selected = () => selecting() && ui.selection!.ids.includes(m().id);
   const onSelectClick = (e: MouseEvent) => {
     if (!selecting()) return;
@@ -481,6 +522,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
           grouped: p.grouped,
           pending: m().pending,
           failed: m().failed,
+          ephemeral: m().ephemeral,
           mentioned: mentionsMe(),
           editing: editing(),
           highlight: state.highlight === m().id,
@@ -624,7 +666,9 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               }
             </For>
             <For each={inviteCodes(m().content)}>{(code) => <InviteCard code={code} mine={mine()} />}</For>
-            <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} eager={eager} />}</For>
+            <For each={m().embeds.filter((e) => !isInviteUrl(e.url))}>
+              {(e) => <EmbedView e={e} eager={eager} guildId={p.guildId} />}
+            </For>
             <Show when={m().thread_id ? state.channels[m().thread_id!] : undefined}>
               {(th) => (
                 <button class="thread-chip" onClick={() => selectChannel(th().id)}>
@@ -633,6 +677,14 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                   <span class="muted">{plural(th().message_count ?? 0, '{n} message', '{n} messages')}</span>
                 </button>
               )}
+            </Show>
+            <Show when={m().ephemeral}>
+              <div class="ephemeral-note">
+                <I.Eye size={14} /> {t('Only you can see this')} ·{' '}
+                <button class="link-btn" onClick={() => dismissMessage(m())}>
+                  {t('Dismiss message')}
+                </button>
+              </div>
             </Show>
             <Show when={m().failed}>
               <div class="failed-note">
@@ -667,7 +719,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
             </Show>
           </div>
         </div>
-        <Show when={!m().pending && !m().failed && !editing() && !selecting()}>
+        <Show when={!m().pending && !m().failed && !m().ephemeral && !editing() && !selecting()}>
           <div class="message-actions" classList={{ open: picker() }} ref={actionsEl}>
             <Show when={canReact()}>
               <For each={QUICK_REACTIONS.slice(0, 3)}>
@@ -775,7 +827,9 @@ function ForwardedView(p: { f: Forwarded; m: Message }) {
         }
       </For>
       <For each={inviteCodes(p.f.content)}>{(code) => <InviteCard code={code} mine={false} />}</For>
-      <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>{(e) => <EmbedView e={e} eager={false} />}</For>
+      <For each={p.f.embeds.filter((e) => !isInviteUrl(e.url))}>
+        {(e) => <EmbedView e={e} eager={false} guildId={p.f.guild_id} />}
+      </For>
       <div class="forwarded-origin">
         <Show when={origin()}>
           {(ch) => (
@@ -897,7 +951,37 @@ function AttachmentView(p: { a: Attachment; eager: boolean }) {
   );
 }
 
-function EmbedView(p: { e: Embed; eager: boolean }) {
+/** A bot card's own parts (Steve's): markdown fields side by side, a footer and its time. */
+function RichParts(p: { e: Embed; guildId?: string | null }) {
+  const md = (s: string) => renderContent(s, p.guildId);
+  return (
+    <>
+      <Show when={p.e.fields?.length}>
+        <div class="embed-fields">
+          <For each={p.e.fields}>
+            {(f) => (
+              <div class="embed-field" classList={{ inline: f.inline }}>
+                <Show when={f.name.trim()}>
+                  <div class="embed-field-name" innerHTML={md(f.name)} />
+                </Show>
+                <div class="embed-field-value" innerHTML={md(f.value)} />
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={p.e.footer || p.e.timestamp}>
+        <div class="embed-footer">
+          {[p.e.footer, p.e.timestamp ? formatTime(new Date(p.e.timestamp).toISOString()) : null]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+      </Show>
+    </>
+  );
+}
+
+function EmbedView(p: { e: Embed; eager: boolean; guildId?: string | null }) {
   return (
     <Switch>
       <Match when={p.e.type === 'image'}>
@@ -930,19 +1014,33 @@ function EmbedView(p: { e: Embed; eager: boolean }) {
               <div class="embed-site">{p.e.site_name}</div>
             </Show>
             <Show when={p.e.title}>
-              <a
-                class="embed-title"
-                href={p.e.url}
-                onClick={(ev) => {
-                  ev.preventDefault();
-                  void openExternal(p.e.url);
-                }}
-              >
-                {p.e.title}
-              </a>
+              <Show when={p.e.url} fallback={<div class="embed-title">{p.e.title}</div>}>
+                <a
+                  class="embed-title"
+                  href={p.e.url}
+                  onClick={(ev) => {
+                    ev.preventDefault();
+                    void openExternal(p.e.url);
+                  }}
+                >
+                  {p.e.title}
+                </a>
+              </Show>
             </Show>
             <Show when={p.e.description}>
-              <div class="embed-desc">{p.e.description}</div>
+              {/* Bot cards are markdown, like Discord's; link previews are the site's plain text. */}
+              <Show when={p.e.type === 'rich'} fallback={<div class="embed-desc">{p.e.description}</div>}>
+                <div
+                  class="embed-desc"
+                  innerHTML={renderContent(p.e.description!, p.guildId)}
+                  onClick={(ev) => onContentClick(ev, p.guildId)}
+                />
+              </Show>
+            </Show>
+            <Show when={p.e.type === 'rich'}>
+              <div class="embed-rich-parts" onClick={(ev) => onContentClick(ev, p.guildId)}>
+                <RichParts e={p.e} guildId={p.guildId} />
+              </div>
             </Show>
             <Show when={p.e.image && p.e.large_image}>
               <ChatImage
@@ -956,6 +1054,16 @@ function EmbedView(p: { e: Embed; eager: boolean }) {
               />
             </Show>
           </div>
+          <Show when={p.e.thumbnail}>
+            <img
+              class="embed-image thumb"
+              src={p.e.thumbnail!}
+              alt=""
+              loading="lazy"
+              referrerpolicy="no-referrer"
+              onClick={() => setUi('lightbox', p.e.thumbnail!)}
+            />
+          </Show>
           <Show when={p.e.image && !p.e.large_image}>
             <img
               class="embed-image thumb"

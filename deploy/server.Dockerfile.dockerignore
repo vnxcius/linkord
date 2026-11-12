@@ -1,0 +1,16 @@
+# Build context = the repository root. Only the server's sources and the web client's go in: never data, secrets
+# or build output.
+*
+!server/
+!app/
+server/target
+server/data
+server/.env
+server/nameplates
+server/soundboard
+app/node_modules
+app/dist
+app/out
+app/src-tauri
+app/.env.development
+**/*.log

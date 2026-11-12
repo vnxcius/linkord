@@ -60,3 +60,16 @@ test('nothing breaks out of a link', () => {
 test('a URL stops at the markup that follows it', () => {
   assert.equal(render('https://a.b/`c`'), `${a('https://a.b/', 'https://a.b/')}<code class="md-inline">c</code>`);
 });
+
+test("Discord's extras in bot cards: <t:…>, -# subtext and <#channel>", () => {
+  const html = renderMarkdown('🟢 **Online** desde <t:1700000000:R>\n-# Entre num canal de voz para ouvir.\nem <#42>', {
+    userName: () => 'someone',
+    channelName: (id) => (id === '42' ? 'geral' : undefined),
+    time: (unix, style) => `${style}:${unix}`,
+  });
+  assert.match(html, /<span class="md-time" title="[^"]+">R:1700000000<\/span>/);
+  assert.match(html, /<div class="md-sub">Entre num canal de voz para ouvir\.<\/div>/);
+  assert.match(html, /<span class="mention channel">#geral<\/span>/);
+  // Not a timestamp: left as text.
+  assert.equal(render('<t:abc>'), '&lt;t:abc&gt;');
+});

@@ -48,8 +48,14 @@ const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
 pub async fn web_headers(req: Request, next: Next) -> Response {
     // Only the tunnel's address: direct access has its own host, where other ports may not speak HTTPS.
     let https = req.extensions().get::<PublicBase>().is_none() && req.headers().get("x-forwarded-proto").is_some_and(|v| v == "https");
+    // Files without a hash in their name that must never be stale: the service worker and the app manifest (Cloudflare
+    // otherwise keeps them for hours and phones never see a new service worker).
+    let fresh = matches!(req.uri().path(), "/sw.js" | "/manifest.webmanifest" | "/index.html" | "/");
     let mut res = next.run(req).await;
     let h = res.headers_mut();
+    if fresh {
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
     h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(WEB_CSP));
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     h.insert(header::REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin"));

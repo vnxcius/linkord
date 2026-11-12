@@ -6,6 +6,7 @@ import { addDm, addGuild, channelLayout, setState, state } from './store';
 import { setUi, toast, ui } from './ui';
 import type { Channel, Guild, Message, NotifyLevel, Settings } from './types';
 import { Kind } from './types';
+import { clearPushNotifications } from './push';
 
 export function selectView(view: string) {
   setState('view', view);
@@ -56,6 +57,7 @@ export function openFriends() {
 }
 
 function onChannelViewed(channelId: string) {
+  clearPushNotifications(channelId);
   const ch = state.channels[channelId];
   // A voice channel's chat loads when it's opened (openVoiceChat).
   if (!ch || (ch.kind === Kind.Voice && ui.voiceChat !== channelId)) return;

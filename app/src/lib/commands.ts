@@ -1,5 +1,8 @@
-// Slash commands, answered by Kass (the music bot, server/src/music.rs). Typing "/" in a server channel lists them.
+// Slash commands, answered by Kass (the music bot, server/src/music.rs) and by bots driven from outside, like Steve
+// (the Minecraft bot, server/src/steve.rs: his commands come from the panel that drives him, in READY and
+// BOT_COMMANDS_UPDATE). Typing "/" in a server channel lists them.
 import { msg } from './msg';
+import { state } from './store';
 
 export interface SlashCommand {
   name: string;
@@ -8,6 +11,8 @@ export interface SlashCommand {
   /** The command also works without it (Enter runs it right away). */
   optional?: boolean;
   description: string;
+  /** Commands of another bot (Steve): offered only where that bot is, and their texts aren't translated. */
+  botId?: string;
 }
 
 export const COMMANDS: SlashCommand[] = [
@@ -31,9 +36,27 @@ export const COMMANDS: SlashCommand[] = [
   { name: 'snowball', option: msg('@someone'), description: msg('Throw a snowball at someone') },
 ];
 
+/** Kass's, then those of the other bots in this server (none outside servers). */
+export function commandsIn(guildId?: string | null): SlashCommand[] {
+  if (!guildId) return COMMANDS;
+  const others = state.botCommands
+    .filter((c) => !!state.members[guildId]?.[c.bot_id])
+    .map((c) => ({
+      name: c.name,
+      description: c.description,
+      option: c.option ?? undefined,
+      optional: c.optional,
+      botId: c.bot_id,
+    }));
+  return [...COMMANDS, ...others];
+}
+
 /** "/play never gonna" -> the command and its text; anything else (including unknown commands) is a message. */
-export function parseCommand(content: string): { command: SlashCommand; query: string } | null {
-  const m = content.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
-  const command = m && COMMANDS.find((c) => c.name === m[1].toLowerCase());
+export function parseCommand(
+  content: string,
+  guildId?: string | null,
+): { command: SlashCommand; query: string } | null {
+  const m = content.match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/);
+  const command = m && commandsIn(guildId).find((c) => c.name === m[1].toLowerCase());
   return command ? { command, query: (m[2] ?? '').trim() } : null;
 }

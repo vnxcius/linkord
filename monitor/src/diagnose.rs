@@ -113,7 +113,7 @@ fn app_checks(st: &AppState, r: &mut Report, live: &Value) {
     }
 }
 
-async fn database_checks(st: &AppState, r: &mut Report) {
+async fn database_checks(st: &AppState, r: &mut Report, live: &Value) {
     const G: &str = "Database";
     let overview = match crate::pg::overview(st).await {
         Ok(v) => v,
@@ -127,7 +127,11 @@ async fn database_checks(st: &AppState, r: &mut Report) {
         Some(m) => {
             let failed = m["failed"].as_i64().unwrap_or(0);
             let applied = m["applied"].as_i64().unwrap_or(0);
-            let files = migration_files(st).await;
+            // The server says how many it has; older servers: the files next to its data folder.
+            let files = match live["app"]["migrations_in_code"].as_i64() {
+                Some(n) => Some(n),
+                None => migration_files(st).await,
+            };
             if failed > 0 {
                 r.fail(G, "Migrations", format!("{failed} failed."), "See the server's log at startup; never edit an applied migration.");
             } else if files.is_some_and(|n| n > applied) {
@@ -218,17 +222,32 @@ async fn storage_checks(st: &AppState, r: &mut Report, live: &Value) {
     }
 }
 
-async fn tool_checks(st: &AppState, r: &mut Report) {
+async fn tool_checks(st: &AppState, r: &mut Report, live: &Value) {
     const G: &str = "Tools";
-    match first_line("ffmpeg", &["-hide_banner", "-version"]).await {
-        Some(v) => r.pass(G, "ffmpeg", v.split(" Copyright").next().unwrap_or(&v).to_string()),
-        None => r.fail(G, "ffmpeg", "Not found on the PATH.", "Voice messages, sound clips and GIF pictures need it: install ffmpeg."),
+    // What the server can run, as it reports it (it lives in its own container); servers before that: checked here.
+    let reported = live["app"]["tools"].as_object().cloned();
+    let (ffmpeg, ytdlp) = match &reported {
+        Some(t) => (t.get("ffmpeg").and_then(Value::as_str).map(str::to_string), t.get("yt_dlp").and_then(Value::as_str).map(str::to_string)),
+        None => {
+            let ff = first_line("ffmpeg", &["-hide_banner", "-version"]).await.map(|v| v.split(" Copyright").next().unwrap_or(&v).to_string());
+            let bundled = st.cfg.app_data.join("bin").join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
+            let program = if tokio::fs::metadata(&bundled).await.is_ok() { bundled.to_string_lossy().to_string() } else { "yt-dlp".to_string() };
+            (ff, first_line(&program, &["--version"]).await)
+        }
+    };
+    match ffmpeg {
+        Some(v) => r.pass(G, "ffmpeg", v),
+        None => r.fail(G, "ffmpeg", "The server can't run it.", "Voice messages, sound clips and GIF pictures need it: it's in the server image (deploy/server.Dockerfile)."),
     }
-    let bundled = st.cfg.app_data.join("bin").join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
-    let program = if tokio::fs::metadata(&bundled).await.is_ok() { bundled.to_string_lossy().to_string() } else { "yt-dlp".to_string() };
-    match first_line(&program, &["--version"]).await {
+    match ytdlp {
         Some(v) => r.pass(G, "yt-dlp", format!("Version {v}.")),
-        None => r.warn(G, "yt-dlp", "Not found.", "Kass can't play anything without it: put it in data/bin or on the PATH."),
+        None => r.warn(G, "yt-dlp", "The server can't run it.", "Kass can't play anything without it: put it in server/data/bin."),
+    }
+    if let Some(t) = &reported {
+        match t.get("node").and_then(Value::as_str) {
+            Some(v) => r.pass(G, "Node", format!("{v} (yt-dlp's JavaScript runtime).")),
+            None => r.warn(G, "Node", "The server can't run it.", "yt-dlp needs it for YouTube (LINKORD_YTDLP_ARGS=--js-runtimes node)."),
+        }
     }
     match tokio::fs::metadata(st.cfg.app_data.join("detectable.json")).await.and_then(|m| m.modified()) {
         Ok(at) => {
@@ -332,44 +351,25 @@ fn system_checks(r: &mut Report, live: &Value) {
     r.info(G, "Machine", format!("{}, up {:.1} days.", live["host"]["os"].as_str().unwrap_or("?"), live["host"]["uptime"].as_f64().unwrap_or(0.0) / 86400.0));
 }
 
-/// What only exists on the production box: the services and their restart counts.
-async fn service_checks(r: &mut Report) {
+/// The server process (in Docker: slot a or b of deploy/docker-compose.yml) and Postgres.
+async fn service_checks(r: &mut Report, live: &Value) {
     const G: &str = "Services";
-    if !cfg!(target_os = "linux") {
-        r.info(G, "systemd", "Only on the Linux server.");
+    let app = &live["app"];
+    if app.is_null() {
+        r.fail(G, "Server", "Not answering on its internal address.", "docker ps -a; docker logs --tail 50 linkord-server-<slot> (server/data/run/live says which slot serves)");
     } else {
-        for unit in ["linkord", "linkord-monitor"] {
-            let out = tokio::time::timeout(
-                Duration::from_secs(5),
-                Command::new("systemctl").args(["--user", "show", unit, "-p", "ActiveState,SubState,NRestarts", "--no-pager"]).kill_on_drop(true).output(),
-            )
-            .await;
-            let Ok(Ok(out)) = out else {
-                r.info(G, unit, "systemctl isn't available here.");
-                continue;
-            };
-            let text = String::from_utf8_lossy(&out.stdout).to_string();
-            let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(&format!("{k}=")).map(str::to_string)).unwrap_or_default();
-            let (active, restarts) = (field("ActiveState"), field("NRestarts").parse::<u64>().unwrap_or(0));
-            if active != "active" {
-                r.fail(G, unit, format!("Service is {active}."), "journalctl --user -u <service> -n 50");
-            } else if restarts > 0 {
-                r.warn(G, unit, format!("Running, restarted itself {restarts} times."), "It has been crashing. Look in Logs around those times.");
-            } else {
-                r.pass(G, unit, "Running, no crash restarts.");
-            }
-        }
-        let user = std::env::var("USER").unwrap_or_default();
-        match first_line("loginctl", &["show-user", &user, "-p", "Linger", "--value"]).await.as_deref() {
-            Some("yes") => r.pass(G, "Survives logout", "Lingering is on."),
-            Some(_) => r.warn(G, "Survives logout", "Lingering is off: the services stop when you log out.", "Run: sudo loginctl enable-linger $USER"),
-            None => r.info(G, "Survives logout", "Couldn't check lingering."),
-        }
+        let slot = app["slot"].as_str().filter(|s| !s.is_empty()).map(|s| format!("slot {s}, ")).unwrap_or_default();
+        let version = app["version"].as_str().map(|v| format!("version {v}, ")).unwrap_or_default();
+        let hours = app["uptime_s"].as_f64().unwrap_or(0.0) / 3600.0;
+        r.pass(G, "Server", format!("Running ({slot}{version}up {hours:.1} h)."));
     }
-    match first_line("docker", &["inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}", "linkord-postgres-1"]).await {
-        Some(state) if state.starts_with("running") && !state.contains("unhealthy") => r.pass(G, "Postgres container", state),
-        Some(state) => r.fail(G, "Postgres container", state, "docker logs linkord-postgres-1"),
-        None => r.info(G, "Postgres container", "Docker isn't reachable from here, or the container has another name."),
+    // Only where the docker CLI is around (not inside the monitor's own container, which has no access to Docker).
+    if let Some(state) = first_line("docker", &["inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}", "linkord-postgres-1"]).await {
+        if state.starts_with("running") && !state.contains("unhealthy") {
+            r.pass(G, "Postgres container", state);
+        } else {
+            r.fail(G, "Postgres container", state, "docker logs linkord-postgres-1");
+        }
     }
 }
 
@@ -379,12 +379,12 @@ pub async fn run(State(st): State<AppState>) -> Json<Value> {
     let mut r = Report(vec![]);
     config_checks(&st, &mut r, &live);
     app_checks(&st, &mut r, &live);
-    database_checks(&st, &mut r).await;
+    database_checks(&st, &mut r, &live).await;
     storage_checks(&st, &mut r, &live).await;
-    tool_checks(&st, &mut r).await;
+    tool_checks(&st, &mut r, &live).await;
     network_checks(&st, &mut r);
     system_checks(&mut r, &live);
-    service_checks(&mut r).await;
+    service_checks(&mut r, &live).await;
     Json(json!({ "ran_at": chrono::Utc::now().timestamp(), "took_ms": started.elapsed().as_millis() as u64, "results": r.0 }))
 }
 

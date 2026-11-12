@@ -180,14 +180,23 @@ const MAX_SOURCE = 8 * 1024 * 1024;
 
 let decodeCtx: AudioContext | null = null;
 
-/** Peaks for drawing a waveform: the loudest sample in each of `bars` slices (0..1). */
-function peaks(buf: AudioBuffer, bars: number): number[] {
+/** Holding a handle still this long zooms the waveform in around it (fine tuning). */
+const HOLD_MS = 350;
+/** How much of the sound the zoomed waveform shows, in seconds: about 3 ms per pixel. */
+const FINE_SECONDS = 1.5;
+
+/** Peaks for drawing a waveform: the loudest sample in each of `bars` slices (0..1), from `from` to `to` seconds. */
+function peaks(buf: AudioBuffer, bars: number, from = 0, to = buf.duration): number[] {
   const data = buf.getChannelData(0);
-  const step = Math.max(1, Math.floor(data.length / bars));
+  const first = Math.max(0, Math.floor(from * buf.sampleRate));
+  const last = Math.min(data.length, Math.ceil(to * buf.sampleRate));
+  const step = Math.max(1, (last - first) / bars);
   const out: number[] = [];
   for (let i = 0; i < bars; i++) {
     let max = 0;
-    for (let j = i * step; j < Math.min(data.length, (i + 1) * step); j++) max = Math.max(max, Math.abs(data[j]));
+    const a = Math.floor(first + i * step);
+    const b = Math.min(last, Math.floor(first + (i + 1) * step));
+    for (let j = a; j < b; j++) max = Math.max(max, Math.abs(data[j]));
     out.push(max);
   }
   const top = Math.max(0.01, ...out);
@@ -245,38 +254,103 @@ export function SoundEditor(p: {
     }
   });
   const length = () => buf()?.duration ?? 1;
-  const bars = createMemo(() => (buf() ? peaks(buf()!, 120) : []));
+  /** The part of the sound the waveform shows: all of it, or a short window while fine tuning. */
+  const [view, setView] = createSignal<{ from: number; to: number } | null>(null);
+  const from = () => view()?.from ?? 0;
+  const viewSpan = () => (view() ? view()!.to - view()!.from : length());
+  const [fineWhat, setFineWhat] = createSignal<'start' | 'end' | 'both' | null>(null);
+  const bars = createMemo(() => (buf() ? peaks(buf()!, view() ? 160 : 120, from(), from() + viewSpan()) : []));
+
+  /** A new start/end/position, kept inside the sound and the length limit. */
+  const place = (what: 'start' | 'end' | 'both', at: number, d0: Draft) => {
+    if (what === 'start') set({ start: Math.max(0, Math.min(Math.max(at, d0.end - MAX_SECONDS), d0.end - 0.1)) });
+    else if (what === 'end')
+      set({ end: Math.min(length(), Math.max(d0.start + 0.1, Math.min(at, d0.start + MAX_SECONDS))) });
+    else {
+      const width = d0.end - d0.start;
+      const start = Math.min(length() - width, Math.max(0, at));
+      set({ start, end: start + width });
+    }
+  };
 
   let wave!: HTMLDivElement;
-  /** Drags a handle (or the whole selection) along the waveform. */
+  /**
+   * Drags a handle (or the whole selection) along the waveform. Holding still for a moment zooms in around it
+   * (FINE_SECONDS across the waveform), so it can be placed to the millisecond even in a long file; letting go
+   * zooms back out.
+   */
   const drag = (e: PointerEvent, what: 'start' | 'end' | 'both') => {
     e.preventDefault();
     e.stopPropagation();
     const r = wave.getBoundingClientRect();
-    const d0 = draft();
-    const x0 = e.clientX;
+    // Where the drag is measured from: the pointer, the time it points at and the seconds per pixel. Zooming in
+    // starts a new reference, so the handle doesn't jump.
+    let ref = { x: e.clientX, d: draft(), perPx: length() / r.width };
+    const timeOf = (d: Draft) => (what === 'end' ? d.end : d.start);
+    let still = e.clientX;
+    let timer = 0;
+    const zoom = () => {
+      const width = Math.min(FINE_SECONDS, length());
+      if (width >= length() * 0.8) return; // a short sound is fine as it is
+      const at = timeOf(draft());
+      // The handle goes to the middle, with room on both sides; the drag is relative, so nothing jumps.
+      const start = Math.min(length() - width, Math.max(0, at - width / 2));
+      setView({ from: start, to: start + width });
+      setFineWhat(what);
+      ref = { x: still, d: draft(), perPx: width / r.width };
+    };
+    const arm = () => {
+      clearTimeout(timer);
+      if (!view()) timer = window.setTimeout(zoom, HOLD_MS);
+    };
     const move = (ev: PointerEvent) => {
-      const at = Math.min(length(), Math.max(0, ((ev.clientX - r.left) / r.width) * length()));
-      if (what === 'start') set({ start: Math.min(Math.max(at, d0.end - MAX_SECONDS), d0.end - 0.1) });
-      else if (what === 'end') set({ end: Math.max(d0.start + 0.1, Math.min(at, d0.start + MAX_SECONDS)) });
-      else {
-        const span = d0.end - d0.start;
-        const shift = ((ev.clientX - x0) / r.width) * length();
-        const start = Math.min(length() - span, Math.max(0, d0.start + shift));
-        set({ start, end: start + span });
+      if (Math.abs(ev.clientX - still) > 3) {
+        still = ev.clientX;
+        arm();
       }
+      const at = timeOf(ref.d) + (ev.clientX - ref.x) * ref.perPx;
+      place(what, at, ref.d);
+      if (view()) follow();
+    };
+    /** While zoomed, the window slides along when the handle nears its edge. */
+    const follow = () => {
+      const v = view();
+      if (!v) return;
+      const at = timeOf(draft());
+      const width = v.to - v.from;
+      const edge = width * 0.08;
+      let start = v.from;
+      if (at < v.from + edge) start = at - edge;
+      else if (at > v.to - edge) start = at + edge - width;
+      start = Math.min(length() - width, Math.max(0, start));
+      if (start !== v.from) setView({ from: start, to: start + width });
     };
     const up = () => {
+      clearTimeout(timer);
+      setView(null);
+      setFineWhat(null);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
+    arm();
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+  /** Arrow keys on a handle: 10 ms, or 100 ms with Shift. */
+  const nudge = (e: KeyboardEvent, what: 'start' | 'end') => {
+    const dir =
+      e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const d = draft();
+    place(what, (what === 'start' ? d.start : d.end) + dir * (e.shiftKey ? 0.1 : 0.01), d);
   };
   /** A click outside the selection moves it there. */
   const jump = (e: MouseEvent) => {
     const r = wave.getBoundingClientRect();
-    const at = ((e.clientX - r.left) / r.width) * length();
+    const at = from() + ((e.clientX - r.left) / r.width) * viewSpan();
     const span = Math.min(MAX_SECONDS, draft().end - draft().start);
     const start = Math.min(Math.max(0, length() - span), Math.max(0, at - span / 2));
     set({ start, end: start + span });
@@ -311,27 +385,59 @@ export function SoundEditor(p: {
     tick();
   };
   onCleanup(stop);
-  const pct = (sec: number) => `${(sec / length()) * 100}%`;
-  const fmt = (sec: number) => `${sec.toFixed(2)}s`;
+  /** Where a time is on the waveform as it's shown now (whole sound or zoomed window). */
+  const pct = (sec: number) => `${((sec - from()) / viewSpan()) * 100}%`;
+  const inView = (sec: number) => sec >= from() - 1e-6 && sec <= from() + viewSpan() + 1e-6;
+  const fmt = (sec: number) => `${sec.toFixed(3)}s`;
+  /** The selection as drawn: cut to the zoomed window. */
+  const selFrom = () => Math.max(draft().start, from());
+  const selTo = () => Math.min(draft().end, from() + viewSpan());
 
   return (
     <div class="sound-editor">
       <Show when={!failed()} fallback={<p class="error">{t("Couldn't read that sound")}</p>}>
-        <div class="sound-wave" ref={wave} onClick={jump}>
+        <div class="sound-wave" classList={{ fine: !!view() }} ref={wave} onClick={jump}>
           <div class="sound-bars">
             <For each={bars()}>{(v) => <i style={{ height: `${Math.max(4, v * 100)}%` }} />}</For>
           </div>
           <Show when={buf()}>
             <div
               class="sound-sel"
-              style={{ left: pct(draft().start), width: pct(draft().end - draft().start) }}
+              style={{ left: pct(selFrom()), width: `${(Math.max(0, selTo() - selFrom()) / viewSpan()) * 100}%` }}
               onPointerDown={(e) => drag(e, 'both')}
               onClick={(e) => e.stopPropagation()}
             >
-              <span class="sound-handle start" onPointerDown={(e) => drag(e, 'start')} />
-              <span class="sound-handle end" onPointerDown={(e) => drag(e, 'end')} />
+              <Show when={inView(draft().start)}>
+                <span
+                  class="sound-handle start"
+                  tabindex="0"
+                  role="slider"
+                  aria-label={t('Clip start')}
+                  aria-valuetext={fmt(draft().start)}
+                  onPointerDown={(e) => drag(e, 'start')}
+                  onKeyDown={(e) => nudge(e, 'start')}
+                />
+              </Show>
+              <Show when={inView(draft().end)}>
+                <span
+                  class="sound-handle end"
+                  tabindex="0"
+                  role="slider"
+                  aria-label={t('Clip end')}
+                  aria-valuetext={fmt(draft().end)}
+                  onPointerDown={(e) => drag(e, 'end')}
+                  onKeyDown={(e) => nudge(e, 'end')}
+                />
+              </Show>
             </div>
-            <Show when={playhead() !== null}>
+            <Show when={fineWhat()}>
+              {(w) => (
+                <span class="sound-fine-label" style={{ left: pct(w() === 'end' ? draft().end : draft().start) }}>
+                  {fmt(w() === 'end' ? draft().end : draft().start)}
+                </span>
+              )}
+            </Show>
+            <Show when={playhead() !== null && inView(playhead()!)}>
               <span class="sound-playhead" style={{ left: pct(playhead()!) }} />
             </Show>
           </Show>
@@ -345,6 +451,9 @@ export function SoundEditor(p: {
           </span>
           <span>{fmt(draft().end)}</span>
         </div>
+        <p class="sound-hint muted">
+          {t('Hold a handle still to zoom in and place it to the millisecond. Arrow keys move a handle by 10 ms.')}
+        </p>
         <div class="sound-editor-row">
           <button class="btn small-btn" disabled={!buf()} onClick={() => (playing ? stop() : preview())}>
             <I.Play size={14} /> {t('Preview')}

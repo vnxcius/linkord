@@ -35,6 +35,7 @@ import { TitleBar } from './components/TitleBar';
 import { PickUsername } from './components/Username';
 import { SidebarResize, sidebarWidth } from './components/SidebarResize';
 import { Onboarding } from './components/Onboarding';
+import { initPush } from './lib/push';
 import { Button } from './components/ui/button';
 import { INVITE_KEY, LOGIN_PENDING_KEY } from './lib/api';
 
@@ -62,6 +63,7 @@ export default function App() {
     if (authed()) connectGateway();
     void initDesktop();
     void initVoiceResume();
+    void initPush();
   });
 
   return (

@@ -9,6 +9,10 @@ export interface RenderOptions {
   /** Role name and CSS color for <@&id> mentions. */
   role?: (id: string) => { name: string; color?: string } | undefined;
   emojiUrl?: (id: string, animated: boolean) => string;
+  /** <#id>: the channel's name, if known. */
+  channelName?: (id: string) => string | undefined;
+  /** <t:unix:style>: the time as text (Discord's styles t T d D f F R). */
+  time?: (unix: number, style: string) => string;
 }
 
 function inline(s: string): string {
@@ -55,6 +59,15 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
         )
       : `:${name}:`,
   );
+  s = s.replace(/&lt;#(\d+)&gt;/g, (_, id: string) => {
+    const name = opts.channelName?.(id);
+    return slot(`<span class="mention channel">#${esc(name ?? 'unknown')}</span>`);
+  });
+  s = s.replace(/&lt;t:(-?\d{1,13})(?::([tTdDfFR]))?&gt;/g, (_, n: string, style?: string) => {
+    const unix = Number(n);
+    const text = opts.time ? opts.time(unix, style ?? 'f') : new Date(unix * 1000).toLocaleString();
+    return slot(`<span class="md-time" title="${esc(new Date(unix * 1000).toLocaleString())}">${esc(text)}</span>`);
+  });
   const link = (url: string, text: string) =>
     slot(`<a href="${url}" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`);
   // Masked links: [text](url), or [text](<url>) as Discord writes them when the URL shouldn't get a preview.
@@ -79,6 +92,12 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
       continue;
     }
     flushQuote();
+    // -# small grey text under a line, like Discord's subtext.
+    const sub = line.match(/^-# (.+)$/);
+    if (sub) {
+      out.push(`<div class="md-sub">${inline(sub[1])}</div>`);
+      continue;
+    }
     const h = line.match(/^(#{1,3}) (.+)$/);
     const li = line.match(/^\s*[-*] (.+)$/);
     if (h) out.push(`<div class="md-h${h[1].length}">${inline(h[2])}</div>`);

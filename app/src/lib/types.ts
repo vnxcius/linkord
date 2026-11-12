@@ -135,6 +135,11 @@ export interface Embed {
   large_image?: boolean;
   color?: number | null;
   author?: string | null;
+  /** Bot cards (rich): markdown fields, a footer, a small picture in the corner and a time (unix ms). */
+  fields?: { name: string; value: string; inline: boolean }[];
+  footer?: string | null;
+  thumbnail?: string | null;
+  timestamp?: number | null;
   /** Where a short link (youtu.be, vm.tiktok.com...) redirected to. */
   resolved_url?: string | null;
 }
@@ -180,6 +185,8 @@ export interface Message {
   /** Client-only: optimistic message not yet confirmed by the server. */
   pending?: boolean;
   failed?: boolean;
+  /** A bot's answer only you see: it isn't stored, so it's gone after a reload. */
+  ephemeral?: boolean;
 }
 
 export interface VoiceState {

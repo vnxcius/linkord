@@ -16,6 +16,10 @@
 //! Video payload: [flags u8][seq u16 BE][codec: len u8 + ascii, only on keyframes][frame]; flag bit 0 = keyframe.
 //!
 //! Screen shares are only forwarded to people watching them ("Watch Stream").
+//!
+//! Seats survive dropped connections: when a client that can resume (identify `v: 2`) loses its voice socket without
+//! saying `leave`, its seat waits 20 s (voice_grace) for it to reconnect, and nobody sees it leave. A server restart
+//! (handover.rs) hands every seat to the next process the same way.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -60,6 +64,17 @@ const KIND_MUSIC: u8 = 5;
 
 static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 
+/// How long a seat waits for its client to reconnect after the connection dropped (LINKORD_VOICE_GRACE_MS: tests).
+fn voice_grace() -> Duration {
+    static G: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *G.get_or_init(|| {
+        let ms = std::env::var("LINKORD_VOICE_GRACE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000);
+        Duration::from_millis(ms)
+    })
+}
+/// The same after a server restart: the server itself may take a few seconds to be back.
+const RESTORE_GRACE: Duration = Duration::from_secs(45);
+
 #[derive(Clone, Serialize)]
 pub struct VoiceState {
     pub user_id: Id,
@@ -89,6 +104,10 @@ type MediaTx = mpsc::Sender<(Instant, WsMsg)>;
 struct Peer {
     user: Id,
     conn: u64,
+    /// Bumped each time a socket takes this seat (a reconnect), so the socket it replaced can't end it.
+    attach: u64,
+    /// Since when the seat has no socket (waiting for its client to reconnect).
+    detached: Option<Instant>,
     /// Last time they talked (or joined, or changed mute/camera/stream), for the AFK channel.
     active: Mutex<Instant>,
     tx: mpsc::Sender<WsMsg>,
@@ -145,6 +164,8 @@ struct Call {
     started_at: i64,
     /// Set while nobody is in it, so a lone user reconnecting keeps the call going.
     empty_since: Option<Instant>,
+    /// When the current ringing started (DM calls), so a restart keeps its timeout.
+    ring_started: Option<Instant>,
     /// The channel status ("what we're up to"), like Discord's. Lives as long as the call.
     status: Option<String>,
 }
@@ -235,7 +256,7 @@ impl VoiceStates {
             counters.media_packets.fetch_add(1, Ordering::Relaxed);
             counters.media_bytes.fetch_add(size, Ordering::Relaxed);
         }
-        for p in room.iter().filter(|p| p.conn != from) {
+        for p in room.iter().filter(|p| p.conn != from && p.detached.is_none()) {
             let sent = if kind == KIND_VOICE || kind == KIND_MUSIC || kind == 0 {
                 p.tx.try_send(msg.clone()).is_ok()
             } else if screen && !p.watching.lock().unwrap().contains(&from_user) {
@@ -275,12 +296,13 @@ impl VoiceStates {
         self.rooms.get(&channel).and_then(|room| room.iter().find(|p| p.conn == conn).map(f))
     }
 
-    fn remove_peer(&self, channel: Id, conn: u64) -> Option<Peer> {
+    /// Removes the seat `conn` (only while `attach` still holds it, when given).
+    fn remove_peer(&self, channel: Id, conn: u64, attach: Option<u64>) -> Option<Peer> {
         let mut removed = None;
         let emptied = self
             .rooms
             .remove_if_mut(&channel, |_, peers| {
-                if let Some(i) = peers.iter().position(|p| p.conn == conn) {
+                if let Some(i) = peers.iter().position(|p| p.conn == conn && attach.is_none_or(|a| p.attach == a)) {
                     removed = Some(peers.remove(i));
                 }
                 peers.is_empty()
@@ -304,6 +326,7 @@ impl VoiceStates {
             ring_gen: 0,
             started_at: now,
             empty_since: None,
+            ring_started: None,
             status: None,
         });
         let mut cleared = false;
@@ -329,6 +352,39 @@ impl VoiceStates {
             None => return Vec::new(),
         };
         viewers.into_iter().filter_map(|(user, conn, list)| self.update(user, conn, |v| v.watching = list)).collect()
+    }
+
+    /// Gives `user`'s seat in `channel` to a new socket, if the seat is waiting for one (detached) or `token` is the
+    /// login already in it (the client noticed a dead connection before we did). The socket it replaces is closed
+    /// with 4006. Returns (conn, queue, attach).
+    fn reattach(&self, user: Id, channel: Id, token: Option<&[u8]>) -> Option<(u64, mpsc::Receiver<WsMsg>, u64)> {
+        if self.by_user.get(&user).is_none_or(|v| v.channel_id != Some(channel)) {
+            return None;
+        }
+        let mut room = self.rooms.get_mut(&channel)?;
+        let p = room.iter_mut().find(|p| p.user == user)?;
+        let same_login = token.is_some_and(|t| !t.is_empty() && *p.token.lock().unwrap() == t);
+        if p.detached.is_none() && !same_login {
+            return None;
+        }
+        let (tx, rx) = mpsc::channel(VOICE_QUEUE);
+        let old = std::mem::replace(&mut p.tx, tx);
+        let _ = old.try_send(WsMsg::Close(Some(CloseFrame { code: 4006, reason: "resumed on another connection".into() })));
+        p.attach += 1;
+        p.detached = None;
+        *p.active.lock().unwrap() = Instant::now();
+        Some((p.conn, rx, p.attach))
+    }
+
+    /// The socket `attach` of seat `conn` is gone: the seat waits for a reconnect. False if another socket has it.
+    fn detach(&self, channel: Id, conn: u64, attach: u64) -> bool {
+        let Some(mut room) = self.rooms.get_mut(&channel) else { return false };
+        let Some(p) = room.iter_mut().find(|p| p.conn == conn && p.attach == attach) else { return false };
+        p.detached = Some(Instant::now());
+        if let Some(media) = p.media.lock().unwrap().take() {
+            let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+        }
+        true
     }
 
     /// Updates the caller's own state if this socket still owns it.
@@ -378,12 +434,17 @@ pub async fn ring(st: &AppState, channel: Id, users: Vec<Id>) {
         let Some(mut call) = st.voice.calls.get_mut(&channel) else { return };
         call.ringing.extend(users.into_iter().filter(|u| !inside.contains(u)));
         call.ring_gen += 1;
+        call.ring_started = Some(Instant::now());
         call.ring_gen
     };
     announce_call(st, channel).await;
+    stop_ringing_after(st, channel, gen, RING_FOR);
+}
+
+fn stop_ringing_after(st: &AppState, channel: Id, gen: u64, after: Duration) {
     let st = st.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(RING_FOR).await;
+        tokio::time::sleep(after).await;
         let stopped = st.voice.calls.get_mut(&channel).filter(|c| c.ring_gen == gen && !c.ringing.is_empty()).map(|mut c| c.ringing.clear()).is_some();
         if stopped {
             announce_call(&st, channel).await;
@@ -401,9 +462,13 @@ pub async fn stop_ringing(st: &AppState, channel: Id, user: Id) {
 
 /// Disconnects the user from voice (closing their sockets) and tells their guild.
 pub async fn leave(st: &AppState, user: Id) {
+    // Handed over: the next process has this call now.
+    if crate::handover::retired() {
+        return;
+    }
     st.previews.remove(&user);
     if let Some((_, mut vs)) = st.voice.by_user.remove(&user) {
-        if let Some(peer) = vs.channel_id.and_then(|ch| st.voice.remove_peer(ch, vs.conn)) {
+        if let Some(peer) = vs.channel_id.and_then(|ch| st.voice.remove_peer(ch, vs.conn, None)) {
             let _ = peer.tx.try_send(WsMsg::Close(None));
             if let Some(media) = peer.media.lock().unwrap().take() {
                 let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
@@ -482,9 +547,24 @@ async fn end_dm_call_if_empty(st: &AppState, channel: Id) {
     }
 }
 
-/// Puts `me` in a voice channel (ending any other voice session of theirs) and tells the guild.
-/// Returns the session's connection id and the queue of what others send it.
-pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self_mute: bool, self_deaf: bool) -> (u64, mpsc::Receiver<WsMsg>) {
+/// A seat in a call, as `join` gives it.
+pub struct Joined {
+    pub conn: u64,
+    pub rx: mpsc::Receiver<WsMsg>,
+    /// Which socket holds the seat (see Peer::attach).
+    pub attach: u64,
+    /// The seat was already there (a reconnect): nothing was announced.
+    pub resumed: bool,
+}
+
+/// Puts `me` in a voice channel (ending any other voice session of theirs) and tells the guild. A seat of theirs in
+/// that channel waiting for a reconnect (or held by `token`, their own login) is taken back quietly instead.
+pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self_mute: bool, self_deaf: bool, token: Option<&[u8]>) -> Joined {
+    if let Some((conn, rx, attach)) = st.voice.reattach(me, channel, token) {
+        tracing::info!(user = %me, channel = %channel, "voice: resumed");
+        crate::internal::counters().voice_resumes.fetch_add(1, Ordering::Relaxed);
+        return Joined { conn, rx, attach, resumed: true };
+    }
     // One voice session per user: joining here ends any session in another channel or on another device.
     leave(st, me).await;
     let conn = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
@@ -492,6 +572,8 @@ pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self
     st.voice.rooms.entry(channel).or_default().push(Peer {
         user: me,
         conn,
+        attach: 0,
+        detached: None,
         tx,
         active: Mutex::new(Instant::now()),
         media: Mutex::new(None),
@@ -528,20 +610,33 @@ pub async fn join(st: &AppState, me: Id, guild_id: Option<Id>, channel: Id, self
         let alone = st.voice.rooms.get(&channel).is_some_and(|r| r.len() == 1);
         if alone {
             let others: Vec<Id> = crate::api::dms::recipients(&st.db, channel).await.unwrap_or_default().into_iter().filter(|u| *u != me).collect();
+            crate::push::on_ring(st, channel, me, others.clone());
             ring(st, channel, others).await;
         } else {
             stop_ringing(st, channel, me).await;
         }
     }
-    (conn, rx)
+    Joined { conn, rx, attach: 0, resumed: false }
 }
 
 /// Ends the voice session `conn` (when it still is in `channel`) and tells the guild.
 pub async fn part(st: &AppState, me: Id, conn: u64, channel: Id) {
-    if let Some(peer) = st.voice.remove_peer(channel, conn) {
-        if let Some(media) = peer.media.lock().unwrap().take() {
-            let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+    part_inner(st, me, conn, None, channel).await;
+}
+
+/// Like `part`, but only while the socket `attach` still holds the seat (it wasn't taken over by a reconnect).
+async fn part_inner(st: &AppState, me: Id, conn: u64, attach: Option<u64>, channel: Id) {
+    if crate::handover::retired() {
+        return;
+    }
+    match st.voice.remove_peer(channel, conn, attach) {
+        Some(peer) => {
+            if let Some(media) = peer.media.lock().unwrap().take() {
+                let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+            }
         }
+        None if attach.is_some() => return,
+        None => {}
     }
     for viewer in st.voice.unwatch(channel, me) {
         announce(st, &viewer).await;
@@ -574,6 +669,12 @@ pub fn streaming_in(st: &AppState, user: Id) -> Option<Id> {
 
 pub fn channel_of(st: &AppState, user: Id) -> Option<(Option<Id>, Id)> {
     st.voice.by_user.get(&user).and_then(|v| v.channel_id.map(|c| (v.guild_id, c)))
+}
+
+/// A bot's clip (Steve's sound commands), played by everyone in the call like a soundboard sound.
+pub fn play_bot_sound(st: &AppState, channel: Id, bot: Id, sound: &crate::soundboard::Sound) {
+    let msg = json!({ "op": "sound", "user_id": bot, "sound": sound }).to_string();
+    st.voice.send_all(channel, WsMsg::Text(msg.into()));
 }
 
 /// Who else is in the channel.
@@ -714,7 +815,8 @@ async fn ring_again(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id)
     }
     st.limits.check(format!("ring:{me}"), 5.0, 0.1)?;
     let members = crate::api::dms::recipients(&st.db, id).await?;
-    let users = body.user_ids.unwrap_or_else(|| members.clone()).into_iter().filter(|u| *u != me && members.contains(u)).collect();
+    let users: Vec<Id> = body.user_ids.unwrap_or_else(|| members.clone()).into_iter().filter(|u| *u != me && members.contains(u)).collect();
+    crate::push::on_ring(&st, id, me, users.clone());
     ring(&st, id, users).await;
     Ok(())
 }
@@ -733,6 +835,9 @@ async fn media_handler(State(st): State<AppState>, ClientIp(ip): ClientIp, ws: W
 struct Identify {
     token: String,
     channel_id: Id,
+    /// 2: the client reconnects by itself and says `leave` when it leaves, so a dropped connection keeps its seat.
+    #[serde(default)]
+    v: u32,
 }
 
 #[derive(Deserialize)]
@@ -748,6 +853,8 @@ enum ClientOp {
     Ping { t: f64 },
     /// Play a soundboard sound for everyone in the channel.
     Sound { sound_id: String },
+    /// Leaving the call (v2 clients): without it, a closed socket keeps the seat for a reconnect.
+    Leave,
 }
 
 /// What someone may do in a call.
@@ -831,8 +938,11 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         return close(socket, 4004, "not a voice channel").await;
     };
     let guild_id = access.guild;
-    let (conn, mut rx) = join(&st, me, guild_id, channel, !access.speak, false).await;
     let token = crate::auth::hash_token(&ident.token);
+    let resumable = ident.v >= 2;
+    // Older clients only get a seat back that's waiting for them (after a restart); two of their tabs on one login
+    // would otherwise take it from each other forever.
+    let Joined { conn, mut rx, attach, resumed } = join(&st, me, guild_id, channel, !access.speak, false, resumable.then_some(token.as_slice())).await;
     let Some((tx, allowed)) = st.voice.with_peer(channel, conn, |p| {
         p.allowed.speak.store(access.speak, Ordering::Relaxed);
         p.allowed.stream.store(access.stream, Ordering::Relaxed);
@@ -844,19 +954,27 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
     let mut budget = Budget::new();
 
     let (mut sink, mut stream) = socket.split();
-    let ready = sink.send(WsMsg::Text(json!({ "op": "ready" }).to_string().into())).await.is_ok();
+    let ready = sink.send(WsMsg::Text(json!({ "op": "ready", "resumed": resumed }).to_string().into())).await.is_ok();
     let prefix = (me.0 as u64).to_be_bytes();
     let mut ping = tokio::time::interval(Duration::from_secs(20));
     let mut last_seen = Instant::now();
     // Time in voice, saved every ping so a restart loses at most a few seconds.
     let mut counted = Instant::now();
     let session = Instant::now();
-    crate::stats::bump(&st, me, "voice_sessions");
+    if !resumed {
+        crate::stats::bump(&st, me, "voice_sessions");
+    }
+    let mut left = false;
 
     while ready {
         tokio::select! {
             out = rx.recv() => match out {
-                Some(WsMsg::Close(_)) | None => {
+                Some(WsMsg::Close(frame)) => {
+                    let frame = frame.unwrap_or(CloseFrame { code: 4002, reason: "session replaced".into() });
+                    let _ = sink.send(WsMsg::Close(Some(frame))).await;
+                    break;
+                }
+                None => {
                     let _ = sink.send(WsMsg::Close(Some(CloseFrame { code: 4002, reason: "session replaced".into() }))).await;
                     break;
                 }
@@ -952,6 +1070,11 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
                         Ok(ClientOp::Ping { t }) => {
                             let _ = tx.try_send(WsMsg::Text(json!({ "op": "pong", "t": t }).to_string().into()));
                         }
+                        Ok(ClientOp::Leave) => {
+                            left = true;
+                            let _ = sink.send(WsMsg::Close(Some(CloseFrame { code: 1000, reason: "left".into() }))).await;
+                            break;
+                        }
                         Err(_) => {}
                     },
                     Some(Ok(WsMsg::Close(_))) | Some(Err(_)) | None => break,
@@ -966,8 +1089,34 @@ async fn run_voice(st: AppState, mut socket: WebSocket) {
         }
     }
     add_voice_time(&st, me, &mut counted).await;
+    // Handed over: the seat lives on in the next process.
+    if crate::handover::retired() {
+        return;
+    }
     crate::stats::max(&st, me, "longest_voice_seconds", session.elapsed().as_secs() as i64).await;
-    part(&st, me, conn, channel).await;
+    if resumable && !left {
+        // A dropped connection: the seat waits for the client to come back.
+        if st.voice.detach(channel, conn, attach) {
+            tracing::info!(user = %me, channel = %channel, "voice: connection lost, keeping the seat");
+            crate::internal::counters().voice_drops.fetch_add(1, Ordering::Relaxed);
+            part_after(&st, me, conn, attach, channel, voice_grace());
+        }
+        return;
+    }
+    part_inner(&st, me, conn, Some(attach), channel).await;
+}
+
+/// Ends a seat nobody came back to.
+fn part_after(st: &AppState, me: Id, conn: u64, attach: u64, channel: Id, grace: Duration) {
+    let st = st.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(grace).await;
+        let waiting = st.voice.with_peer(channel, conn, |p| p.attach == attach && p.detached.is_some()) == Some(true);
+        if waiting {
+            tracing::info!(user = %me, channel = %channel, "voice: didn't reconnect");
+            part_inner(&st, me, conn, Some(attach), channel).await;
+        }
+    });
 }
 
 /// Moves people who haven't talked for the server's AFK timeout into its AFK channel (when one is set), like
@@ -976,6 +1125,12 @@ pub async fn afk_sweeper(st: AppState) {
     let mut tick = tokio::time::interval(Duration::from_secs(15));
     loop {
         tick.tick().await;
+        if crate::handover::retired() {
+            return;
+        }
+        if crate::handover::paused() {
+            continue;
+        }
         let Ok(guilds) = sqlx::query_as::<_, (Id, Id, i32)>(
             "SELECT id, afk_channel_id, afk_timeout FROM guilds WHERE afk_channel_id IS NOT NULL",
         )
@@ -1057,6 +1212,7 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
         return close(socket, 4004, "not in this voice channel").await;
     }
     let (tx, mut rx) = mpsc::channel::<(Instant, WsMsg)>(MEDIA_QUEUE);
+    let mine = tx.clone();
     let Some(allowed) = st.voice.with_peer(channel, conn, |p| {
         *p.media.lock().unwrap() = Some(tx);
         p.allowed.clone()
@@ -1099,5 +1255,177 @@ async fn run_media(st: AppState, mut socket: WebSocket) {
             }
         }
     }
-    let _ = st.voice.with_peer(channel, conn, |p| p.media.lock().unwrap().take());
+    // Only our own: a newer media socket (after a reconnect) may have taken its place already.
+    let _ = st.voice.with_peer(channel, conn, |p| {
+        let mut media = p.media.lock().unwrap();
+        if media.as_ref().is_some_and(|m| m.same_channel(&mine)) {
+            media.take();
+        }
+    });
+}
+
+// ---------- handover (handover.rs) ----------
+
+#[derive(Serialize, Deserialize)]
+struct SeatSnap {
+    user_id: Id,
+    guild_id: Option<Id>,
+    channel_id: Id,
+    self_mute: bool,
+    self_deaf: bool,
+    self_stream: bool,
+    self_video: bool,
+    watching: Vec<Id>,
+    call_started_at: Option<i64>,
+    conn: u64,
+    home: Id,
+    speak: bool,
+    stream: bool,
+    /// The login in the seat (hex of its hash).
+    token: String,
+    /// Since they last talked, for the AFK channel.
+    active_ms: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CallSnap {
+    channel_id: Id,
+    guild_id: Option<Id>,
+    ringing: Vec<Id>,
+    /// How much longer it rings.
+    ring_left_ms: Option<u64>,
+    started_at: i64,
+    empty_ms: Option<u64>,
+    status: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct VoiceSnap {
+    seats: Vec<SeatSnap>,
+    calls: Vec<CallSnap>,
+    next_conn: u64,
+}
+
+pub fn snapshot(st: &AppState) -> serde_json::Value {
+    let mut seats = Vec::new();
+    for v in st.voice.by_user.iter() {
+        let Some(channel) = v.channel_id else { continue };
+        let extra = st.voice.with_peer(channel, v.conn, |p| {
+            (p.allowed.speak.load(Ordering::Relaxed), p.allowed.stream.load(Ordering::Relaxed), hex::encode(&*p.token.lock().unwrap()), p.active.lock().unwrap().elapsed().as_millis() as u64)
+        });
+        let Some((speak, stream, token, active_ms)) = extra else { continue };
+        seats.push(SeatSnap {
+            user_id: v.user_id,
+            guild_id: v.guild_id,
+            channel_id: channel,
+            self_mute: v.self_mute,
+            self_deaf: v.self_deaf,
+            self_stream: v.self_stream,
+            self_video: v.self_video,
+            watching: v.watching.clone(),
+            call_started_at: v.call_started_at,
+            conn: v.conn,
+            home: v.home,
+            speak,
+            stream,
+            token,
+            active_ms,
+        });
+    }
+    let calls = st
+        .voice
+        .calls
+        .iter()
+        .map(|c| CallSnap {
+            channel_id: *c.key(),
+            guild_id: c.guild_id,
+            ringing: c.ringing.iter().copied().collect(),
+            ring_left_ms: c.ring_started.filter(|_| !c.ringing.is_empty()).map(|t| RING_FOR.saturating_sub(t.elapsed()).as_millis() as u64),
+            started_at: c.started_at,
+            empty_ms: c.empty_since.map(|t| t.elapsed().as_millis() as u64),
+            status: c.status.clone(),
+        })
+        .collect();
+    serde_json::to_value(VoiceSnap { seats, calls, next_conn: NEXT_CONN.load(Ordering::Relaxed) }).unwrap_or_default()
+}
+
+/// Everyone goes back in their seat, detached: their clients reconnect within RESTORE_GRACE and take it back without
+/// anyone noticing. Seats nobody comes back to end then.
+pub fn restore(st: &AppState, v: serde_json::Value, age_ms: i64) -> anyhow::Result<()> {
+    if v.is_null() {
+        return Ok(());
+    }
+    let snap: VoiceSnap = serde_json::from_value(v)?;
+    let now = Instant::now();
+    let age = Duration::from_millis(age_ms.max(0) as u64);
+    let ago = |ms: u64| now.checked_sub(Duration::from_millis(ms) + age).unwrap_or(now);
+    let mut max_conn = snap.next_conn;
+    for c in snap.calls {
+        let ringing: HashSet<Id> = c.ringing.into_iter().collect();
+        let left = c.ring_left_ms.map(|ms| Duration::from_millis(ms).saturating_sub(age));
+        st.voice.calls.insert(
+            c.channel_id,
+            Call {
+                guild_id: c.guild_id,
+                ring_started: left.map(|l| now.checked_sub(RING_FOR.saturating_sub(l)).unwrap_or(now)),
+                ringing,
+                ring_gen: 1,
+                started_at: c.started_at,
+                empty_since: c.empty_ms.map(ago),
+                status: c.status,
+            },
+        );
+        if let Some(left) = left {
+            stop_ringing_after(st, c.channel_id, 1, left);
+        }
+    }
+    let count = snap.seats.len();
+    for s in snap.seats {
+        max_conn = max_conn.max(s.conn + 1);
+        let (tx, _) = mpsc::channel(1);
+        st.voice.rooms.entry(s.channel_id).or_default().push(Peer {
+            user: s.user_id,
+            conn: s.conn,
+            attach: 0,
+            detached: Some(now),
+            active: Mutex::new(ago(s.active_ms)),
+            tx,
+            media: Mutex::new(None),
+            watching: Mutex::new(s.watching.iter().copied().collect()),
+            allowed: Arc::new(Allowed { speak: AtomicBool::new(s.speak), stream: AtomicBool::new(s.stream) }),
+            token: Mutex::new(hex::decode(&s.token).unwrap_or_default()),
+        });
+        st.voice.by_user.insert(
+            s.user_id,
+            VoiceState {
+                user_id: s.user_id,
+                guild_id: s.guild_id,
+                channel_id: Some(s.channel_id),
+                self_mute: s.self_mute,
+                self_deaf: s.self_deaf,
+                self_stream: s.self_stream,
+                self_video: s.self_video,
+                watching: s.watching,
+                call_started_at: s.call_started_at,
+                conn: s.conn,
+                home: s.home,
+            },
+        );
+        part_after(st, s.user_id, s.conn, 0, s.channel_id, RESTORE_GRACE);
+    }
+    NEXT_CONN.fetch_max(max_conn, Ordering::Relaxed);
+    tracing::info!(seats = count, "handover: voice restored");
+    Ok(())
+}
+
+/// Closes every voice and media socket with 4100: clients reconnect at once and take their seats back.
+pub fn close_all_restarting(st: &AppState) {
+    for room in st.voice.rooms.iter() {
+        for p in room.iter() {
+            let _ = p.tx.try_send(WsMsg::Close(Some(CloseFrame { code: 4100, reason: "server restarting".into() })));
+            if let Some(media) = p.media.lock().unwrap().as_ref() {
+                let _ = media.try_send((Instant::now(), WsMsg::Close(None)));
+            }
+        }
+    }
 }
