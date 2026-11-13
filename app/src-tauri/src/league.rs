@@ -63,6 +63,23 @@ pub async fn league_invite(
     }
 }
 
+/// Accepts, in your League client, the lobby invite this summoner just sent (you asked to join through Linkord, so
+/// joining takes no click in League). Waits a few seconds for it to arrive; false when it never did.
+#[tauri::command]
+pub async fn league_accept(
+    dir: Option<String>,
+    from_summoner_id: i64,
+    from_puuid: Option<String>,
+) -> Result<bool, String> {
+    #[cfg(windows)]
+    return imp::accept(dir, from_summoner_id, from_puuid).await;
+    #[cfg(not(windows))]
+    {
+        let _ = (dir, from_summoner_id, from_puuid);
+        Err("League of Legends invites are only available on Windows".into())
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use std::sync::{Mutex, OnceLock};
@@ -164,6 +181,50 @@ mod imp {
             }
         }
         Err(format!("League refused the invite ({first})"))
+    }
+
+    pub async fn accept(dir: Option<String>, from: i64, puuid: Option<String>) -> Result<bool, String> {
+        let lock = dir
+            .as_deref()
+            .and_then(lockfile)
+            .or_else(|| lockfile(DEFAULT_DIR))
+            .ok_or("League of Legends isn't open")?;
+        let from_them = |inv: &Value| {
+            inv["fromSummonerId"].as_i64() == Some(from)
+                || puuid.as_deref().is_some_and(|p| {
+                    ["fromSummonerPuuid", "fromPuuid"]
+                        .iter()
+                        .any(|k| inv[*k].as_str() == Some(p))
+                })
+        };
+        // The invite reaches this client a moment after the host's client sends it.
+        for _ in 0..20 {
+            let list = lcu(&lock, "/lol-lobby/v2/received-invitations").await;
+            let found = list.as_ref().and_then(Value::as_array).and_then(|l| {
+                l.iter()
+                    .find(|inv| inv["state"] == "Pending" && from_them(inv))
+                    .and_then(|inv| text(&inv["invitationId"]))
+                    .filter(|id| id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+            });
+            if let Some(id) = found {
+                let res = client()
+                    .post(format!(
+                        "https://127.0.0.1:{}/lol-lobby/v2/received-invitations/{id}/accept",
+                        lock.port
+                    ))
+                    .basic_auth("riot", Some(&lock.password))
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                return if res.status().is_success() {
+                    Ok(true)
+                } else {
+                    Err(format!("League refused to join ({})", res.status()))
+                };
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        Ok(false)
     }
 
     pub async fn status(dir: Option<String>) -> Option<LeagueStatus> {

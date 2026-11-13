@@ -4372,16 +4372,18 @@ img.emblem { display: inline-block; flex: none; object-fit: contain; user-select
 .badge-bar > span { display: block; height: 100%; border-radius: 999px; }
 
 .badge-earned {
-  position: fixed; z-index: 465; right: 24px; bottom: 24px; width: 380px; max-width: calc(100vw - 32px); box-sizing: border-box;
+  position: fixed; z-index: 465; right: 24px; top: 64px; width: 380px; max-width: calc(100vw - 32px); box-sizing: border-box;
   display: flex; align-items: center; gap: 12px; padding: 12px 10px 12px 14px;
   background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow);
   animation: badge-in 0.22s ease-out;
 }
-@keyframes badge-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes badge-in { from { opacity: 0; transform: translateY(-10px); } }
 .badge-earned-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-2); }
 .badge-earned-text strong { font-size: 14.5px; color: var(--text); }
 .badge-earned-kicker { font: 500 10.5px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
-@media (max-width: 760px) { .badge-earned { right: 16px; left: 16px; bottom: 16px; width: auto; } }
+/* Top right like the other corner cards: at the bottom it covered the composer's mic and send buttons. */
+body:has(.incoming-call) .badge-earned { top: 330px; }
+@media (max-width: 760px) { .badge-earned { right: 16px; left: 16px; top: 16px; width: auto; } }
 
 .badges-settings .badges-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 14px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
 .badges-settings .badges-preview .badge-strip { margin: 0; }

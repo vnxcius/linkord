@@ -24,7 +24,10 @@
 //! Lobby invites through Linkord: someone asks to join from your League card (POST /league/join with their
 //! summoner id, read from their own League client), you get LEAGUE_JOIN_REQUEST and your app has your client invite
 //! them. Or you invite someone (POST /league/invite: LEAGUE_INVITE), and when they accept, their join request comes
-//! back marked `auto`, so your app invites them without asking you again.
+//! back marked `auto`, so your app invites them without asking you again. Once the host's client has sent the
+//! invite, the host's app says so (POST /league/invited, only for someone who asked in the last 2 minutes) and the
+//! joiner gets LEAGUE_INVITED with the host's summoner, so their app accepts that invite in their League client by
+//! itself: joining takes no click in League.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,6 +66,8 @@ const ART_DIR: &str = "league-art";
 const CDRAGON_ROOT: &str = "https://raw.communitydragon.org/latest/";
 /// An invite from Linkord stays good this long (the person may need to open League first).
 const INVITE_TTL: Duration = Duration::from_secs(600);
+/// How long a join request waits for the host's client to send the invite (prompts last a minute, plus slack).
+const JOIN_TTL: Duration = Duration::from_secs(120);
 const RECENT_MATCHES: usize = 6;
 /// Riot's personal key allows 100 per 2 minutes and 20 per second; stay a little under both.
 const PER_2MIN: usize = 95;
@@ -86,6 +91,8 @@ pub struct League {
     dirty: AtomicBool,
     /// (host, invited) -> when the host invited them through Linkord.
     invites: DashMap<(Id, Id), Instant>,
+    /// (host, joiner) -> when the joiner asked to join the host's lobby (POST /league/invited needs one).
+    joins: DashMap<(Id, Id), Instant>,
     /// Pictures CommunityDragon doesn't have: not asked for again for an hour.
     art_missing: DashMap<String, Instant>,
 }
@@ -1000,6 +1007,8 @@ async fn join(
             Some(mid) => from_invite_message(&st, me, b.user_id, mid).await?,
             None => false,
         };
+    st.league.joins.retain(|_, at| at.elapsed() < JOIN_TTL);
+    st.league.joins.insert((b.user_id, me), Instant::now());
     st.hub.send(
         &[b.user_id],
         "LEAGUE_JOIN_REQUEST",
@@ -1028,6 +1037,44 @@ async fn from_invite_message(st: &AppState, me: Id, host: Id, mid: Id) -> ApiRes
     }
     let a = crate::api::channels::channel_for(st, channel, me).await?;
     Ok(a.perms.has(crate::perms::READ_MESSAGE_HISTORY))
+}
+
+#[derive(Deserialize)]
+struct InvitedBody {
+    /// Who your League client just invited.
+    user_id: Id,
+    /// Yours, from your League client: their app accepts only an invite from this summoner.
+    summoner_id: i64,
+    puuid: Option<String>,
+}
+
+/// POST /league/invited: your League client invited someone who asked to join; their app then accepts it by itself.
+async fn invited(
+    State(st): State<AppState>,
+    AuthUser(me): AuthUser,
+    Json(b): Json<InvitedBody>,
+) -> ApiResult<StatusCode> {
+    if b.summoner_id <= 0 {
+        return Err(bad("open League of Legends to join"));
+    }
+    let asked = st
+        .league
+        .joins
+        .remove(&(me, b.user_id))
+        .is_some_and(|(_, at)| at.elapsed() < JOIN_TTL);
+    if !asked {
+        return Err(ApiError::NotFound);
+    }
+    let puuid = b.puuid.filter(|p| {
+        p.len() <= 100 && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    });
+    st.hub.send(
+        &[b.user_id],
+        "LEAGUE_INVITED",
+        &json!({ "user_id": me, "summoner_id": b.summoner_id, "puuid": puuid }),
+    );
+    tracing::info!(user = %me, to = %b.user_id, "league: sent a lobby invite");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
@@ -1076,6 +1123,7 @@ pub fn routes() -> Router<AppState> {
         .route("/league/art/{*path}", get(art))
         .route("/league/join", post(join))
         .route("/league/invite", post(invite))
+        .route("/league/invited", post(invited))
         .route("/league/invite/chat", post(chat_invite))
 }
 

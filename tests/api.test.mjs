@@ -2239,6 +2239,41 @@ test('attachments: pictures say their size, so clients can keep their place; oth
   assert.equal(m.attachments[1].content_type, 'text/plain');
 });
 
+test('league: asking to join a lobby, then the host app says it invited you, so your app accepts by itself', async () => {
+  const host = await login('lolhost');
+  const joiner = await login('loljoin');
+  const stranger = await login('lolother');
+  const g = await ok(host.token, 'POST', '/guilds', { name: 'Rift' });
+  const invite = await ok(host.token, 'POST', `/guilds/${g.id}/invites`, {});
+  await ok(joiner.token, 'POST', `/invites/${invite.code}`);
+  await ok(stranger.token, 'POST', `/invites/${invite.code}`);
+  const hostWs = await gateway(host.token);
+  const joinWs = await gateway(joiner.token);
+  try {
+    const lobby = { phase: 'lobby', party_size: 1, party_max: 5 };
+    await ok(host.token, 'PUT', '/activities/playing', { name: 'League of Legends', league: lobby });
+    // Nobody asked yet: the host's app can't make anyone accept anything.
+    const invited = (who, body) => call(host.token, 'POST', '/league/invited', { summoner_id: 777, ...body, user_id: who.id });
+    assert.equal((await invited(joiner)).status, 404);
+
+    await ok(joiner.token, 'POST', '/league/join', { user_id: host.id, summoner_id: 4242, puuid: 'joiner-puuid' });
+    const req = await until(() => hostWs.events.find((e) => e.t === 'LEAGUE_JOIN_REQUEST'));
+    assert.deepEqual([req.d.user_id, req.d.summoner_id, req.d.auto], [joiner.id, 4242, false]);
+
+    // Only for whoever asked, and only once.
+    assert.equal((await invited(stranger)).status, 404);
+    assert.equal((await invited(joiner, { summoner_id: 0 })).status, 400);
+    assert.equal((await invited(joiner, { puuid: 'host-puuid' })).status, 204);
+    const done = await until(() => joinWs.events.find((e) => e.t === 'LEAGUE_INVITED'));
+    assert.deepEqual(done.d, { user_id: host.id, summoner_id: 777, puuid: 'host-puuid' });
+    assert.equal((await invited(joiner)).status, 404);
+  } finally {
+    hostWs.ws.close();
+    joinWs.ws.close();
+    await call(host.token, 'DELETE', '/activities/playing');
+  }
+});
+
 test('snowballs: only at people who can see the channel, and the score reaches the profile', async () => {
   const a = await login('snowa');
   const b = await login('snowb');

@@ -452,6 +452,7 @@ pub fn run() {
             games::running_apps,
             league::league_status,
             league::league_invite,
+            league::league_accept,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

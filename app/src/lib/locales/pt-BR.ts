@@ -1843,6 +1843,8 @@ export const UI: Record<string, string> = {
   'Lobby closed': 'Saguão fechado',
   'Lobby full': 'Saguão cheio',
   'Invite on its way': 'Convite a caminho',
+  "Joined {name}'s lobby": 'Você entrou no saguão de {name}',
+  'Accept the invite in League of Legends to join': 'Aceite o convite no League of Legends para entrar',
   'Join from the Linkord desktop app': 'Entre pelo app do Linkord para computador',
   'League of Legends · Lobby invite': 'League of Legends · Convite para o saguão',
   "{name}'s lobby": 'Saguão de {name}',

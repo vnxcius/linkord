@@ -1,5 +1,5 @@
 import { onSnowball } from './snowball';
-import { onLeagueInvite, onLeagueJoinRequest } from './league';
+import { onLeagueInvite, onLeagueInvited, onLeagueJoinRequest } from './league';
 import { batch } from 'solid-js';
 import { t } from './i18n';
 import { produce, reconcile } from 'solid-js/store';
@@ -270,6 +270,8 @@ function handle(t: string, d: any) {
       return onLeagueJoinRequest(d);
     case 'LEAGUE_INVITE':
       return onLeagueInvite(d);
+    case 'LEAGUE_INVITED':
+      return void onLeagueInvited(d);
     case 'WATCH_UPDATE':
       setServerNow(d.server_now);
       return putWatch(d.channel_id, d.watch);

@@ -10,6 +10,7 @@ import {
   askToJoin,
   dismissLeaguePrompt,
   inviteSummoner,
+  LEAGUE_ICON,
   leagueMe,
   leaguePrompts,
   type LeagueActivity,
@@ -400,7 +401,7 @@ function LeaguePromptCard(p: { prompt: LeaguePrompt }) {
     setBusy(true);
     try {
       if (p.prompt.kind === 'join') {
-        await inviteSummoner(p.prompt.summoner_id!, p.prompt.puuid);
+        await inviteSummoner(p.prompt.user_id, p.prompt.summoner_id!, p.prompt.puuid);
         toast(t('Invited {name} to your lobby', { name: nameOf(p.prompt.user_id) }));
         done();
       } else if (await askToJoin(p.prompt.user_id)) {
@@ -457,6 +458,8 @@ export function LobbyInviteCard(p: { message: Message }) {
   // Still in a lobby: the live one. Gone into queue/game or closed: the invite is over.
   const live = () => (game()?.league?.phase === 'lobby' ? game()!.league : undefined);
   const lobby = () => live() ?? sent();
+  // League's icon even when their "Playing" has moved on to another game (live() means it's League's activity).
+  const icon = () => (live() && game()?.icon) || LEAGUE_ICON;
   const party = () => (lobby()?.party && lobby()!.party!.max > 1 ? lobby()!.party : undefined);
   const full = () => !!party() && party()!.size >= party()!.max;
   const queue = () => {
@@ -482,7 +485,7 @@ export function LobbyInviteCard(p: { message: Message }) {
     <div class="lobby-invite" classList={{ closed: !live() }}>
       <span class="label">{t('League of Legends · Lobby invite')}</span>
       <div class="lobby-invite-body">
-        <GameIcon src={game()?.icon} size={52} />
+        <GameIcon src={icon()} size={52} />
         <div class="lobby-invite-text">
           <strong>{t("{name}'s lobby", { name: nameOf(host()) })}</strong>
           <span>

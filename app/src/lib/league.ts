@@ -56,6 +56,11 @@ export interface LeagueActivity {
   champion?: { id: number; name: string; icon: string };
 }
 
+/** League's icon from Discord's detectable list (application 1402418696126992445), for cards drawn when the host
+ *  isn't in League any more (their "Playing" is then another game, or nothing). */
+export const LEAGUE_ICON =
+  'https://cdn.discordapp.com/app-icons/1402418696126992445/7c99428541032ac02ec6981d88b78fb7.png?size=128';
+
 const POLL_MS = 3000;
 /** In a match: rarely, the game is what matters. */
 const IN_GAME_POLL_MS = 15_000;
@@ -280,7 +285,9 @@ export const splashOf = (id: number) =>
 
 // ---------- lobby invites through Linkord ----------
 // Ask to join from someone's League card, or invite someone from their menu (server/src/league.rs join/invite).
-// The League client does the actual inviting: only the host's desktop app, with League open, can.
+// The League client does the actual inviting: only the host's desktop app, with League open, can. Then the host's
+// app tells the server who it invited (POST /league/invited) and the joiner's app accepts that invite in its own
+// League client (LEAGUE_INVITED, league_accept), so joining takes no click in League.
 
 export interface LeaguePrompt {
   key: string;
@@ -321,10 +328,43 @@ function addPrompt(p: Omit<LeaguePrompt, 'key' | 'at'>) {
   );
 }
 
-/** Has your League client invite them. */
-export async function inviteSummoner(summonerId: number, puuid?: string) {
+/** Has your League client invite them (`userId` asked to join), then lets their app accept it by itself. */
+export async function inviteSummoner(userId: string, summonerId: number, puuid?: string) {
   const { invoke } = await import('@tauri-apps/api/core');
   await invoke('league_invite', { dir, summonerId, puuid: puuid ?? null });
+  const me = leagueMe();
+  // An older server doesn't know the route: they accept in League as before.
+  if (me) {
+    void api('POST', '/league/invited', { user_id: userId, summoner_id: me.summoner_id, puuid: me.puuid }).catch(
+      () => {},
+    );
+  }
+}
+
+/** Whose lobby you asked to join, and when: only their invite is accepted for you. */
+const asked = new Map<string, number>();
+const ACCEPT_WINDOW = 2 * 60_000;
+
+/** LEAGUE_INVITED: the host's League client sent the invite you asked for; accept it in yours. */
+export async function onLeagueInvited(d: { user_id: string; summoner_id: number; puuid?: string | null }) {
+  const at = asked.get(d.user_id);
+  if (!isTauri || at === undefined || Date.now() - at > ACCEPT_WINDOW) return;
+  asked.delete(d.user_id);
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const joined = await invoke<boolean>('league_accept', {
+      dir,
+      fromSummonerId: d.summoner_id,
+      fromPuuid: d.puuid ?? null,
+    });
+    toast(
+      joined
+        ? t("Joined {name}'s lobby", { name: nameOf(d.user_id) })
+        : t('Accept the invite in League of Legends to join'),
+    );
+  } catch (e) {
+    toast(e instanceof Error ? e.message : String(e));
+  }
 }
 
 /** LEAGUE_JOIN_REQUEST: someone asks to join your lobby (already approved when you invited them). */
@@ -337,7 +377,7 @@ export function onLeagueJoinRequest(d: {
   // Only the app with League open can invite.
   if (!isTauri || !leagueReport()) return;
   if (d.auto) {
-    inviteSummoner(d.summoner_id, d.puuid ?? undefined).then(
+    inviteSummoner(d.user_id, d.summoner_id, d.puuid ?? undefined).then(
       () => toast(t('Invited {name} to your lobby', { name: nameOf(d.user_id) })),
       (e) => toast(String(e)),
     );
@@ -368,6 +408,7 @@ export async function askToJoin(userId: string, messageId?: string): Promise<boo
       puuid: me.puuid,
       message_id: messageId,
     });
+    asked.set(userId, Date.now());
     return true;
   } catch (e) {
     toast(e instanceof Error ? e.message : String(e));

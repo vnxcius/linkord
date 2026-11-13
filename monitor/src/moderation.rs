@@ -109,7 +109,6 @@ pub async fn servers(State(st): State<AppState>, Query(s): Query<Search>) -> Api
          ORDER BY g.created_at DESC LIMIT 500",
     )
     .bind(&q)
-    .bind(MANUAL_BADGES.map(String::from).to_vec())
     .fetch_all(&st.db)
     .await
     .map_err(db_error)?;
@@ -235,6 +234,7 @@ pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> Ap
          ORDER BY u.created_at DESC LIMIT 500",
     )
     .bind(&q)
+    .bind(MANUAL_BADGES.map(String::from).to_vec())
     .fetch_all(&st.db)
     .await
     .map_err(db_error)?;
