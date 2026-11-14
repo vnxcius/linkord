@@ -74,6 +74,29 @@ pub async fn run(mut cmd: Command, timeout: Duration) -> ApiResult<Option<Output
     }
 }
 
+/// Converting a whole video (videos.rs): one at a time, its own queue so uploads never wait behind it, the lowest CPU
+/// priority (voice runs on this machine), and a CPU budget that fits a long video. `None` = it failed or took too long.
+pub async fn convert(mut cmd: Command, timeout: Duration) -> Option<Output> {
+    static QUEUE: OnceLock<std::sync::Arc<Semaphore>> = OnceLock::new();
+    let _turn = QUEUE.get_or_init(|| std::sync::Arc::new(Semaphore::new(1))).clone().acquire_owned().await.ok()?;
+    #[cfg(unix)]
+    unsafe {
+        let cpu = timeout.as_secs() * 2;
+        cmd.pre_exec(move || {
+            let set = |what, max: u64| {
+                let lim = libc::rlimit { rlim_cur: max as libc::rlim_t, rlim_max: max as libc::rlim_t };
+                if libc::setrlimit(what, &lim) == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+            };
+            set(libc::RLIMIT_AS, MAX_MEMORY)?;
+            set(libc::RLIMIT_CPU, cpu)?;
+            libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+            Ok(())
+        });
+    }
+    cmd.kill_on_drop(true).stdin(std::process::Stdio::null());
+    tokio::time::timeout(timeout, cmd.output()).await.ok()?.ok()
+}
+
 /// `ffmpeg` reading `path` strictly as `format`, from a plain file.
 pub fn ffmpeg_input(path: &Path, format: &str) -> Command {
     let mut cmd = Command::new("ffmpeg");

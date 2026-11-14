@@ -1,5 +1,6 @@
 // Audio worklets for voice: capture in 20 ms frames (mono mic or stereo screen audio), and a
-// jitter-buffered stereo mixer for everyone you hear.
+// jitter-buffered stereo mixer for everyone you hear. While REC records the voice chat, the mixer also makes a
+// second mix without the people who opted out of recordings and sends it out in 20 ms frames.
 
 declare const sampleRate: number;
 declare function registerProcessor(name: string, ctor: unknown): void;
@@ -63,6 +64,13 @@ class Playback extends AudioWorkletProcessor {
   private captureRef = false;
   private ref = new Float32Array(FRAME * 2);
   private refN = 0;
+  /** REC: the recording mix is on; ids (users) whose voice stays out of it. */
+  private recording = false;
+  private excluded = new Set<string>();
+  private recL = new Float32Array(128);
+  private recR = new Float32Array(128);
+  private rec = new Float32Array(FRAME * 2);
+  private recN = 0;
 
   constructor() {
     super();
@@ -80,7 +88,15 @@ class Playback extends AudioWorkletProcessor {
     gain?: number;
     remove?: boolean;
     captureRef?: boolean;
+    recording?: boolean;
+    exclude?: string[];
   }) {
+    if (msg.recording !== undefined) {
+      this.recording = msg.recording;
+      this.excluded = new Set(msg.exclude ?? []);
+      this.recN = 0;
+      return;
+    }
     if (msg.captureRef !== undefined) {
       this.captureRef = msg.captureRef;
       this.refN = 0;
@@ -112,7 +128,18 @@ class Playback extends AudioWorkletProcessor {
     const len = left.length;
     left.fill(0);
     if (right !== left) right.fill(0);
-    for (const s of this.sources.values()) {
+    const recording = this.recording && !!this.worker;
+    if (recording) {
+      if (this.recL.length !== len) {
+        this.recL = new Float32Array(len);
+        this.recR = new Float32Array(len);
+      }
+      this.recL.fill(0);
+      this.recR.fill(0);
+    }
+    for (const [id, s] of this.sources) {
+      // Stream audio ("<user>:screen") isn't anyone's voice: only the voice itself is left out.
+      const recorded = recording && !this.excluded.has(id);
       if (!s.primed) {
         if (s.buffered < this.target) continue;
         s.primed = true;
@@ -125,8 +152,14 @@ class Playback extends AudioWorkletProcessor {
         const take = Math.min(len - i, frames - s.offset);
         for (let k = 0; k < take; k++) {
           const at = (s.offset + k) * ch;
-          left[i + k] += c[at] * s.gain;
-          if (right !== left) right[i + k] += c[at + (ch > 1 ? 1 : 0)] * s.gain;
+          const l = c[at] * s.gain;
+          const r = c[at + (ch > 1 ? 1 : 0)] * s.gain;
+          left[i + k] += l;
+          if (right !== left) right[i + k] += r;
+          if (recorded) {
+            this.recL[i + k] += l;
+            this.recR[i + k] += r;
+          }
         }
         i += take;
         s.offset += take;
@@ -142,6 +175,17 @@ class Playback extends AudioWorkletProcessor {
     for (let i = 0; i < len; i++) {
       left[i] = Math.max(-1, Math.min(1, left[i]));
       if (right !== left) right[i] = Math.max(-1, Math.min(1, right[i]));
+    }
+    if (recording) {
+      for (let i = 0; i < len; i++) {
+        this.rec[this.recN * 2] = Math.max(-1, Math.min(1, this.recL[i]));
+        this.rec[this.recN * 2 + 1] = Math.max(-1, Math.min(1, this.recR[i]));
+        if (++this.recN === FRAME) {
+          this.worker!.postMessage({ rec: this.rec }, [this.rec.buffer]);
+          this.rec = new Float32Array(FRAME * 2);
+          this.recN = 0;
+        }
+      }
     }
     if (this.captureRef && this.worker) {
       for (let i = 0; i < len; i++) {

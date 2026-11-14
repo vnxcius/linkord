@@ -13,20 +13,23 @@ pub struct Config {
     pub web_dir: PathBuf,
     /// Default nameplates users can pick without uploading anything (LINKORD_NAMEPLATES_DIR).
     pub nameplates_dir: PathBuf,
-    /// Default soundboard sounds (LINKORD_SOUNDS_DIR): audio files, "🦆 quack.mp3".
+    /// Default soundboard sounds (LINKORD_SOUNDS_DIR): audio files, "🔔 sleigh bells.mp3".
     pub sounds_dir: PathBuf,
     pub discord_client_id: String,
     pub discord_client_secret: String,
     /// Discord's addresses (tests point these at a mock).
     pub discord_api_url: String,
     pub discord_cdn_url: String,
-    /// Who can create an account: "invite" (a valid invite link, the default), "open" or "closed".
+    /// LINKORD_SIGNUP=closed: no new accounts (an emergency switch). Anything else: anyone can sign up with Discord.
     /// Existing accounts can always sign in.
-    pub signup: String,
+    pub signup_closed: bool,
     /// Enables passwordless username login for local testing. Never enable on a public server.
     pub dev_login: bool,
     /// Total bytes each user may upload.
     pub upload_quota: u64,
+    /// REC: bytes of shared clips each user may keep, and the largest one.
+    pub clip_quota: u64,
+    pub clip_max: u64,
     /// Spotify connection (Settings -> Connections). Both empty = the option is hidden.
     pub spotify_client_id: String,
     pub spotify_client_secret: String,
@@ -53,7 +56,7 @@ pub struct Config {
     pub cloudflare_token: Option<String>,
     /// Use Let's Encrypt's staging directory (testing certificates, no rate limits).
     pub acme_staging: bool,
-    /// Who may change the music bot's picture: Linkord usernames, user ids or Discord ids.
+    /// Who may change the music bot's picture: Pottira usernames, user ids or Discord ids.
     pub admins: Vec<String>,
     /// Loopback address for the monitor's counters (internal.rs). "off" turns it off.
     pub internal_bind: Option<String>,
@@ -80,9 +83,11 @@ impl Config {
             discord_client_secret: opt("DISCORD_CLIENT_SECRET").unwrap_or_default(),
             discord_api_url: opt("DISCORD_API_URL").unwrap_or_else(|| "https://discord.com".into()),
             discord_cdn_url: opt("DISCORD_CDN_URL").unwrap_or_else(|| "https://cdn.discordapp.com".into()),
-            signup: opt("LINKORD_SIGNUP").unwrap_or_else(|| "invite".into()),
+            signup_closed: opt("LINKORD_SIGNUP").is_some_and(|v| v == "closed"),
             dev_login: opt("LINKORD_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
             upload_quota: opt("LINKORD_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
+            clip_quota: opt("LINKORD_CLIP_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5120) * 1024 * 1024,
+            clip_max: opt("LINKORD_CLIP_MAX_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(1024) * 1024 * 1024,
             spotify_client_id: opt("SPOTIFY_CLIENT_ID").unwrap_or_default(),
             spotify_client_secret: opt("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
             spotify_accounts_url: opt("SPOTIFY_ACCOUNTS_URL").unwrap_or_else(|| "https://accounts.spotify.com".into()),

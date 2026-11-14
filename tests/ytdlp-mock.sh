@@ -19,7 +19,9 @@ case " $* " in
     ;;
   *" -o "*)
     [[ $target == *broken* ]] && { echo "ERROR: Sign in to confirm you're not a bot" >&2; exit 1; }
-    exec ffmpeg -loglevel error -f lavfi -i sine=frequency=440:duration=8 -f wav pipe:1
+    # A time limit: on Windows an ffmpeg left behind when the server stops stays blocked on its pipe forever and keeps
+    # the server's port (it inherited the socket), so the next test run can't start.
+    exec timeout 30 ffmpeg -loglevel error -f lavfi -i sine=frequency=440:duration=8 -f wav pipe:1
     ;;
   *) echo "mock yt-dlp: unexpected arguments: $*" >&2; exit 2 ;;
 esac

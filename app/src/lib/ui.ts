@@ -11,6 +11,8 @@ export type Modal =
   | { type: 'channel-settings'; channelId: string }
   | { type: 'server-settings'; guildId: string; tab?: string }
   | { type: 'settings'; tab?: string }
+  /** REC's page (components/Rec.tsx). */
+  | { type: 'rec'; tab?: string }
   | { type: 'join-invite'; code: string }
   | { type: 'create-group'; channelId?: string }
   | { type: 'user-profile'; userId: string; guildId?: string }

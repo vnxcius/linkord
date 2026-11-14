@@ -2,7 +2,7 @@
 // one after another. Only the web build carries the files, so the desktop installer stays small; the app streams them
 // from the server, like the spellcheck dictionaries.
 // It's background music, so anything else you're listening to comes first: it pauses during calls and while a call
-// rings, while a video or voice message plays, and while Linkord isn't the window you're using (a game, say).
+// rings, while a video or voice message plays, and while Pottira isn't the window you're using (a game, say).
 import { createEffect, createRoot, createSignal, onCleanup } from 'solid-js';
 import { serverUrl } from './api';
 import { prefs } from './prefs';

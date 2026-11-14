@@ -1,6 +1,6 @@
 // UI icons from Heroicons (MIT, outline set), under the names the components use. Heroicons has no headphones,
 // pushpin, controller, keyboard, picture-in-picture, signal bars or crossed-out mic, so those are drawn below on
-// the same 24px grid and stroke. The Linkord emblem is the app icon itself (a picture).
+// the same 24px grid and stroke. The Pottira emblem is the app icon itself (a picture).
 import type { JSX } from 'solid-js';
 import { Show, splitProps } from 'solid-js';
 import { brandOf } from '../lib/brand-icons';
@@ -22,14 +22,26 @@ import arrowsRightLeft from 'heroicons/24/outline/arrows-right-left.svg?raw';
 import atSymbol from 'heroicons/24/outline/at-symbol.svg?raw';
 import bell from 'heroicons/24/outline/bell.svg?raw';
 import trophy from 'heroicons/24/outline/trophy.svg?raw';
+import backward from 'heroicons/24/outline/backward.svg?raw';
+import forwardMedia from 'heroicons/24/outline/forward.svg?raw';
+import zoomIn from 'heroicons/24/outline/magnifying-glass-plus.svg?raw';
+import zoomOut from 'heroicons/24/outline/magnifying-glass-minus.svg?raw';
+import sparkles from 'heroicons/24/outline/sparkles.svg?raw';
+import cloudUp from 'heroicons/24/outline/cloud-arrow-up.svg?raw';
+import sliders from 'heroicons/24/outline/adjustments-horizontal.svg?raw';
+import squares from 'heroicons/24/outline/squares-2x2.svg?raw';
 import bellSlash from 'heroicons/24/outline/bell-slash.svg?raw';
 import camera from 'heroicons/24/outline/camera.svg?raw';
+import film from 'heroicons/24/outline/film.svg?raw';
+import scissors from 'heroicons/24/outline/scissors.svg?raw';
+import bookmark from 'heroicons/24/outline/bookmark.svg?raw';
 import chartBar from 'heroicons/24/outline/chart-bar.svg?raw';
 import chatBubbleLeftRight from 'heroicons/24/outline/chat-bubble-left-right.svg?raw';
 import chatBubbleOvalLeft from 'heroicons/24/outline/chat-bubble-oval-left.svg?raw';
 import check from 'heroicons/24/outline/check.svg?raw';
 import chevronDown from 'heroicons/24/outline/chevron-down.svg?raw';
 import chevronLeft from 'heroicons/24/outline/chevron-left.svg?raw';
+import chevronRight from 'heroicons/24/outline/chevron-right.svg?raw';
 import chevronUp from 'heroicons/24/outline/chevron-up.svg?raw';
 import cog6Tooth from 'heroicons/24/outline/cog-6-tooth.svg?raw';
 import computerDesktop from 'heroicons/24/outline/computer-desktop.svg?raw';
@@ -280,7 +292,17 @@ export const Rejoin = hero(arrowPath);
 export const Refresh = hero(arrowPath);
 export const ArrowRight = hero(arrowRight);
 
-/** The app icon (assets/icon.png): the Triforce on its dark tile, the same everywhere (window, tray, the app). */
+/** The app icon (assets/icon.png): the cotton swirl on its graphite tile, the same everywhere (window, tray, the app). */
+/** The swirl alone (design/pottira-mark.svg) in the current text colour: the Direct Messages tile draws it like any
+ * other tile's content, so it can change colour with the tile instead of swapping a picture. */
+export function Mark(p: { size?: number }) {
+  return (
+    <svg width={p.size ?? 22} height={p.size ?? 22} viewBox="72 62 880 880" aria-hidden="true">
+      <path fill="currentColor" d="M434.8 413.4C453.6 407.8 471.6 400.2 490.6 395.1C528.8 385.0 569.6 381.9 608.3 391.1C625.0 395.0 641.3 401.2 656.0 410.1C666.2 416.4 675.7 424.1 683.7 433.0C733.9 488.9 706.2 569.3 665.3 621.5C637.0 657.5 601.0 687.1 563.5 713.0C506.2 752.4 443.0 784.3 377.7 808.3C340.1 822.0 300.5 830.1 263.2 844.0C468.1 879.1 698.5 790.8 836.6 636.9C892.4 574.7 953.0 483.0 927.9 395.3C908.0 325.8 840.3 287.7 773.1 275.4C647.7 252.5 505.5 305.8 434.8 413.4Z M623.1 502.1C603.2 508.5 584.1 517.3 564.0 523.3C502.0 541.5 404.1 542.9 376.0 470.2C372.2 460.7 370.4 450.4 370.0 440.2C369.4 423.8 372.7 407.6 378.0 392.2C385.1 371.9 395.9 352.9 408.4 335.5C478.8 237.4 593.5 188.0 707.5 162.1C652.5 145.9 589.1 151.7 533.5 163.0C401.7 189.6 275.2 257.3 182.9 355.6C132.0 410.0 73.1 493.2 97.0 571.8C118.6 643.1 196.3 673.6 264.2 680.7C406.7 695.5 551.8 627.5 623.1 502.1Z" />
+    </svg>
+  );
+}
+
 export function Emblem(p: { size?: number; christmas?: boolean }) {
   const festive = () => p.christmas || isChristmas();
   const w = () => p.size ?? 28;
@@ -289,8 +311,8 @@ export function Emblem(p: { size?: number; christmas?: boolean }) {
       class="emblem"
       src={festive() ? emblemChristmasUrl : emblemUrl}
       width={w()}
-      height={festive() ? w() : Math.round((w() * 621) / 827)}
-      alt="Linkord"
+      height={w()}
+      alt="Pottira"
       draggable={false}
     />
   );
@@ -298,8 +320,17 @@ export function Emblem(p: { size?: number; christmas?: boolean }) {
 export const Send = hero(paperAirplane);
 export const Lock = hero(lockClosed);
 export const ChevronUpIcon = hero(chevronUp);
+export const ChevronRight = hero(chevronRight);
 export const Folder = hero(folder);
 export const FolderOpen = hero(folderOpen);
+/** REC: a record button (ring + dot), drawn on the 24px grid. */
+export const Rec = icon(
+  path('M12 3.75a8.25 8.25 0 1 0 0 16.5 8.25 8.25 0 0 0 0-16.5Z') +
+    '<circle cx="12" cy="12" r="3.75" fill="currentColor" stroke="none"/>',
+);
+export const Film = hero(film);
+export const Scissors = hero(scissors);
+export const Bookmark = hero(bookmark);
 
 /**
  * A link's icon: the site's own mark for sites we know (lib/brand-icons.ts: Instagram, Twitter, Steam...), otherwise
@@ -325,3 +356,13 @@ export function SiteIcon(p: { url: string; size?: number; class?: string }) {
     </Show>
   );
 }
+
+// REC (studio + player).
+export const SeekBack = hero(backward);
+export const SeekForward = hero(forwardMedia);
+export const ZoomIn = hero(zoomIn);
+export const ZoomOut = hero(zoomOut);
+export const Sparkles = hero(sparkles);
+export const CloudUp = hero(cloudUp);
+export const Sliders = hero(sliders);
+export const Grid = hero(squares);

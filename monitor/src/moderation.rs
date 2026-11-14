@@ -287,11 +287,13 @@ const MEDIA: &str = "
   UNION ALL SELECT 'emoji', '/uploads/emojis/' || e.id || CASE WHEN e.animated THEN '.gif' ELSE '.png' END, e.name, NULL, NULL, e.created_at, e.creator_id, e.guild_id, NULL, e.id FROM emojis e
   UNION ALL SELECT 'sound', s.url, s.name, NULL, NULL, s.created_at, s.creator_id, s.guild_id, NULL, s.id FROM soundboard_sounds s
   UNION ALL SELECT 'profile_song', p.url, p.title, NULL, NULL, NULL, p.user_id, NULL, NULL, NULL FROM profile_songs p
+  UNION ALL SELECT 'clip', '/uploads/clips/' || k.slug || '.mp4', NULLIF(k.title, ''), 'video/mp4', k.size, k.created_at, k.user_id, NULL, NULL, k.id FROM clips k
 ";
 
 /// image | video | audio | file, from a content type or, failing that, the file's name.
 const MEDIA_CLASS: &str = "CASE
     WHEN x.kind IN ('sound', 'profile_song') THEN 'audio'
+    WHEN x.kind = 'clip' THEN 'video'
     WHEN x.kind <> 'attachment' THEN 'image'
     WHEN x.content_type LIKE 'image/%' THEN 'image'
     WHEN x.content_type LIKE 'video/%' THEN 'video'

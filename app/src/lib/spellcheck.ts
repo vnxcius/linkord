@@ -1,6 +1,6 @@
 // Spellcheck for the message box: on/off and the language are per device (prefs), with a personal dictionary.
 // The webview's own spellchecker can't change language from the page and its suggestions live in the native
-// right-click menu we replace, so Linkord checks words itself (lib/spell-worker.ts) and draws the underline.
+// right-click menu we replace, so Pottira checks words itself (lib/spell-worker.ts) and draws the underline.
 import { createSignal } from 'solid-js';
 import { serverUrl } from './api';
 import { lang } from './i18n';

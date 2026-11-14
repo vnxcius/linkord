@@ -23,7 +23,7 @@ export interface Prefs {
   captureAudio: Record<string, string>;
   userVolumes: Record<string, number>;
   closeToTray: boolean;
-  /** Starting with the computer keeps Linkord in the tray (off: opens the window). */
+  /** Starting with the computer keeps Pottira in the tray (off: opens the window). */
   startMinimized: boolean;
   /** Master switch for UI sounds, plus each kind. */
   sounds: boolean;
@@ -47,8 +47,6 @@ export interface Prefs {
   theme: 'system' | 'light' | 'dark' | 'christmas';
   /** With the Christmas theme: falling snow. */
   christmasSnow: boolean;
-  /** With the Christmas theme: its sound pack instead of the usual sounds. */
-  christmasSounds: boolean;
   /** With the Christmas theme: background music, and how loud (0-1). */
   christmasMusic: boolean;
   christmasMusicVolume: number;
@@ -64,9 +62,9 @@ export interface Prefs {
   emojiTone: number;
   /** Web: the "get the desktop app" banner was closed. */
   downloadBannerDismissed: boolean;
-  /** Last version whose "Linkord was updated" banner was seen ('' = first run). */
+  /** Last version whose "Pottira was updated" banner was seen ('' = first run). */
   lastSeenVersion: string;
-  /** Show the "Linkord was updated" banner after each update. */
+  /** Show the "Pottira was updated" banner after each update. */
   updateBanner: boolean;
   /** Stream/camera debug info (bitrate, codec, audio and capture diagnostics) over the video. */
   streamDebug: boolean;
@@ -93,6 +91,66 @@ export interface Prefs {
   marginWidth: number;
   /** The channel list is hidden while a voice channel is open (the header's sidebar button). */
   voiceNavCollapsed: boolean;
+  /** REC (Windows app): game recording, set on the REC page. */
+  rec: RecPrefs;
+  /** REC's default hotkeys were added (once, so removing one sticks). */
+  recHotkeysAdded: boolean;
+  /** REC's defaults were updated for this device (2 = auto-recording on, only the overlay hotkey set). */
+  recDefaults: number;
+}
+
+export interface RecPrefs {
+  /** REC is opt-in (owner, 2026-11-14): nothing records, and its hotkeys and overlay do nothing, until it's turned on
+   * from the REC page's introduction. Turned off again from its settings. */
+  enabled: boolean;
+  /** The first-time setup was done (or skipped): turning REC on again goes straight back to the studio. */
+  setupDone: boolean;
+  /** Record every game you play, once REC is on (on by default, the dev app too: it records into its own folder). */
+  auto: boolean;
+  /** Where recordings go ('' = Videos\Pottira). */
+  folder: string;
+  /** Largest recorded height (0 = as captured), frames per second, bitrate. */
+  maxHeight: number;
+  fps: number;
+  bitrateKbps: number;
+  cursor: boolean;
+  gameAudio: boolean;
+  /** 'voice' = a microphone is recorded (micDevice says which), 'off' = none. */
+  mic: 'voice' | 'off';
+  /** The microphone recorded ('' = the one you use for voice chat), a deviceId. */
+  micDevice: string;
+  /** The output recorded when a game's own sound can't be told apart (Windows 10, desktop recordings): '' = Windows'
+   * default, else a deviceId. */
+  outputDevice: string;
+  /** Where the REC player plays ('' = Pottira's output device). */
+  playbackDevice: string;
+  /** The voice chat (others in your call, minus anyone who opted out). */
+  voices: boolean;
+  /** Length of a clip saved with the hotkey, in seconds. */
+  clipSeconds: number;
+  /** Storage limits in GB: VODs, clips + screenshots, and the free space REC always leaves. */
+  vodCapGb: number;
+  clipCapGb: number;
+  minFreeGb: number;
+  /** A short sound when a clip, screenshot or bookmark is saved (the only feedback while the overlay is closed). */
+  sounds: boolean;
+  /** Games never recorded (games.ts keys). */
+  ignoredGames: string[];
+  /** League of Legends: which of your moments save a clip by themselves (off by default; ticks on the VOD always). */
+  league: LeagueClipPrefs;
+  /** The display picked last for a desktop recording (the start/stop hotkey records it again); null = ask. */
+  display: { id: string; name: string } | null;
+}
+
+export interface LeagueClipPrefs {
+  auto: boolean;
+  /** Double kill and up. */
+  multikill: boolean;
+  ace: boolean;
+  /** Dragon, Baron, Rift Herald stolen. */
+  steal: boolean;
+  kill: boolean;
+  death: boolean;
 }
 
 const DEFAULTS: Prefs = {
@@ -122,7 +180,6 @@ const DEFAULTS: Prefs = {
   language: 'system',
   theme: 'system',
   christmasSnow: true,
-  christmasSounds: true,
   christmasMusic: true,
   christmasMusicVolume: 0.2,
   christmasHats: true,
@@ -149,6 +206,32 @@ const DEFAULTS: Prefs = {
   navWidth: 0,
   marginWidth: 0,
   voiceNavCollapsed: false,
+  rec: {
+    enabled: false,
+    setupDone: false,
+    auto: true,
+    folder: '',
+    maxHeight: 1080,
+    fps: 60,
+    bitrateKbps: 12000,
+    cursor: true,
+    gameAudio: true,
+    mic: 'voice',
+    micDevice: '',
+    outputDevice: '',
+    playbackDevice: '',
+    voices: true,
+    clipSeconds: 30,
+    vodCapGb: 50,
+    clipCapGb: 20,
+    minFreeGb: 5,
+    sounds: true,
+    ignoredGames: [],
+    league: { auto: false, multikill: true, ace: true, steal: true, kill: false, death: false },
+    display: null,
+  },
+  recHotkeysAdded: false,
+  recDefaults: 0,
 };
 
 const KEY = 'linkord.prefs';
@@ -169,6 +252,7 @@ function load(): Prefs {
     delete saved.pttKey;
     delete saved.pttLabel;
     saved.soundKinds = { ...DEFAULTS.soundKinds, ...saved.soundKinds };
+    saved.rec = { ...DEFAULTS.rec, ...saved.rec, league: { ...DEFAULTS.rec.league, ...saved.rec?.league } };
     return { ...DEFAULTS, ...saved };
   } catch {
     return DEFAULTS;

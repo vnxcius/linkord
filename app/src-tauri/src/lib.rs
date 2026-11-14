@@ -16,6 +16,7 @@ mod keybinds;
 mod league;
 #[cfg(windows)]
 mod overlay;
+pub mod rec;
 
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 /// The Christmas theme's icons are on.
@@ -73,7 +74,7 @@ fn login_listen(app: AppHandle, state: String) -> Result<u16, String> {
             let text = String::from_utf8_lossy(&buf[..n]);
             let code = login_code(text.lines().next().unwrap_or(""), &state);
             let (status, body) = if code.is_some() {
-                ("200 OK", "You're signed in. You can close this tab and return to Linkord.")
+                ("200 OK", "You're signed in. You can close this tab and return to Pottira.")
             } else {
                 ("404 Not Found", "Not found")
             };
@@ -102,7 +103,7 @@ fn show_main(app: &AppHandle) {
 fn set_tray_state(app: AppHandle, state: String, tooltip: Option<String>) {
     if let Some(tray) = app.state::<Tray>().0.lock().unwrap().as_ref() {
         let _ = tray.set_icon(tray_image(&state));
-        let _ = tray.set_tooltip(Some(tooltip.as_deref().unwrap_or("Linkord")));
+        let _ = tray.set_tooltip(Some(tooltip.as_deref().unwrap_or("Pottira")));
     }
     *TRAY_STATE.lock().unwrap() = state;
 }
@@ -265,9 +266,9 @@ fn quit_app(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
-    let menu = tray_menu(app, "Open Linkord", "Quit Linkord")?;
+    let menu = tray_menu(app, "Open Pottira", "Quit Pottira")?;
     let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Linkord")
+        .tooltip("Pottira")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
@@ -426,6 +427,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(window_state_flags()).build())
         .manage(Tray(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            dev_tools,
             login_listen,
             set_tray_state,
             set_app_icon,
@@ -441,6 +443,7 @@ pub fn run() {
             watch_chat_open,
             watch_chat_close,
             capture::list_capture_sources,
+            capture::list_capture_screens,
             capture::start_capture,
             capture::stop_capture,
             capture::capture_keyframe,
@@ -449,11 +452,36 @@ pub fn run() {
             capture::capture_switch_source,
             capture::capture_audio_stats,
             capture::capture_video_stats,
+            rec::rec_debug_record,
+            rec::rec_voice_audio,
+            rec::rec_configure,
+            rec::rec_status,
+            rec::rec_start,
+            rec::rec_stop,
+            rec::rec_retarget,
+            rec::rec_clip,
+            rec::rec_screenshot,
+            rec::rec_bookmark,
+            rec::rec_event,
+            rec::rec_library,
+            rec::rec_delete,
+            rec::rec_update,
+            rec::rec_export,
+            rec::rec_reveal,
+            rec::rec_overlay_key,
+            rec::rec_vod,
+            rec::rec_overlay_toggle,
+            rec::rec_overlay_close,
+            rec::rec_overlay_ready,
+            rec::rec_live,
             games::running_apps,
             league::league_status,
             league::league_invite,
             league::league_accept,
+            league::league_events,
         ])
+        // Every window (main, pop-outs, REC overlay), on every load: WebView2's browser shortcuts off.
+        .on_page_load(|webview, _| no_browser_keys(webview))
         .setup(|app| {
             let handle = app.handle().clone();
             // Left on last time: the tray and window start with it instead of changing once the web app has loaded.
@@ -464,6 +492,8 @@ pub fn run() {
                 std::thread::spawn(move || app_icon::apply(&h, true));
             }
             *app.state::<Tray>().0.lock().unwrap() = Some(build_tray(&handle)?);
+            #[cfg(windows)]
+            rec::session::init(handle.clone());
             if let Some(w) = app.get_webview_window("main") {
                 enable_media(&w);
                 forward_frame_menus(&w);
@@ -607,6 +637,39 @@ fn forward_frame_menus(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 fn forward_frame_menus(_window: &tauri::WebviewWindow) {}
+
+/// WebView2 acts on browser shortcuts itself, before the page sees them: Shift+Esc opens Edge's task manager, and
+/// there are find (Ctrl+F), print (Ctrl+P), save page (Ctrl+S), reload (F5, Ctrl+R), caret browsing (F7), history
+/// navigation (Alt+Left), devtools (F12, Ctrl+Shift+I: on in debug builds only). None belongs in the app (owner,
+/// 2026-11-14: Shift+Esc from the REC overlay opened the task manager). The dev app reloads and opens devtools
+/// from the page instead (index.tsx). The REC overlay also gets no WebView menu at all.
+#[cfg(windows)]
+fn no_browser_keys<R: tauri::Runtime>(webview: &tauri::Webview<R>) {
+    let overlay = webview.label() == rec::overlay::LABEL;
+    let _ = webview.with_webview(move |webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+        use windows::core::Interface;
+        let Ok(settings) = webview.controller().CoreWebView2().and_then(|c| c.Settings()) else { return };
+        if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+        }
+        if overlay {
+            let _ = settings.SetAreDefaultContextMenusEnabled(false);
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn no_browser_keys<R: tauri::Runtime>(_webview: &tauri::Webview<R>) {}
+
+/// Debug builds: devtools for the window asking (F12 / Ctrl+Shift+I in the dev app, since WebView2's own keys are off).
+#[tauri::command]
+fn dev_tools(window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
+    window.open_devtools();
+    #[cfg(not(debug_assertions))]
+    let _ = window;
+}
 
 /// The pop-out has no menus of its own: WebView2's (Back, Reload, Inspect...) don't show in it either.
 #[cfg(windows)]

@@ -1,0 +1,7 @@
+/* The public clip page with the app's stylesheet (clip-page.tsx): styles.css is made for the app's own window (a page
+   that never scrolls, nothing selectable), so the clip page puts those back. Keyed on the server's #clip-player, not a
+   class the script adds, so the page still scrolls if the script never runs. */
+html:has(#clip-player), html:has(#clip-player) body { height: auto; }
+html:has(#clip-player) body { overflow: auto; user-select: text; font-family: var(--font); }
+html:has(#clip-player) h1 { font-family: var(--font-display); }
+#clip-player { position: relative; }

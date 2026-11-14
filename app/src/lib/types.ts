@@ -21,6 +21,8 @@ export interface User {
   bot?: boolean;
   /** Only on your own user: you signed up with a taken username and must pick another. */
   needs_username?: boolean;
+  /** REC: keeps their voice out of other people's recordings (servers before 2.0 don't send it). */
+  rec_opt_out?: boolean;
 }
 
 export const enum Kind {
@@ -123,11 +125,40 @@ export interface Attachment {
   /** Images: pixels, to keep their place before they load. Older servers and unreadable files leave them out. */
   width?: number;
   height?: number;
+  /** Videos: the codec once the server checked it ('' = unreadable); absent = not checked yet (server/src/videos.rs). */
+  codec?: string;
+  /** Videos Chromium can't show (phone HEVC, MKV...): an H.264 copy every app plays. Downloads keep `url`. */
+  playable?: string;
+}
+
+/** A REC clip shared on the server (server/src/clips.rs). */
+export interface SharedClip {
+  id: string;
+  slug: string;
+  user_id: string;
+  author?: { id: string; username: string; display_name?: string | null; avatar?: string | null } | null;
+  kind: 'clip' | 'vod';
+  title: string;
+  game: string;
+  duration_ms: number;
+  width: number;
+  height: number;
+  size: number;
+  views: number;
+  on_profile: boolean;
+  created_at: string;
+  /** The public page anyone can open. */
+  url: string;
+  /** Server paths of the file and its picture. */
+  video: string;
+  thumbnail: string;
 }
 
 export interface Embed {
-  /** rich = a card a bot made (no link preview player). */
-  type: 'link' | 'image' | 'video' | 'rich';
+  /** rich = a card a bot made (no link preview player); clip = a REC clip from this server. */
+  type: 'link' | 'image' | 'video' | 'rich' | 'clip';
+  /** For `clip`. */
+  clip?: SharedClip;
   url: string;
   title?: string | null;
   description?: string | null;

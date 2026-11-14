@@ -27,8 +27,6 @@ pub struct DesktopLogin {
 
 pub struct OAuthState {
     pub desktop: Option<DesktopLogin>,
-    /// The invite link this person came through, which lets a new account be created.
-    pub invite: Option<String>,
     pub created: Instant,
 }
 

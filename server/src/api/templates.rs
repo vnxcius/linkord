@@ -1,5 +1,5 @@
 //! Discord server templates (discord.new/<code>): fetched from Discord's public API and turned into a
-//! new Linkord server with the same categories, channels, roles and role permission overwrites (member
+//! new Pottira server with the same categories, channels, roles and role permission overwrites (member
 //! overwrites can't carry over). New servers without a template use `default_template`.
 
 use axum::extract::{Path, State};
@@ -122,7 +122,7 @@ pub struct TemplateChannel {
     pub overwrites: Vec<(Option<usize>, i64, i64)>,
 }
 
-/// A template reduced to what Linkord can represent.
+/// A template reduced to what Pottira can represent.
 #[derive(Serialize)]
 pub struct Template {
     pub name: String,
@@ -135,7 +135,7 @@ pub struct Template {
     pub everyone: i64,
 }
 
-/// Discord channel types Linkord can stand in for: text-like ones become text, stage becomes voice.
+/// Discord channel types Pottira can stand in for: text-like ones become text, stage becomes voice.
 fn linkord_kind(discord: i32) -> Option<i16> {
     match discord {
         0 | 5 | 15 | 16 => Some(kind::TEXT),

@@ -31,6 +31,11 @@ pub fn spawn(st: AppState, ch: Channel, message: Id, content: String) {
     tokio::spawn(async move {
         let mut embeds = Vec::new();
         for url in urls {
+            // REC clips shared here play in the app's own player.
+            if let Some(e) = crate::clips::embed_for(&st, &url).await {
+                embeds.push(e);
+                continue;
+            }
             if let Some(e) = cached_embed(&st, &url).await {
                 embeds.push(e);
             }
@@ -147,7 +152,7 @@ pub async fn safe_get(url: &str) -> Option<reqwest::Response> {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(6))
             .resolve_to_addrs(&host, &addrs)
-            .user_agent("Mozilla/5.0 (compatible; LinkordBot/0.1; link previews)")
+            .user_agent("Mozilla/5.0 (compatible; PottiraBot/0.1; link previews)")
             .build()
             .ok()?;
         let resp = client.get(current.clone()).send().await.ok()?;

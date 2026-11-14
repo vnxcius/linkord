@@ -64,12 +64,14 @@ import { streamPreviewOn } from './StreamPreview';
 import { SoundboardButton } from './Soundboard';
 import { watches } from '../lib/watch';
 
-const WATCH_SITES = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' } as const;
+const WATCH_SITES = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick', clip: 'REC' } as const;
 import * as I from './Icons';
 import { UserVolumeSlider } from './VolumeControl';
 import { comboLabel } from '../lib/keys';
 import { currentGame, toggleGameStream } from '../lib/games';
 import { PushBanner } from './PushBanner';
+import { onOutsideMouseDown } from '../lib/outside-click';
+import { recStatus } from '../lib/rec';
 
 export function Sidebar() {
   return (
@@ -984,9 +986,15 @@ function PingIndicator() {
     const max = Math.max(150, ...h);
     return h.map((v, i) => `${i ? 'L' : 'M'}${(i / 29) * 200},${48 - (v / max) * 44}`).join(' ');
   };
+  let wrap!: HTMLSpanElement;
   return (
-    <span class="ping-wrap">
-      <button class={`ping ${quality()}`} aria-label={t('Connection info')} onClick={() => setOpen(!open())}>
+    <span class="ping-wrap" ref={wrap}>
+      <button
+        class={`ping ${quality()}`}
+        aria-label={t('Connection info')}
+        aria-expanded={open()}
+        onClick={() => setOpen(!open())}
+      >
         <Switch fallback={<I.Signal size={18} />}>
           <Match when={quality() === 'good'}>
             <I.SignalGood size={18} />
@@ -1000,6 +1008,7 @@ function PingIndicator() {
         </Switch>
       </button>
       <Show when={open()}>
+        <ClosesOnOutside within={wrap} onClose={() => setOpen(false)} />
         <div class="ping-popover" onClick={() => setOpen(false)}>
           <strong>{t('Voice connection')}</strong>
           <div class="ping-value">
@@ -1013,6 +1022,20 @@ function PingIndicator() {
       </Show>
     </span>
   );
+}
+
+/** A popover's way out: a click outside `within`, or Esc (taken before anything under it acts on the same Esc). */
+function ClosesOnOutside(p: { within: HTMLElement; onClose: () => void }) {
+  onOutsideMouseDown((e) => !p.within.contains(e.target as Node) && p.onClose());
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    p.onClose();
+  };
+  window.addEventListener('keydown', onKey, true);
+  onCleanup(() => window.removeEventListener('keydown', onKey, true));
+  return null;
 }
 
 /**
@@ -1111,7 +1134,8 @@ function VoicePanel() {
             <SoundboardButton class="panel-btn" label size={18} />
             <Show when={canSendVideo}>
               <button class="panel-btn" classList={{ on: voiceUi.camera }} onClick={() => void toggleCamera()}>
-                <I.Camera size={18} /> {t('Video')}
+                <I.Camera size={18} />
+                <span>{t('Video')}</span>
               </button>
             </Show>
             <Show when={canShareScreen}>
@@ -1120,7 +1144,8 @@ function VoicePanel() {
                 classList={{ on: voiceUi.screen }}
                 onClick={() => (voiceUi.screen ? stopScreenShare() : setUi('modal', { type: 'go-live' }))}
               >
-                <I.Screen size={18} /> {voiceUi.screen ? t('Stop') : t('Screen')}
+                <I.Screen size={18} />
+                <span>{voiceUi.screen ? t('Stop') : t('Screen')}</span>
               </button>
               <Show when={voiceUi.screen}>
                 <button
@@ -1128,7 +1153,8 @@ function VoicePanel() {
                   title={t('Share something else without ending the stream')}
                   onClick={openSwitchSource}
                 >
-                  <I.Switch size={18} /> {t('Switch')}
+                  <I.Switch size={18} />
+                  <span>{t('Switch')}</span>
                 </button>
               </Show>
             </Show>
@@ -1218,7 +1244,7 @@ function UserPanel() {
     ];
     setUi('menu', {
       x: r.left,
-      y: r.top - 230 - 44,
+      y: r.top - 194 - 44, // the menu's height (Log Out has its own button now)
       items: [
         ...items,
         ...STATUSES.map((s) => ({
@@ -1232,13 +1258,32 @@ function UserPanel() {
           icon: () => <I.Copy size={16} />,
           run: () => navigator.clipboard.writeText(me().username),
         },
-        { label: t('Log Out'), danger: true, icon: () => <I.Logout size={16} />, run: () => logout() },
       ],
     });
   };
-  // The avatar opens your own user card (the rest of the button opens the status menu).
+  // The avatar and name open your own user card, or close it when it's already open: the card closes itself on the
+  // mousedown outside it, so whether it was open is noted on pointerdown, which comes first.
+  // Logging out has its own button (owner, 2026-11-14: it didn't belong in the status menu), confirmed in a dialog:
+  // a double-click on the button can't confirm it, the second click lands outside the dialog.
+  const logoutClick = () =>
+    setUi('modal', {
+      type: 'confirm',
+      title: t('Log out of Pottira?'),
+      body: t("You'll need to sign in with Discord again on this device."),
+      action: t('Log Out'),
+      run: async () => logout(),
+    });
+  let cardWasOpen = false;
+  const noteCard = () => (cardWasOpen = ui.profile?.userId === me().id);
   const openOwnCard = (e: MouseEvent) => {
     e.stopPropagation();
+    // The presence dot on the avatar sets your status, like the pill under your name.
+    if ((e.target as HTMLElement).closest('.presence')) return statusMenu(e);
+    if (cardWasOpen) {
+      cardWasOpen = false;
+      setUi('profile', null);
+      return;
+    }
     const r = (e.currentTarget as HTMLElement).closest('.user-panel')!.getBoundingClientRect();
     setUi('menu', null);
     setUi('profile', {
@@ -1256,68 +1301,140 @@ function UserPanel() {
           {t("You're muted — click to unmute")}
         </div>
       </Show>
-      <button class="me-btn" onClick={statusMenu}>
-        <span class="me-avatar" title={t('View profile')} onClick={openOwnCard}>
-          <Avatar user={me()} size={34} presence speaking={!!voiceUi.speaking[me().id]} />
-        </span>
-        <span class="me-names">
-          <strong>{nameOf(me().id)}</strong>
-          <Show when={state.customStatus} fallback={<span>{statusLabel()}</span>}>
-            {(s) => <CustomStatusView status={s()} />}
-          </Show>
-        </span>
-      </button>
-      <div class="split-btn" classList={{ off: voiceUi.muted }}>
-        <button
-          class="icon-btn"
-          classList={{ off: voiceUi.muted }}
-          aria-label={t('Mute')}
-          data-tip={voiceUi.muted ? t('Unmute') : t('Mute')}
-          onClick={() => void toggleMute()}
-          onContextMenu={(e) => void deviceMenu(e, 'audioinput')}
-        >
-          <Show when={voiceUi.muted} fallback={<I.Mic size={19} />}>
-            <I.MicOff size={19} />
-          </Show>
+      <RecStrip />
+      <div class="me-row">
+        <button class="me-avatar" aria-label={t('View profile')} onPointerDown={noteCard} onClick={openOwnCard}>
+          <Avatar user={me()} size={36} presence speaking={!!voiceUi.speaking[me().id]} />
         </button>
-        <button
-          class="split-chevron"
-          aria-label={t('Microphone options')}
-          onClick={(e) => void deviceMenu(e, 'audioinput')}
-        >
-          <I.Chevron size={13} />
-        </button>
+        <div class="me-names">
+          <button class="me-name" onPointerDown={noteCard} onClick={openOwnCard}>
+            <strong>{nameOf(me().id)}</strong>
+          </button>
+          <button class="me-btn" aria-haspopup="menu" onClick={statusMenu}>
+            <Show when={state.customStatus} fallback={<span>{statusLabel()}</span>}>
+              {(s) => <CustomStatusView status={s()} />}
+            </Show>
+            <I.Chevron size={12} />
+          </button>
+        </div>
       </div>
-      <div class="split-btn" classList={{ off: voiceUi.deafened }}>
-        <button
-          class="icon-btn"
-          classList={{ off: voiceUi.deafened }}
-          aria-label={t('Deafen')}
-          data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')}
-          onClick={() => void toggleDeafen()}
-          onContextMenu={(e) => void deviceMenu(e, 'audiooutput')}
-        >
-          <Show when={voiceUi.deafened} fallback={<I.Headphones size={19} />}>
-            <I.HeadphonesOff size={19} />
-          </Show>
-        </button>
-        <button
-          class="split-chevron"
-          aria-label={t('Speaker options')}
-          onClick={(e) => void deviceMenu(e, 'audiooutput')}
-        >
-          <I.Chevron size={13} />
-        </button>
+      <div class="me-controls">
+        {/* Two rounded groups: your audio on the left; REC, Settings and Log Out on the right. */}
+        <div class="me-audio">
+          <div class="split-btn" classList={{ off: voiceUi.muted }}>
+            <button
+              class="icon-btn"
+              classList={{ off: voiceUi.muted }}
+              aria-label={t('Mute')}
+              data-tip={voiceUi.muted ? t('Unmute') : t('Mute')}
+              onClick={() => void toggleMute()}
+              onContextMenu={(e) => void deviceMenu(e, 'audioinput')}
+            >
+              <Show when={voiceUi.muted} fallback={<I.Mic size={19} />}>
+                <I.MicOff size={19} />
+              </Show>
+            </button>
+            <button
+              class="split-chevron"
+              aria-label={t('Microphone options')}
+              onClick={(e) => void deviceMenu(e, 'audioinput')}
+            >
+              <I.Chevron size={13} />
+            </button>
+          </div>
+          <div class="split-btn" classList={{ off: voiceUi.deafened }}>
+            <button
+              class="icon-btn"
+              classList={{ off: voiceUi.deafened }}
+              aria-label={t('Deafen')}
+              data-tip={voiceUi.deafened ? t('Undeafen') : t('Deafen')}
+              onClick={() => void toggleDeafen()}
+              onContextMenu={(e) => void deviceMenu(e, 'audiooutput')}
+            >
+              <Show when={voiceUi.deafened} fallback={<I.Headphones size={19} />}>
+                <I.HeadphonesOff size={19} />
+              </Show>
+            </button>
+            <button
+              class="split-chevron"
+              aria-label={t('Speaker options')}
+              onClick={(e) => void deviceMenu(e, 'audiooutput')}
+            >
+              <I.Chevron size={13} />
+            </button>
+          </div>
+        </div>
+        <span class="grow" />
+        <div class="me-places">
+          <RecButton />
+          <button
+            class="icon-btn"
+            aria-label={t('Settings')}
+            data-tip={t('Settings')}
+            onClick={() => setUi('modal', { type: 'settings' })}
+          >
+            <I.Gear size={19} />
+          </button>
+          <button class="icon-btn me-logout" aria-label={t('Log Out')} data-tip={t('Log Out')} onClick={logoutClick}>
+            <I.Logout size={19} />
+          </button>
+        </div>
       </div>
-      <button
-        class="icon-btn"
-        aria-label={t('Settings')}
-        data-tip={t('Settings')}
-        onClick={() => setUi('modal', { type: 'settings' })}
-      >
-        <I.Gear size={19} />
-      </button>
     </div>
+  );
+}
+
+/** m:ss, or h:mm:ss after an hour, ticking while REC records. */
+function useRecClock() {
+  const [now, setNow] = createSignal(Date.now());
+  createEffect(() => {
+    if (!recStatus().recording) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(timer));
+  });
+  return () => {
+    const sec = Math.max(0, Math.floor((now() - (recStatus().since ?? now())) / 1000));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const ss = String(sec % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+  };
+}
+
+/**
+ * While REC records, a slim strip across the top of your panel says so (owner, 2026-11-14: the app always shows it; the
+ * game's screen never does, that's the overlay's job). A status, not a control, so it doesn't push the buttons around.
+ */
+function RecStrip() {
+  const s = recStatus;
+  const time = useRecClock();
+  const what = () => (s().paused ? t('{game} (window covered)', { game: s().game ?? '' }) : (s().game ?? ''));
+  return (
+    <Show when={s().recording}>
+      <button class="rec-strip" classList={{ paused: s().paused }} onClick={() => setUi('modal', { type: 'rec' })}>
+        <span class="rec-strip-dot" aria-hidden="true" />
+        <strong>{t('Recording')}</strong>
+        <span class="rec-strip-what">{what()}</span>
+        <span class="rec-strip-time">{time()}</span>
+      </button>
+    </Show>
+  );
+}
+
+/** REC beside Settings; a small red dot while it records (the strip above says the rest). */
+function RecButton() {
+  const s = recStatus;
+  return (
+    <button
+      class="icon-btn rec-btn"
+      classList={{ recording: s().recording }}
+      aria-label={s().recording ? t('REC (recording)') : 'REC'}
+      data-tip={s().recording ? t('REC (recording)') : 'REC'}
+      onClick={() => setUi('modal', { type: 'rec' })}
+    >
+      <I.Rec size={19} />
+    </button>
   );
 }
 

@@ -17,7 +17,7 @@ export const UI: Record<string, string> = {
   'Active now': 'Ativo agora',
   'Last active {when}': 'Ativo pela última vez {when}',
   'Signed in {date}': 'Entrou em {date}',
-  'Linkord app': 'App do Linkord',
+  'Pottira app': 'App do Pottira',
   'Unknown device': 'Dispositivo desconhecido',
   'No other devices are signed in.': 'Nenhum outro dispositivo está conectado.',
   'Device logged out': 'Dispositivo desconectado',
@@ -32,10 +32,10 @@ export const UI: Record<string, string> = {
   'Reconnecting…': 'Reconectando…',
   'Opening the gate…': 'Abrindo os portões…',
   'Connection lost — reconnecting…': 'Conexão perdida — reconectando…',
-  'Linkord {version} is available.': 'O Linkord {version} está disponível.',
+  'Pottira {version} is available.': 'O Pottira {version} está disponível.',
   'Updating…': 'Atualizando…',
   'Update & restart': 'Atualizar e reiniciar',
-  'Linkord closed while you were in': 'O Linkord fechou enquanto você estava em',
+  'Pottira closed while you were in': 'O Pottira fechou enquanto você estava em',
   Reconnect: 'Reconectar',
   Dismiss: 'Dispensar',
   'Welcome back, traveler': 'Que bom te ver de novo, viajante',
@@ -123,8 +123,8 @@ export const UI: Record<string, string> = {
   Ignore: 'Ignorar',
   Unblock: 'Desbloquear',
   'Success! Your friend request to {username} was sent.': 'Pronto! Seu pedido de amizade para {username} foi enviado.',
-  'You can add friends with their Discord username. They need to have signed in to Linkord once.':
-    'Você pode adicionar amigos pelo nome de usuário do Discord. Eles precisam ter entrado no Linkord pelo menos uma vez.',
+  'You can add friends with their Discord username. They need to have signed in to Pottira once.':
+    'Você pode adicionar amigos pelo nome de usuário do Discord. Eles precisam ter entrado no Pottira pelo menos uma vez.',
   'You can add friends with their username.': 'Você pode adicionar amigos pelo nome de usuário.',
   'Send Friend Request': 'Enviar pedido de amizade',
   'Tip: group chats with up to 10 friends start from the': 'Dica: conversas em grupo com até 10 amigos começam pelo',
@@ -137,7 +137,7 @@ export const UI: Record<string, string> = {
   'Always in reach': 'Sempre à mão',
   'A small installer built on Tauri, not a whole browser like Electron.':
     'Um instalador pequeno feito com Tauri, não um navegador inteiro como o Electron.',
-  'Back to Linkord': 'Voltar ao Linkord',
+  'Back to Pottira': 'Voltar ao Pottira',
   'Better on the desktop': 'Melhor no computador',
   Browser: 'Navegador',
   Changelog: 'Histórico de mudanças',
@@ -154,10 +154,10 @@ export const UI: Record<string, string> = {
     'Os atalhos funcionam com o jogo em foco, minimizado ou na bandeja.',
   Latest: 'Mais recente',
   'Light as a feather': 'Leve como uma pena',
-  'Linkord asks for your password when an update is ready, then installs it.':
-    'O Linkord pede sua senha quando há uma atualização e instala ela.',
-  'Linkord for desktop': 'Linkord para computador',
-  'Linkord was updated to {version}.': 'O Linkord foi atualizado para a {version}.',
+  'Pottira asks for your password when an update is ready, then installs it.':
+    'O Pottira pede sua senha quando há uma atualização e instala ela.',
+  'Pottira for desktop': 'Pottira para computador',
+  'Pottira was updated to {version}.': 'O Pottira foi atualizado para a {version}.',
   'Lives in the tray, starts with your computer, badges unread mentions.':
     'Fica na bandeja, abre com o computador e mostra menções não lidas.',
   New: 'Novo',
@@ -165,8 +165,8 @@ export const UI: Record<string, string> = {
     'Versões novas são instaladas em segundo plano. Nada para baixar de novo.',
   'No patch notes yet.': 'Ainda não há notas de atualização.',
   'Not available yet.': 'Ainda não disponível.',
-  'On a Mac, a phone or anywhere else, Linkord runs in your browser with voice, video and screen sharing.':
-    'No Mac, no celular ou em qualquer lugar, o Linkord roda no navegador com voz, vídeo e compartilhamento de tela.',
+  'On a Mac, a phone or anywhere else, Pottira runs in your browser with voice, video and screen sharing.':
+    'No Mac, no celular ou em qualquer lugar, o Pottira roda no navegador com voz, vídeo e compartilhamento de tela.',
   'Open it with your software center, or in a terminal:': 'Abra com a central de programas, ou no terminal:',
   'Open the file you downloaded. It installs for your user only, no administrator needed.':
     'Abra o arquivo baixado. Ele instala só para o seu usuário, sem precisar de administrador.',
@@ -179,12 +179,12 @@ export const UI: Record<string, string> = {
   'Stream with sound': 'Transmita com som',
   'The app opens your browser to sign in, then picks up where you left off.':
     'O app abre o navegador para você entrar e depois continua de onde você parou.',
-  'The desktop app is for Windows and Linux. On this device, Linkord works right in the browser.':
-    'O app para computador é para Windows e Linux. Neste aparelho, o Linkord funciona direto no navegador.',
+  'The desktop app is for Windows and Linux. On this device, Pottira works right in the browser.':
+    'O app para computador é para Windows e Linux. Neste aparelho, o Pottira funciona direto no navegador.',
   'Updates itself': 'Se atualiza sozinho',
   'Version {version}': 'Versão {version}',
-  'What changed in Linkord, newest first. The desktop app updates itself; the web app is always on the latest version.':
-    'O que mudou no Linkord, do mais novo para o mais antigo. O app para computador se atualiza sozinho; o app web está sempre na versão mais recente.',
+  'What changed in Pottira, newest first. The desktop app updates itself; the web app is always on the latest version.':
+    'O que mudou no Pottira, do mais novo para o mais antigo. O app para computador se atualiza sozinho; o app web está sempre na versão mais recente.',
   "Windows 10 and 11, 64-bit. Streaming only one app's audio needs Windows 11.":
     'Windows 10 e 11, 64 bits. Transmitir o áudio de um app só precisa do Windows 11.',
   'Your computer': 'Seu computador',
@@ -203,9 +203,9 @@ export const UI: Record<string, string> = {
   "What's the call about?": 'Qual é a da call?',
   'Sign in with your Discord account to hop into voice, chat and streams with your friends.':
     'Entre com sua conta do Discord para cair na call, no chat e nas transmissões com seus amigos.',
-  'Opens in your browser. Linkord never sees your Discord password.':
-    'Abre no seu navegador. O Linkord nunca vê sua senha do Discord.',
-  'Linkord never sees your Discord password.': 'O Linkord nunca vê sua senha do Discord.',
+  'Opens in your browser. Pottira never sees your Discord password.':
+    'Abre no seu navegador. O Pottira nunca vê sua senha do Discord.',
+  'Pottira never sees your Discord password.': 'O Pottira nunca vê sua senha do Discord.',
   'Checking {host}…': 'Verificando {host}…',
   'Connected to {host}': 'Conectado a {host}',
   "Can't reach {host}": 'Não foi possível alcançar {host}',
@@ -343,10 +343,10 @@ export const UI: Record<string, string> = {
   'Restart the stream to change this.': 'Reinicie a transmissão para mudar isso.',
   'Sound from the tab or your whole screen. Tick "Share audio" in the picker too.':
     'Som da aba ou da tela inteira. Marque também "Compartilhar áudio" no seletor.',
-  'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.':
-    'O Windows 10 compartilha todo o som do PC (o Linkord tira dele o chat de voz, para ninguém se ouvir de volta). O Windows 11 consegue compartilhar só o aplicativo.',
-  'Everything you hear except Linkord, so nobody hears the voice chat echoed.':
-    'Tudo o que você ouve, menos o Linkord, para ninguém ouvir o eco do chat de voz.',
+  'Windows 10 shares all PC sound (Pottira removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.':
+    'O Windows 10 compartilha todo o som do PC (o Pottira tira dele o chat de voz, para ninguém se ouvir de volta). O Windows 11 consegue compartilhar só o aplicativo.',
+  'Everything you hear except Pottira, so nobody hears the voice chat echoed.':
+    'Tudo o que você ouve, menos o Pottira, para ninguém ouvir o eco do chat de voz.',
   'Only the sound of the app you share.': 'Só o som do aplicativo que você compartilha.',
   'Open original': 'Abrir original',
   'Remove Friend': 'Remover amigo',
@@ -375,6 +375,9 @@ export const UI: Record<string, string> = {
   'Accept friend request': 'Aceitar pedido de amizade',
   'Add friend': 'Adicionar amigo',
   'Direct Messages': 'Mensagens diretas',
+  'More servers': 'Mais servidores',
+  'Search servers': 'Buscar servidores',
+  'No servers match.': 'Nenhum servidor encontrado.',
   'Add a server': 'Adicionar um servidor',
   'User settings': 'Configurações de usuário',
   'My Account': 'Minha conta',
@@ -387,6 +390,8 @@ export const UI: Record<string, string> = {
   'Desktop App': 'Aplicativo para desktop',
   Settings: 'Configurações',
   'Log Out': 'Sair',
+  'Log out of Pottira?': 'Sair do Pottira?',
+  "You'll need to sign in with Discord again on this device.": 'Você vai precisar entrar com o Discord de novo neste dispositivo.',
   Desktop: 'Desktop',
   'All settings': 'Todas as configurações',
   'Close settings': 'Fechar configurações',
@@ -396,8 +401,8 @@ export const UI: Record<string, string> = {
   'Not set — people see your username': 'Não definido — as pessoas veem seu nome de usuário',
   Username: 'Nome de usuário',
   Connections: 'Conexões',
-  'Discord is how you sign in. Your Linkord profile started as a copy of your Discord profile.':
-    'Você entra pelo Discord. Seu perfil do Linkord começou como uma cópia do seu perfil do Discord.',
+  'Discord is how you sign in. Your Pottira profile started as a copy of your Discord profile.':
+    'Você entra pelo Discord. Seu perfil do Pottira começou como uma cópia do seu perfil do Discord.',
   'No Discord account linked (this is a test login).': 'Nenhuma conta do Discord vinculada (este é um login de teste).',
   unknown: 'desconhecido',
   'linked {date}': 'vinculada em {date}',
@@ -405,7 +410,7 @@ export const UI: Record<string, string> = {
   'Copy Discord ID': 'Copiar ID do Discord',
   'Discord ID copied': 'ID do Discord copiado',
   'Delete account': 'Excluir conta',
-  'Delete your Linkord account': 'Excluir sua conta do Linkord',
+  'Delete your Pottira account': 'Excluir sua conta do Pottira',
   'You leave every server, group and friendship, your profile is wiped and your Discord account is unlinked. Messages you sent stay, shown as "Deleted User". This can\'t be undone — signing in with Discord again creates a brand-new account.':
     'Você sai de todos os servidores, grupos e amizades, seu perfil é apagado e sua conta do Discord é desvinculada. As mensagens que você enviou ficam, aparecendo como "Deleted User". Isso não pode ser desfeito — entrar com o Discord de novo cria uma conta nova.',
   'You own a server:': 'Você é dono de um servidor:',
@@ -435,8 +440,8 @@ export const UI: Record<string, string> = {
   'Username changed': 'Nome de usuário alterado',
   Continue: 'Continuar',
   'Pick a username': 'Escolha um nome de usuário',
-  'Someone on Linkord already has your Discord username, so your account got a stand-in. Pick the name people will find you by; you can change it later in Settings.':
-    'Alguém no Linkord já tem o seu nome de usuário do Discord, então sua conta ganhou um provisório. Escolha o nome pelo qual as pessoas vão te encontrar; dá para mudar depois nas Configurações.',
+  'Someone on Pottira already has your Discord username, so your account got a stand-in. Pick the name people will find you by; you can change it later in Settings.':
+    'Alguém no Pottira já tem o seu nome de usuário do Discord, então sua conta ganhou um provisório. Escolha o nome pelo qual as pessoas vão te encontrar; dá para mudar depois nas Configurações.',
   Nameplate: 'Plaquinha',
   'Shown behind your name in the member list, faded on the right side.':
     'Aparece atrás do seu nome na lista de membros, esmaecida no lado direito.',
@@ -523,9 +528,9 @@ export const UI: Record<string, string> = {
   'Input mode switched to Push to Talk': 'Modo de entrada trocado para Pressionar para falar',
   'Input mode switched back to Voice Activity': 'Modo de entrada voltou para Detecção de voz',
   'Keybinds work everywhere': 'Os atalhos funcionam em qualquer lugar',
-  'Keybinds work while Linkord is focused': 'Os atalhos funcionam com o Linkord em foco',
-  'In games, in other apps, with Linkord minimized or closed to the tray. Keys still reach the app you are using.':
-    'Em jogos, em outros aplicativos, com o Linkord minimizado ou na bandeja. As teclas continuam chegando ao aplicativo que você está usando.',
+  'Keybinds work while Pottira is focused': 'Os atalhos funcionam com o Pottira em foco',
+  'In games, in other apps, with Pottira minimized or closed to the tray. Keys still reach the app you are using.':
+    'Em jogos, em outros aplicativos, com o Pottira minimizado ou na bandeja. As teclas continuam chegando ao aplicativo que você está usando.',
   'Global keybinds are available in the Windows app.': 'Atalhos globais estão disponíveis no aplicativo para Windows.',
   'Use the Windows desktop app for keybinds that work in games and other apps.':
     'Use o aplicativo para Windows para ter atalhos que funcionam em jogos e outros aplicativos.',
@@ -558,7 +563,7 @@ export const UI: Record<string, string> = {
   'Follows your system language, currently {language}.': 'Segue o idioma do sistema, que agora é {language}.',
   'Follows your browser language, currently {language}.': 'Segue o idioma do navegador, que agora é {language}.',
   'Choose a language': 'Escolha um idioma',
-  'The language Linkord uses on this device.': 'O idioma que o Linkord usa neste dispositivo.',
+  'The language Pottira uses on this device.': 'O idioma que o Pottira usa neste dispositivo.',
   English: 'Inglês',
   'Portuguese (Brazil)': 'Português (Brasil)',
   'Capture: {backend}': 'Captura: {backend}',
@@ -582,9 +587,9 @@ export const UI: Record<string, string> = {
     'Mostra ou esconde a sobreposição sobre o seu jogo (app do Windows).',
   'Startup & window': 'Inicialização e janela',
   'Minimize to tray on close': 'Minimizar para a bandeja ao fechar',
-  'Closing the window keeps Linkord running in the tray, so you stay in voice and keybinds keep working.':
-    'Fechar a janela mantém o Linkord rodando na bandeja, então você continua na chamada e os atalhos seguem funcionando.',
-  'Open Linkord when your computer starts': 'Abrir o Linkord quando o computador iniciar',
+  'Closing the window keeps Pottira running in the tray, so you stay in voice and keybinds keep working.':
+    'Fechar a janela mantém o Pottira rodando na bandeja, então você continua na chamada e os atalhos seguem funcionando.',
+  'Open Pottira when your computer starts': 'Abrir o Pottira quando o computador iniciar',
   'Starts quietly in the tray.': 'Inicia discretamente na bandeja.',
   Updates: 'Atualizações',
   'Version {version} is ready to install.': 'A versão {version} está pronta para instalar.',
@@ -701,7 +706,7 @@ export const UI: Record<string, string> = {
   "Don't clear": 'Não limpar',
   'Until {time}': 'Até {time}',
   Clear: 'Limpar',
-  'Opens the Linkord window.': 'Abre a janela do Linkord.',
+  'Opens the Pottira window.': 'Abre a janela do Pottira.',
   'Start minimized': 'Iniciar minimizado',
   'Stay in the tray when your computer starts instead of opening the window.':
     'Fica na bandeja quando o computador liga, em vez de abrir a janela.',
@@ -751,8 +756,8 @@ export const UI: Record<string, string> = {
     '{host} demorou demais para responder. Confira sua conexão com a internet e tente de novo.',
   'Couldn\'t connect to {host}. Check the address and your internet. Antivirus, a firewall or a network filter can also block it: try opening {url}/api/health in your browser, it should show "ok".':
     'Não foi possível conectar a {host}. Confira o endereço e sua internet. Antivírus, firewall ou filtro de rede também podem bloquear: tente abrir {url}/api/health no navegador, deve aparecer "ok".',
-  '{host} answered, but not like a Linkord server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.':
-    '{host} respondeu, mas não como um servidor Linkord (HTTP {status}). Se abrir {url} no navegador mostrar uma verificação de segurança, conclua-a ou fale com o dono do servidor.',
+  '{host} answered, but not like a Pottira server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.':
+    '{host} respondeu, mas não como um servidor Pottira (HTTP {status}). Se abrir {url} no navegador mostrar uma verificação de segurança, conclua-a ou fale com o dono do servidor.',
   "Couldn't download here — opening it in your browser": 'Não deu para baixar aqui — abrindo no navegador',
   'Saved to {path}': 'Salvo em {path}',
   Smileys: 'Carinhas',
@@ -781,6 +786,267 @@ export const UI: Record<string, string> = {
   'Turn your camera on or off in voice.': 'Liga ou desliga sua câmera na chamada.',
   'Disconnect from Voice': 'Desconectar da voz',
   'Leave the voice channel you are in.': 'Sai do canal de voz em que você está.',
+  'Save a Clip': 'Salvar um clipe',
+  'Saves the last moments of your game as a clip.': 'Salva os últimos momentos do seu jogo como clipe.',
+  'Take a Screenshot': 'Tirar uma captura de tela',
+  'Saves a picture of your game.': 'Salva uma imagem do seu jogo.',
+  Bookmark: 'Marcador',
+  'Marks this moment in the recording, to find it later.': 'Marca este momento da gravação para você achar depois.',
+  'Start / Stop Recording': 'Iniciar / parar gravação',
+  'Stops or starts recording your game. With no game open, records the display you pick.':
+    'Para ou começa a gravar seu jogo. Sem jogo aberto, grava a tela que você escolher.',
+  'Open REC Overlay': 'Abrir sobreposição do REC',
+  'Opens REC over your game. Only works while a game is open.':
+    'Abre o REC por cima do seu jogo. Só funciona com um jogo aberto.',
+  VODs: 'VODs',
+  Clips: 'Clipes',
+  Screenshots: 'Capturas de tela',
+  Recording: 'Gravação',
+  Audio: 'Áudio',
+  Hotkeys: 'Atalhos',
+  Storage: 'Armazenamento',
+  Privacy: 'Privacidade',
+  Library: 'Biblioteca',
+  'Open the REC folder': 'Abrir a pasta do REC',
+  Select: 'Selecionar',
+  Selection: 'Seleção',
+  'Select all': 'Selecionar tudo',
+  '{n} item deleted': '{n} item excluído',
+  '{n} items deleted': '{n} itens excluídos',
+  'Uploading…': 'Enviando…',
+  'Share {n} clip': 'Compartilhar {n} clipe',
+  'Share {n} clips': 'Compartilhar {n} clipes',
+  'Copy {n} link': 'Copiar {n} link',
+  'Copy {n} links': 'Copiar {n} links',
+  'Delete {n}': 'Excluir {n}',
+  'Clear selection': 'Limpar seleção',
+  'Clear selection (Esc)': 'Limpar seleção (Esc)',
+  '{n} link copied': '{n} link copiado',
+  '{n} links copied': '{n} links copiados',
+  "Couldn't copy it": 'Não deu para copiar',
+  "The output whose sound is recorded as the game's.": 'A saída cujo som é gravado como o do jogo.',
+  "Games are recorded on their own; this is for when that isn't possible.":
+    'Os jogos são gravados separados; isto vale para quando não dá.',
+  "Pottira's output device": 'Dispositivo de saída do Pottira',
+  '1 second earlier': '1 segundo antes',
+  '1 second later': '1 segundo depois',
+  'All games': 'Todos os jogos',
+  'Anyone with a link can watch, no account needed.':
+    'Qualquer pessoa com o link pode assistir, sem precisar de conta.',
+  Lightweight: 'Leve',
+  Balanced: 'Equilibrado',
+  High: 'Alto',
+  Best: 'Máximo',
+  Custom: 'Personalizado',
+  'Bookmarks, clips and game moments show up here.': 'Marcadores, clipes e lances do jogo aparecem aqui.',
+  'Clip length': 'Duração do clipe',
+  'Clip name (optional)': 'Nome do clipe (opcional)',
+  'Clips from this VOD': 'Clipes deste VOD',
+  Copied: 'Copiado',
+  'Copy picture': 'Copiar imagem',
+  'Each source is its own track too, so a clip can be fixed later.':
+    'Cada fonte também fica numa faixa própria, então dá pra ajustar um clipe depois.',
+  'Even outside calls.': 'Mesmo fora de chamadas.',
+  Everything: 'Tudo',
+  'Go there': 'Ir para lá',
+  'Largest first': 'Maiores primeiro',
+  Length: 'Duração',
+  'Length {time}': 'Duração {time}',
+  'Longest first': 'Mais longos primeiro',
+  'Make a clip here': 'Fazer um clipe aqui',
+  Moments: 'Lances',
+  'New clip': 'Novo clipe',
+  'Newest first': 'Mais recentes primeiro',
+  'None. Open a game and come back here to leave it out.': 'Nenhum. Abra um jogo e volte aqui para deixá-lo de fora.',
+  'Nothing matches': 'Nada encontrado',
+  'Nothing recorded yet': 'Nada gravado ainda',
+  'Oldest first': 'Mais antigos primeiro',
+  Open: 'Abrir',
+  'Open the VOD it came from': 'Abrir o VOD de onde ele veio',
+  Picture: 'Imagem',
+  'Play a game: REC records it from start to end. Press your clip hotkey for the best moments.':
+    'Jogue alguma coisa: o REC grava do começo ao fim. Aperte o atalho de clipe nos melhores lances.',
+  'Play recordings on': 'Tocar gravações em',
+  'Record it again': 'Voltar a gravar',
+  'Record now': 'Gravar agora',
+  'Record a display': 'Gravar uma tela',
+  'No game is running, so pick which screen to record.': 'Nenhum jogo aberto, então escolha qual tela gravar.',
+  'Looking for displays…': 'Procurando telas…',
+  'No displays found.': 'Nenhuma tela encontrada.',
+  'Display {n}': 'Tela {n}',
+  'Open in the player': 'Abrir no player',
+  'Copy path': 'Copiar caminho',
+  'Path copied': 'Caminho copiado',
+  'Delete "{name}"?': 'Excluir "{name}"?',
+  Recorded: 'Gravado em',
+  'Same as voice chat': 'O mesmo do chat de voz',
+  'Search recordings': 'Buscar gravações',
+  'Shared clips': 'Clipes compartilhados',
+  'Shared on': 'Compartilhado em',
+  'Shared: anyone with the link can watch it. It stays on this PC whatever the limits.':
+    'Compartilhado: qualquer pessoa com o link pode assistir. Ele fica neste PC, sejam quais forem os limites.',
+  Size: 'Tamanho',
+  Sort: 'Ordenar',
+  'Sound recorded from': 'Som gravado de',
+  'Space play · J / L 10 s · , / . frame · [ / ] moments · + / − zoom · Ctrl + wheel zoom · I / O clip start and end':
+    'Espaço tocar · J / L 10 s · , / . quadro · [ / ] lances · + / − zoom · Ctrl + roda zoom · I / O início e fim do clipe',
+  Starred: 'Favoritado',
+  'Starred only': 'Só favoritos',
+  'The clip hotkey saves the last {n} seconds.': 'O atalho de clipe salva os últimos {n} segundos.',
+  'They work in games, even with Pottira minimized. The game still gets the key too.':
+    'Funcionam nos jogos, mesmo com o Pottira minimizado. O jogo também recebe a tecla.',
+  'Try another filter or search.': 'Tente outro filtro ou busca.',
+  'Unnamed device': 'Dispositivo sem nome',
+  VOD: 'VOD',
+  Views: 'Visualizações',
+  'Windows default': 'Padrão do Windows',
+  Yours: 'Seus',
+  'drag the gold handles, or press I and O at the playhead':
+    'arraste as alças douradas, ou aperte I e O no ponto atual',
+  '{n} item': '{n} item',
+  '{n} items': '{n} itens',
+  '{n} moment': '{n} lance',
+  '{n} moments': '{n} lances',
+  'Back 10 seconds': 'Voltar 10 segundos',
+  'Back 10 seconds (J)': 'Voltar 10 segundos (J)',
+  'Forward 10 seconds': 'Avançar 10 segundos',
+  'Forward 10 seconds (L)': 'Avançar 10 segundos (L)',
+  'Fullscreen (F)': 'Tela cheia (F)',
+  'Next moment': 'Próximo lance',
+  'Next moment (])': 'Próximo lance (])',
+  'Previous moment': 'Lance anterior',
+  'Previous moment ([)': 'Lance anterior ([)',
+  Speed: 'Velocidade',
+  Volume: 'Volume',
+  'Zoom in': 'Aproximar',
+  'Zoom in (+)': 'Aproximar (+)',
+  'Zoom out': 'Afastar',
+  'Zoom out (-)': 'Afastar (-)',
+  '{n} min': '{n} min',
+  '{n} s': '{n} s',
+  'Killed {name}': 'Matou {name}',
+  Kill: 'Abate',
+  'Killed by {name}': 'Morto por {name}',
+  Death: 'Morte',
+  'Double kill': 'Double kill',
+  'Triple kill': 'Triple kill',
+  'Quadra kill': 'Quadra kill',
+  Ace: 'Ace',
+  'Stole {objective}': 'Roubou {objective}',
+  Dragon: 'Dragão',
+  'Baron Nashor': 'Barão Našhor',
+  'Rift Herald': 'Arauto do Vale',
+  Voidgrubs: 'Vastilarvas',
+  Atakhan: 'Atakhan',
+  'League of Legends': 'League of Legends',
+  Multikills: 'Multiabates',
+  'Double kill and up. A pentakill also earns the Pentakill badge.':
+    'Double kill pra cima. Um pentakill também dá o emblema Pentakill.',
+  Aces: 'Aces',
+  'Stolen objectives': 'Objetivos roubados',
+  'Dragon, Baron Nashor, Rift Herald and others.': 'Dragão, Barão Našhor, Arauto do Vale e outros.',
+  'Every kill': 'Todo abate',
+  'Every death': 'Toda morte',
+  'Save clips of my plays by themselves': 'Salvar clipes das minhas jogadas sozinho',
+  'Each one ends 5 seconds after the moment and starts the clip length before it. Moments close together make one clip.':
+    'Cada um termina 5 segundos depois do lance e começa a duração do clipe antes dele. Lances próximos viram um clipe só.',
+  "Your kills, deaths, multikills and objectives are marked on the recording's timeline either way. Pottira reads them from League's own match data on your PC.":
+    'Seus abates, mortes, multiabates e objetivos ficam marcados na linha do tempo da gravação de qualquer jeito. O Pottira lê isso dos dados da partida do próprio League no seu PC.',
+  'Watch together in the call': 'Assistir junto na chamada',
+  'REC · shared lately': 'REC · compartilhados por último',
+  'Clips you share from REC show up here.': 'Os clipes que você compartilha pelo REC aparecem aqui.',
+  'Clip maker': 'Clipador',
+  '{n} clip shared': '{n} clipe compartilhado',
+  '{n} clips shared': '{n} clipes compartilhados',
+  Audience: 'Plateia',
+  '{n} view on your clips': '{n} visualização nos seus clipes',
+  '{n} views on your clips': '{n} visualizações nos seus clipes',
+  'On record': 'Gravando',
+  '{n} hour recorded': '{n} hora gravada',
+  '{n} hours recorded': '{n} horas gravadas',
+  Premiere: 'Estreia',
+  'A clip of theirs was watched together by 3 or more people': 'Um clipe seu foi assistido junto por 3 pessoas ou mais',
+  Pentakill: 'Pentakill',
+  'Caught a League of Legends pentakill on REC': 'Gravou um pentakill no League of Legends com o REC',
+  Clip: 'Clipe',
+  Shared: 'Compartilhados',
+  'Link copied: anyone with it can watch': 'Link copiado: qualquer um com ele pode assistir',
+  'Copy link': 'Copiar link',
+  'Uploading… {n}%': 'Enviando… {n}%',
+  'Space for shared clips': 'Espaço para clipes compartilhados',
+  'Nothing shared yet': 'Nada compartilhado ainda',
+  'Open a clip and press Share: anyone with its link can watch it, no account needed.':
+    'Abra um clipe e aperte Compartilhar: qualquer um com o link pode assistir, sem precisar de conta.',
+  '{n} view': '{n} visualização',
+  '{n} views': '{n} visualizações',
+  'On your profile': 'No seu perfil',
+  'Not on your profile': 'Fora do seu perfil',
+  'Stop sharing': 'Parar de compartilhar',
+  "Couldn't read that file.": 'Não deu pra ler esse arquivo.',
+  'The upload failed. Check your connection and try again.': 'O envio falhou. Confira sua conexão e tente de novo.',
+  'Screenshot saved': 'Captura salva',
+  Bookmarked: 'Marcado',
+  'Stop recording': 'Parar de gravar',
+  'Start recording': 'Começar a gravar',
+  'Latest clips': 'Últimos clipes',
+  'Clips you save show up here.': 'Os clipes que você salvar aparecem aqui.',
+  'Open REC in Pottira': 'Abrir o REC no Pottira',
+  'Esc to close': 'Esc pra fechar',
+  'REC records your games in the Windows app': 'O REC grava seus jogos no app para Windows',
+  'Every game you play, saved as a VOD you can browse, clip and share. Get the desktop app to use it.':
+    'Todo jogo que você joga vira um VOD pra você ver, cortar clipes e compartilhar. Baixe o app para desktop pra usar.',
+  'Close REC': 'Fechar o REC',
+  'Not recording': 'Não está gravando',
+  'Starts with your next game': 'Começa no seu próximo jogo',
+  'Recording games is off': 'A gravação de jogos está desligada',
+  '{game} (window covered)': '{game} (janela coberta)',
+  Unstar: 'Desfavoritar',
+  Star: 'Favoritar',
+  'Starred: never deleted to make room': 'Favoritado: nunca é apagado pra liberar espaço',
+  'Star: never deleted to make room': 'Favoritar: nunca é apagado pra liberar espaço',
+  'Show in folder': 'Mostrar na pasta',
+  'Click again to delete': 'Clique de novo pra apagar',
+  'Clip saved': 'Clipe salvo',
+  'Save clip': 'Salvar clipe',
+  Native: 'Nativa',
+  'Record every game you play': 'Gravar todo jogo que você jogar',
+  'Starts when Pottira sees a game and stops when it closes. Nothing shows on your screen while it records.':
+    'Começa quando o Pottira vê um jogo e para quando ele fecha. Nada aparece na sua tela enquanto grava.',
+  "Don't record {game}": 'Não gravar {game}',
+  'Games never recorded': 'Jogos que nunca são gravados',
+  Quality: 'Qualidade',
+  'Higher takes more space. Recording uses your graphics card, not your processor.':
+    'Quanto maior, mais espaço. A gravação usa sua placa de vídeo, não o processador.',
+  'Bitrate — {n} Mbit/s': 'Taxa de bits — {n} Mbit/s',
+  'about {gb} GB an hour': 'cerca de {gb} GB por hora',
+  'Record the cursor': 'Gravar o cursor',
+  'Sound when something is saved': 'Som quando algo é salvo',
+  'A short chime for clips, screenshots and bookmarks: the only sign while you play.':
+    'Um toque curto pra clipes, capturas e marcadores: o único aviso enquanto você joga.',
+  'What goes into recordings': 'O que entra nas gravações',
+  "The game's sound": 'O som do jogo',
+  'Your microphone': 'Seu microfone',
+  'Voice chat': 'Chat de voz',
+  "Everyone you hear in your call, except people who don't want to be recorded.":
+    'Todo mundo que você ouve na chamada, menos quem não quer ser gravado.',
+  "On Windows 10 the game's sound is everything your PC plays, voice chat included.":
+    'No Windows 10, o som do jogo é tudo que o seu PC toca, incluindo o chat de voz.',
+  'Space used': 'Espaço usado',
+  'Clips and screenshots': 'Clipes e capturas de tela',
+  '{size} free on this drive': '{size} livres neste disco',
+  Limits: 'Limites',
+  'Past a limit the oldest go first. Starred and shared ones are never deleted, nor the recording in progress.':
+    'Passou do limite, os mais antigos saem primeiro. Favoritos e compartilhados nunca são apagados, nem a gravação em andamento.',
+  'VODs — up to {n} GB': 'VODs — até {n} GB',
+  'Clips and screenshots — up to {n} GB': 'Clipes e capturas — até {n} GB',
+  'Stop recording below {n} GB free': 'Parar de gravar com menos de {n} GB livres',
+  Folder: 'Pasta',
+  'Where REC saves (empty = Videos\\Pottira)': 'Onde o REC salva (vazio = Vídeos\\Pottira)',
+  'Recordings already saved stay where they are.': 'As gravações já salvas continuam onde estão.',
+  "Couldn't save that. Try again.": 'Não deu pra salvar. Tente de novo.',
+  'Let others record my voice': 'Deixar os outros gravarem minha voz',
+  "When this is off, everyone's Pottira leaves your voice out of their recordings from now on. What was already recorded stays.":
+    'Desligado, o Pottira de todo mundo deixa sua voz fora das gravações daqui pra frente. O que já foi gravado continua.',
   Space: 'Espaço',
   'Left Shift': 'Shift esquerdo',
   'Right Shift': 'Shift direito',
@@ -855,12 +1121,12 @@ export const UI: Record<string, string> = {
   'Could not start camera': 'Não foi possível ligar a câmera',
   'Could not open that microphone': 'Não foi possível abrir esse microfone',
   'Unavailable device': 'Dispositivo indisponível',
-  'Linkord — speaking': 'Linkord — falando',
-  'Linkord — muted': 'Linkord — silenciado',
-  'Linkord — deafened': 'Linkord — áudio desativado',
-  'Linkord — in voice': 'Linkord — em chamada',
-  'Open Linkord': 'Abrir o Linkord',
-  'Quit Linkord': 'Sair do Linkord',
+  'Pottira — speaking': 'Pottira — falando',
+  'Pottira — muted': 'Pottira — silenciado',
+  'Pottira — deafened': 'Pottira — áudio desativado',
+  'Pottira — in voice': 'Pottira — em chamada',
+  'Open Pottira': 'Abrir o Pottira',
+  'Quit Pottira': 'Sair do Pottira',
   '{h} h {m} min': '{h} h {m} min',
   '{m} min': '{m} min',
   Stats: 'Estatísticas',
@@ -872,15 +1138,17 @@ export const UI: Record<string, string> = {
   Servers: 'Servidores',
   'Upload space': 'Espaço de envio',
   '{used} of {total}': '{used} de {total}',
-  "Time in voice is counted from Linkord 0.1.14 on. Deleted messages don't count.":
-    'O tempo em chamadas é contado a partir do Linkord 0.1.14. Mensagens excluídas não entram na conta.',
+  "Time in voice is counted from Pottira 0.1.14 on. Deleted messages don't count.":
+    'O tempo em chamadas é contado a partir do Pottira 0.1.14. Mensagens excluídas não entram na conta.',
   'Get the desktop app': 'Baixe o app para computador',
   'Push to talk that works in games, native screen sharing with sound, and it starts with your computer.':
     'Aperte para falar que funciona nos jogos, compartilhamento de tela nativo com som, e ele abre junto com o computador.',
   'No downloads are available yet.': 'Nenhum download disponível ainda.',
   'Download the app': 'Baixar o app',
-  "This browser can't show this video's picture (its format isn't supported here), only the sound. Download it to watch.":
-    'Este navegador não consegue mostrar a imagem deste vídeo (o formato não é suportado aqui), só o som. Baixe para assistir.',
+  "This video's format doesn't show here. Pottira is making a copy that does; it appears by itself.":
+    'O formato deste vídeo não aparece aqui. O Pottira está fazendo uma cópia que aparece; ela entra aqui sozinha.',
+  "This video's picture can't be shown here (its format), only the sound. Download it to watch.":
+    'A imagem deste vídeo não pode ser mostrada aqui (por causa do formato), só o som. Baixe para assistir.',
   Icon: 'Ícone',
   'Discord template (optional)': 'Modelo do Discord (opcional)',
   'That does not look like a Discord template link': 'Isso não parece um link de modelo do Discord',
@@ -896,8 +1164,8 @@ export const UI: Record<string, string> = {
   Send: 'Enviar',
   'Record a voice message': 'Gravar mensagem de voz',
   'Hold to record, release to send': 'Segure para gravar, solte para enviar',
-  "Linkord can't use your microphone. Check your browser or system permissions.":
-    'O Linkord não consegue usar seu microfone. Confira as permissões do navegador ou do sistema.',
+  "Pottira can't use your microphone. Check your browser or system permissions.":
+    'O Pottira não consegue usar seu microfone. Confira as permissões do navegador ou do sistema.',
   'Slide to cancel': 'Deslize para cancelar',
   Discard: 'Descartar',
   'Resume recording': 'Continuar gravação',
@@ -934,6 +1202,7 @@ export const UI: Record<string, string> = {
   'Add role': 'Adicionar cargo',
   'View full profile': 'Ver perfil completo',
   'View profile': 'Ver perfil',
+  'REC (recording)': 'REC (gravando)',
   'No roles': 'Sem cargos',
   'About Me': 'Sobre mim',
   '{n} Mutual Server': '{n} servidor em comum',
@@ -942,7 +1211,7 @@ export const UI: Record<string, string> = {
   '{n} Mutual Friend': '{n} amigo em comum',
   '{n} Mutual Friends': '{n} amigos em comum',
   'Mutual Friends': 'Amigos em comum',
-  'Linkord member since': 'Membro do Linkord desde',
+  'Pottira member since': 'Membro do Pottira desde',
   'No servers in common.': 'Nenhum servidor em comum.',
   'No friends in common.': 'Nenhum amigo em comum.',
   'Mark Folder As Read': 'Marcar pasta como lida',
@@ -1019,15 +1288,15 @@ export const UI: Record<string, string> = {
     'Termine de conectar na página do Spotify que abriu e volte aqui.',
   'Disconnect Spotify': 'Desconectar Spotify',
   'Spotify disconnected': 'Spotify desconectado',
-  'Linkord lost access to this Spotify account. Reconnect to show what you are listening to.':
-    'O Linkord perdeu o acesso a esta conta do Spotify. Reconecte para mostrar o que você está ouvindo.',
+  'Pottira lost access to this Spotify account. Reconnect to show what you are listening to.':
+    'O Pottira perdeu o acesso a esta conta do Spotify. Reconecte para mostrar o que você está ouvindo.',
   'Display on profile': 'Mostrar no perfil',
   'Display Spotify as your status': 'Mostrar o Spotify como seu status',
   'Shows the song you are playing on your profile and under your name while you are online.':
     'Mostra a música que você está ouvindo no seu perfil e abaixo do seu nome enquanto você estiver online.',
   // Stream audio diagnostics (own stream tile)
   'only the shared app': 'só o app compartilhado',
-  'everything except Linkord': 'tudo menos o Linkord',
+  'everything except Pottira': 'tudo menos o Pottira',
   'whole PC, voice chat removed by the echo canceller': 'PC inteiro, chat de voz removido pelo cancelador de eco',
   'browser capture, no echo canceller': 'captura do navegador, sem cancelador de eco',
   "the capture device's own sound": 'o som do próprio dispositivo de captura',
@@ -1080,8 +1349,8 @@ export const UI: Record<string, string> = {
   'Share your detected activities with others': 'Compartilhar suas atividades detectadas com outras pessoas',
   'Shows the game you are playing under your name and on your profile.':
     'Mostra o jogo que você está jogando abaixo do seu nome e no seu perfil.',
-  "Linkord detects the games you play. Add one it missed, or remove one you don't want shown.":
-    'O Linkord detecta os jogos que você joga. Adicione um que ficou de fora, ou remova um que você não quer mostrar.',
+  "Pottira detects the games you play. Add one it missed, or remove one you don't want shown.":
+    'O Pottira detecta os jogos que você joga. Adicione um que ficou de fora, ou remova um que você não quer mostrar.',
   'No game detected': 'Nenhum jogo detectado',
   'What are you playing?': 'O que você está jogando?',
   'Now Playing': 'Jogando agora',
@@ -1167,7 +1436,7 @@ export const UI: Record<string, string> = {
   Chat: 'Chat',
   'Close chat': 'Fechar o chat',
   'Jump to bottom': 'Ir para o fim',
-  'Updating to Linkord {version}…': 'Atualizando para o Linkord {version}…',
+  'Updating to Pottira {version}…': 'Atualizando para o Pottira {version}…',
   '{name} joined the party.': '{name} entrou na party.',
   '{name} just showed up!': '{name} acabou de aparecer!',
   'Welcome, {name}. We hope you brought pizza.': 'Boas-vindas, {name}. Esperamos que você tenha trazido pizza.',
@@ -1215,11 +1484,11 @@ export const UI: Record<string, string> = {
   Calls: 'Chamadas',
   'The ringtone when a friend calls you, and the ringing while you wait for them to pick up.':
     'O toque quando um amigo te liga e o som de chamando enquanto você espera ele atender.',
-  "Pop-ups for DMs, mentions, replies and server messages (servers notify for all messages unless you change it) while Linkord isn't focused.":
-    'Avisos de DMs, menções, respostas e mensagens de servidores (servidores notificam todas as mensagens, a não ser que você mude) enquanto o Linkord não está em foco.',
+  "Pop-ups for DMs, mentions, replies and server messages (servers notify for all messages unless you change it) while Pottira isn't focused.":
+    'Avisos de DMs, menções, respostas e mensagens de servidores (servidores notificam todas as mensagens, a não ser que você mude) enquanto o Pottira não está em foco.',
   'Show a banner after each update': 'Mostrar um aviso depois de cada atualização',
-  '"Linkord was updated", with a link to the patch notes.':
-    '"O Linkord foi atualizado", com um link para as notas de atualização.',
+  '"Pottira was updated", with a link to the patch notes.':
+    '"O Pottira foi atualizado", com um link para as notas de atualização.',
   'Right-click a server or channel to choose what notifies you: All Messages, Only @mentions or Nothing, or to mute it. Muted places still notify you when someone @mentions you directly. Do Not Disturb silences everything.':
     'Clique com o botão direito em um servidor ou canal para escolher o que te notifica: Todas as mensagens, Apenas @menções ou Nenhuma notificação, ou para silenciá-lo. Lugares silenciados ainda notificam quando alguém te @menciona diretamente. Não perturbe silencia tudo.',
   'Server banner': 'Banner do servidor',
@@ -1398,8 +1667,8 @@ export const UI: Record<string, string> = {
   '{day} {hour}:00 · {n} messages': '{day} {hour}:00 · {n} mensagens',
   'Your busiest time: {day} around {hour}:00.': 'Seu horário mais ativo: {day} por volta das {hour}:00.',
   "A channel you can't see anymore": 'Um canal que você não vê mais',
-  'Measured since Linkord 0.2.15, like everything below that happens live.':
-    'Medido desde o Linkord 0.2.15, como tudo que acontece ao vivo.',
+  'Measured since Pottira 0.2.15, like everything below that happens live.':
+    'Medido desde o Pottira 0.2.15, como tudo que acontece ao vivo.',
   "Couldn't load your stats.": 'Não foi possível carregar suas estatísticas.',
   'Days you wrote': 'Dias em que você escreveu',
   'Your first message: {date}.': 'Sua primeira mensagem: {date}.',
@@ -1446,7 +1715,7 @@ export const UI: Record<string, string> = {
   'Profile pictures': 'Fotos de perfil',
   // Onboarding (1.0): the "what's new" dialog and the tour.
   'Version 1.0 is here!': 'Chegou a versão 1.0!',
-  'Linkord {version}': 'Linkord {version}',
+  'Pottira {version}': 'Pottira {version}',
   'Thanks for being here since the early days, {name}. This is what came with it.':
     'Valeu por estar aqui desde o começo, {name}. Olha só o que veio junto.',
   "What's new": 'Novidades',
@@ -1476,8 +1745,8 @@ export const UI: Record<string, string> = {
   'Animated avatars': 'Avatares animados',
   Nameplates: 'Placas de nome',
   'Pick your username': 'Escolha seu nome de usuário',
-  'Welcome to Linkord': 'Boas-vindas ao Linkord',
-  'Welcome to Linkord, {name}': 'Boas-vindas ao Linkord, {name}',
+  'Welcome to Pottira': 'Boas-vindas ao Pottira',
+  'Welcome to Pottira, {name}': 'Boas-vindas ao Pottira, {name}',
   "Here's a quick look at where everything is. It takes a minute, and you can leave whenever you like.":
     'Um passeio rápido para mostrar onde fica cada coisa. Leva um minutinho, e dá para sair quando quiser.',
   'Your servers line up here. The emblem opens your friends and direct messages, and + creates a server or joins one with an invite link.':
@@ -1506,7 +1775,7 @@ export const UI: Record<string, string> = {
   "You're all set": 'Tudo pronto',
   'Have fun, traveler. You can take this tour again from Settings.':
     'Divirta-se, viajante. Você pode refazer este tour em Configurações.',
-  'Linkord tour': 'Tour do Linkord',
+  'Pottira tour': 'Tour do Pottira',
   'Tour complete': 'Tour concluído',
   'Step {n} of {total}': 'Passo {n} de {total}',
   Skip: 'Pular',
@@ -1546,20 +1815,18 @@ export const UI: Record<string, string> = {
   Light: 'Claro',
   Dark: 'Escuro',
   Christmas: 'Natal',
-  'Evergreen and gold, with snow, string lights and its own sounds.':
-    'Verde-pinheiro e dourado, com neve, pisca-pisca e sons próprios.',
+  'Evergreen, with snow, string lights and its own music.': 'Verde-pinheiro, com neve, pisca-pisca e música própria.',
   'Falling snow': 'Neve caindo',
-  'Rests while Linkord is in the background or showing a call, so it never takes anything from a game.':
-    'Para quando o Linkord está em segundo plano ou mostrando uma chamada, então nunca pesa nos jogos.',
-  'Christmas sounds': 'Sons de Natal',
+  'Rests while Pottira is in the background or showing a call, so it never takes anything from a game.':
+    'Para quando o Pottira está em segundo plano ou mostrando uma chamada, então nunca pesa nos jogos.',
   'Christmas greeting': 'Mensagem de Natal',
-  'Happy holidays from Linkord': 'Boas festas do Linkord',
+  'Happy holidays from Pottira': 'Boas festas do Pottira',
   'Merry Christmas, {name}!': 'Feliz Natal, {name}!',
-  'Linkord dressed up for the season. Here is everything that came with it.':
-    'O Linkord se arrumou para as festas. Veja tudo o que veio junto.',
+  'Pottira dressed up for the season. Here is everything that came with it.':
+    'O Pottira se arrumou para as festas. Veja tudo o que veio junto.',
   'Maybe later': 'Talvez depois',
   'Turn on the Christmas theme': 'Ativar o tema de Natal',
-  'Linkord in evergreen': 'Linkord em verde-pinheiro',
+  'Pottira in evergreen': 'Pottira em verde-pinheiro',
   'A Christmas theme with falling snow, string lights, a tree, Santa hats on everyone and snow that slowly piles up behind the message box. Click the snow to clear it.':
     'Um tema de Natal com neve caindo, pisca-pisca, uma árvore, gorros de Papai Noel em todo mundo e neve que se acumula aos poucos atrás da caixa de mensagem. Clique na neve para limpar.',
   'Type /snowball @name or right-click a message to hit someone with a snowball. Everyone in the channel sees it land, and the score goes on your profile.':
@@ -1617,10 +1884,8 @@ export const UI: Record<string, string> = {
   "Christmas carols. Pauses during calls, videos and while you're using another window.":
     'Canções de Natal. Pausa durante chamadas, vídeos e enquanto você usa outra janela.',
   'Music volume': 'Volume da música',
-  "Discord's Winter sounds for calls, joining, leaving, mute and deafen.":
-    'Os sons de inverno do Discord para chamadas, entradas, saídas, silenciar e desativar áudio.',
   Theme: 'Tema',
-  'How Linkord looks on this device.': 'Como o Linkord fica neste dispositivo.',
+  'How Pottira looks on this device.': 'Como o Pottira fica neste dispositivo.',
   'You can only move roles below your highest role.': 'Você só pode mover cargos abaixo do seu cargo mais alto.',
   'Members use the color of their highest role, and the member list shows separately displayed roles in this order. Drag roles to reorder them.':
     'Os membros usam a cor do cargo mais alto, e a lista de membros mostra os cargos exibidos separadamente nesta ordem. Arraste os cargos para reordenar.',
@@ -1750,26 +2015,26 @@ export const UI: Record<string, string> = {
     'As notificações deste site estão bloqueadas nas configurações do navegador.',
   "Couldn't turn notifications on. Try again from Settings → Notifications.":
     'Não deu para ativar as notificações. Tenta de novo em Configurações → Notificações.',
-  'To get notifications on this phone, add Linkord to your Home Screen: tap Share, then Add to Home Screen.':
-    'Para receber notificações neste celular, adicione o Linkord à Tela de Início: toque em Compartilhar e depois em Adicionar à Tela de Início.',
+  'To get notifications on this phone, add Pottira to your Home Screen: tap Share, then Add to Home Screen.':
+    'Para receber notificações neste celular, adicione o Pottira à Tela de Início: toque em Compartilhar e depois em Adicionar à Tela de Início.',
   'Get notifications on this phone for DMs and mentions.': 'Receba notificações de DMs e menções neste celular.',
   'Turn on': 'Ativar',
   "Couldn't turn notifications on. Try again in a moment.":
     'Não deu para ativar as notificações. Tenta de novo daqui a pouco.',
-  'A test arrives in {n} seconds: close Linkord or lock the phone to see it like a real notification.':
-    'Um teste chega em {n} segundos: feche o Linkord ou bloqueie o celular para ver como uma notificação de verdade.',
+  'A test arrives in {n} seconds: close Pottira or lock the phone to see it like a real notification.':
+    'Um teste chega em {n} segundos: feche o Pottira ou bloqueie o celular para ver como uma notificação de verdade.',
   "The test didn't reach this device. On Android, check that the browser may run in the background (battery settings) and has notifications allowed.":
     'O teste não chegou a este dispositivo. No Android, confira se o navegador pode rodar em segundo plano (configurações de bateria) e tem permissão de notificações.',
   "The test arrived but couldn't be shown: {error}": 'O teste chegou, mas não deu para mostrar: {error}',
-  "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Linkord.":
-    'O teste chegou e foi mostrado. Não está vendo? O Android pode estar escondendo as notificações deste navegador: permita nas configurações do Android para o navegador e para o Linkord.',
+  "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Pottira.":
+    'O teste chegou e foi mostrado. Não está vendo? O Android pode estar escondendo as notificações deste navegador: permita nas configurações do Android para o navegador e para o Pottira.',
   'Notifications on this device': 'Notificações neste dispositivo',
-  "For your phone or this browser: DMs, mentions and calls arrive even when Linkord is closed. They aren't sent while you're using Linkord on another device.":
-    'Para o seu celular ou este navegador: DMs, menções e chamadas chegam mesmo com o Linkord fechado. Elas não são enviadas enquanto você está usando o Linkord em outro dispositivo.',
-  "This browser can't get notifications while Linkord is closed.":
-    'Este navegador não recebe notificações com o Linkord fechado.',
-  'On iPhone and iPad, add Linkord to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.':
-    'No iPhone e no iPad, adicione o Linkord à Tela de Início primeiro (Compartilhar, depois Adicionar à Tela de Início) e ative isto por lá.',
+  "For your phone or this browser: DMs, mentions and calls arrive even when Pottira is closed. They aren't sent while you're using Pottira on another device.":
+    'Para o seu celular ou este navegador: DMs, menções e chamadas chegam mesmo com o Pottira fechado. Elas não são enviadas enquanto você está usando o Pottira em outro dispositivo.',
+  "This browser can't get notifications while Pottira is closed.":
+    'Este navegador não recebe notificações com o Pottira fechado.',
+  'On iPhone and iPad, add Pottira to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.':
+    'No iPhone e no iPad, adicione o Pottira à Tela de Início primeiro (Compartilhar, depois Adicionar à Tela de Início) e ative isto por lá.',
   'Notifications are blocked for this site. Allow them in your browser settings, then come back here.':
     'As notificações deste site estão bloqueadas. Permita nas configurações do navegador e volte aqui.',
   'Push notifications': 'Notificações push',
@@ -1845,7 +2110,7 @@ export const UI: Record<string, string> = {
   'Invite on its way': 'Convite a caminho',
   "Joined {name}'s lobby": 'Você entrou no saguão de {name}',
   'Accept the invite in League of Legends to join': 'Aceite o convite no League of Legends para entrar',
-  'Join from the Linkord desktop app': 'Entre pelo app do Linkord para computador',
+  'Join from the Pottira desktop app': 'Entre pelo app do Pottira para computador',
   'League of Legends · Lobby invite': 'League of Legends · Convite para o saguão',
   "{name}'s lobby": 'Saguão de {name}',
   'Not in a lobby anymore': 'Não está mais no saguão',
@@ -1879,10 +2144,10 @@ export const UI: Record<string, string> = {
   'On air': 'No ar',
   'Watch party': 'Sessão de cinema',
   'Snowball fighter': 'Guerra de bolas de neve',
-  'Linkord Admin': 'Admin do Linkord',
-  'Runs this Linkord': 'Cuida deste Linkord',
+  'Pottira Admin': 'Admin do Pottira',
+  'Runs this Pottira': 'Cuida deste Pottira',
   'Early Member': 'Membro pioneiro',
-  'Here before Linkord 1.0': 'Chegou antes do Linkord 1.0',
+  'Here before Pottira 1.0': 'Chegou antes do Pottira 1.0',
   'Server Owner': 'Dono de servidor',
   'Created a server': 'Criou um servidor',
   'Bug Hunter': 'Caçador de bugs',
@@ -1890,7 +2155,7 @@ export const UI: Record<string, string> = {
   Tester: 'Testador',
   'Tried new builds before release': 'Testou versões novas antes do lançamento',
   Contributor: 'Colaborador',
-  'Helped build Linkord': 'Ajudou a construir o Linkord',
+  'Helped build Pottira': 'Ajudou a construir o Pottira',
   Helper: 'Ajudante',
   'Helped others in the community': 'Ajudou outras pessoas da comunidade',
   'Christmas {year}': 'Natal {year}',
@@ -1910,18 +2175,18 @@ export const UI: Record<string, string> = {
   'Your badges': 'Suas insígnias',
   'Show all': 'Mostrar todas',
   'Hide all': 'Ocultar todas',
-  'No badges yet. They come as you use Linkord.': 'Nenhuma insígnia ainda. Elas vêm conforme você usa o Linkord.',
+  'No badges yet. They come as you use Pottira.': 'Nenhuma insígnia ainda. Elas vêm conforme você usa o Pottira.',
   'Move {name} (Alt+Up / Alt+Down)': 'Mover {name} (Alt+Cima / Alt+Baixo)',
   'Show {name} on your profile': 'Mostrar {name} no seu perfil',
   'Next tiers': 'Próximos níveis',
-  'Time is counted since Stats came out (Linkord 1.0); account age counts from the day you joined.':
-    'O tempo conta desde que as Estatísticas chegaram (Linkord 1.0); a idade da conta conta desde o dia em que você entrou.',
-  'Badges come as you use Linkord. Pick which ones your profile shows and in what order; new ones are shown when you earn them.':
-    'As insígnias vêm conforme você usa o Linkord. Escolha quais aparecem no seu perfil e em que ordem; as novas aparecem assim que você as conquista.',
-  '{n} year on Linkord': '{n} ano no Linkord',
-  '{n} years on Linkord': '{n} anos no Linkord',
-  '{n} month on Linkord': '{n} mês no Linkord',
-  '{n} months on Linkord': '{n} meses no Linkord',
+  'Time is counted since Stats came out (Pottira 1.0); account age counts from the day you joined.':
+    'O tempo conta desde que as Estatísticas chegaram (Pottira 1.0); a idade da conta conta desde o dia em que você entrou.',
+  'Badges come as you use Pottira. Pick which ones your profile shows and in what order; new ones are shown when you earn them.':
+    'As insígnias vêm conforme você usa o Pottira. Escolha quais aparecem no seu perfil e em que ordem; as novas aparecem assim que você as conquista.',
+  '{n} year on Pottira': '{n} ano no Pottira',
+  '{n} years on Pottira': '{n} anos no Pottira',
+  '{n} month on Pottira': '{n} mês no Pottira',
+  '{n} months on Pottira': '{n} meses no Pottira',
   '{n} hour in calls': '{n} hora em chamadas',
   '{n} hours in calls': '{n} horas em chamadas',
   '{n} hour played': '{n} hora jogada',
@@ -1936,10 +2201,73 @@ export const UI: Record<string, string> = {
   '{n} sounds played': '{n} sons tocados',
   '{n} snowball thrown': '{n} bola de neve jogada',
   '{n} snowballs thrown': '{n} bolas de neve jogadas',
+  // REC introduction and setup (RecIntro.tsx)
+  'Last {n} s': 'Últimos {n} s',
+  'Your games, recorded while you play': 'Seus jogos, gravados enquanto você joga',
+  'REC records your games on this PC in the background. When something good happens, a key keeps the last {n} seconds as a clip you can share with a link.':
+    'O REC grava seus jogos neste PC em segundo plano. Quando rolar algo bom, uma tecla guarda os últimos {n} segundos como um clipe que você pode compartilhar com um link.',
+  'Starts by itself': 'Começa sozinho',
+  'When Pottira sees a game, REC records it. Nothing shows on your screen while it does.':
+    'Quando o Pottira vê um jogo, o REC grava. Nada aparece na sua tela enquanto isso.',
+  'Clips from a key': 'Clipes com uma tecla',
+  'Save the last seconds while you play, or cut a clip from the full recording later.':
+    'Salve os últimos segundos enquanto joga, ou corte um clipe da gravação inteira depois.',
+  'Share with a link': 'Compartilhe com um link',
+  'Anyone can watch a clip you share, even without Pottira.':
+    'Qualquer pessoa assiste a um clipe que você compartilhar, mesmo sem o Pottira.',
+  'Turn on REC': 'Ativar o REC',
+  'Not now': 'Agora não',
+  'Recordings stay on this PC. A clip only leaves it when you share it. You can turn REC off at any time in its settings.':
+    'As gravações ficam neste PC. Um clipe só sai dele quando você compartilha. Você pode desativar o REC quando quiser nas configurações dele.',
+  'Your voice in other recordings': 'Sua voz nas gravações dos outros',
+  'When should REC record?': 'Quando o REC deve gravar?',
+  'Every game I play': 'Todo jogo que eu jogar',
+  'Starts when a game opens and stops when it closes.': 'Começa quando um jogo abre e para quando ele fecha.',
+  'Only when I start it': 'Só quando eu mandar',
+  'Press Record now on this page, or set a start/stop hotkey.':
+    'Use Gravar agora nesta página, ou defina uma tecla de iniciar/parar.',
+  'How should recordings look?': 'Qual qualidade de gravação?',
+  'Recording uses your graphics card, not your processor. Higher takes more space.':
+    'A gravação usa sua placa de vídeo, não o processador. Quanto maior, mais espaço ocupa.',
+  'What should recordings hear?': 'O que as gravações devem ouvir?',
+  'My microphone': 'Meu microfone',
+  'The one you use for voice chat. You can pick another in the settings.':
+    'O que você usa no chat de voz. Dá para escolher outro nas configurações.',
+  'People in my call': 'As pessoas na minha chamada',
+  'In a game, this opens REC over it: save clips, take screenshots, stop recording.':
+    'Num jogo, isso abre o REC por cima dele: salvar clipes, tirar capturas de tela, parar a gravação.',
+  'Skip setup': 'Pular configuração',
+  'Run the setup again': 'Refazer a configuração',
+  // REC: shared clips, menu and multi-select
+  'of {quota} used': 'de {quota} usados',
+  '{free} left': '{free} livres',
+  'Almost full: stop sharing some clips to make room.': 'Quase cheio: pare de compartilhar alguns clipes para liberar espaço.',
+  'Open the public page': 'Abrir a página pública',
+  'Hide from your profile': 'Esconder do seu perfil',
+  'Show on your profile': 'Mostrar no seu perfil',
+  'Stop sharing "{name}"?': 'Parar de compartilhar "{name}"?',
+  'Stopping…': 'Parando…',
+  'Stopped sharing {n} clip': 'Parou de compartilhar {n} clipe',
+  'Stopped sharing {n} clips': 'Parou de compartilhar {n} clipes',
+  'Click again to stop sharing': 'Clique de novo para parar de compartilhar',
+  'Stop sharing {n}': 'Parar de compartilhar {n}',
+  'REC is on': 'O REC está ativado',
+  'Turning it off stops recording and hides your library until you turn it on again. Your recordings stay in their folder.':
+    'Desativar para a gravação e esconde sua biblioteca até você ativar de novo. Suas gravações continuam na pasta delas.',
+  'Turn off REC': 'Desativar o REC',
 };
 
 /** Error messages from the server (server/src), shown as they arrive. */
 export const SERVER: Record<string, string> = {
+  'the clip is empty': 'o clipe está vazio',
+  'this clip is too big to share; cut a shorter part':
+    'esse clipe é grande demais pra compartilhar; corte um trecho menor',
+  "you've used all your space for shared clips; delete some first":
+    'você usou todo o seu espaço de clipes compartilhados; apague alguns antes',
+  "more than the clip's size": 'mais do que o tamanho do clipe',
+  "the clip couldn't be read": 'não deu pra ler o clipe',
+  "only clips from Pottira's REC can be shared": 'só dá pra compartilhar clipes do REC do Pottira',
+  "the upload isn't complete": 'o envio não terminou',
   "League profiles aren't set up on this server": 'Os perfis do League não estão configurados neste servidor',
   'a Riot ID looks like Name#TAG': 'um Riot ID é assim: Nome#TAG',
   'no Riot account has that Riot ID': 'nenhuma conta Riot tem esse Riot ID',
@@ -1959,7 +2287,7 @@ export const SERVER: Record<string, string> = {
   'Steve took too long to answer': 'O Steve demorou demais para responder',
   'Steve had nothing to say': 'O Steve não tinha nada para dizer',
   'bad file': 'Arquivo inválido',
-  'that file is too big for Linkord': 'Esse arquivo é grande demais para o Linkord',
+  'that file is too big for Pottira': 'Esse arquivo é grande demais para o Pottira',
   'not a server text channel': 'Não é um canal de texto de servidor',
   'bad sound name': 'Nome de som inválido',
   'a sound must be at most 1 MB': 'Um som pode ter no máximo 1 MB',
@@ -2019,8 +2347,6 @@ export const SERVER: Record<string, string> = {
   'you are banned from this server': 'você foi banido deste servidor',
   'you cannot ban yourself': 'você não pode banir a si mesmo',
   "Kass can't be banned; remove him from the server instead": 'O Kass não pode ser banido; remova ele do servidor',
-  'Linkord is invite-only. Open an invite link from a friend in this browser, then sign in.':
-    'O Linkord é só para convidados. Abra o link de convite de um amigo neste navegador e entre de novo.',
   "New accounts aren't being created right now.": 'Novas contas não estão sendo criadas agora.',
   'This account has been suspended.': 'Esta conta foi suspensa.',
   'invalid sign-in request': 'pedido de login inválido',
@@ -2037,7 +2363,7 @@ export const SERVER: Record<string, string> = {
   "you're already friends": 'vocês já são amigos',
   'unblock this user first': 'desbloqueie este usuário primeiro',
   "couldn't send a friend request to this user": 'não foi possível enviar um pedido de amizade para este usuário',
-  'no one with that username has joined Linkord yet': 'ninguém com esse nome de usuário entrou no Linkord ainda',
+  'no one with that username has joined Pottira yet': 'ninguém com esse nome de usuário entrou no Pottira ainda',
   'several people share that username; add them from their profile instead':
     'várias pessoas têm esse nome de usuário; adicione pela página de perfil',
   "you can't block yourself": 'você não pode bloquear a si mesmo',
@@ -2121,6 +2447,7 @@ export const SERVER: Record<string, string> = {
   'sounds can be at most 5 seconds long': 'os sons podem ter no máximo 5 segundos',
   'join the call first': 'entre na chamada primeiro',
   'paste a YouTube, Twitch or Kick link': 'cole um link do YouTube, da Twitch ou da Kick',
+  "that isn't a League match": 'isso não é uma partida do League',
   "couldn't read that sound": 'não deu para ler esse som',
   "you aren't streaming": 'você não está transmitindo',
   'send a JPEG of up to 300 KB': 'envie um JPEG de até 300 KB',

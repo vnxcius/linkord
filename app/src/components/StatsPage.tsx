@@ -1,4 +1,4 @@
-// Settings -> Stats: everything Linkord measures about you (GET /users/@me/stats, server/src/api/users.rs stats).
+// Settings -> Stats: everything Pottira measures about you (GET /users/@me/stats, server/src/api/users.rs stats).
 // Most numbers are counted from what's stored (messages, reactions...); time streaming, sounds, songs and the like
 // are measured as they happen, since 0.2.15 (stats.rs).
 import { createResource, createSignal, For, Show, type JSX } from 'solid-js';
@@ -214,7 +214,7 @@ function Ranked<T>(p: {
   );
 }
 
-const GAME_SINCE = msg('Measured since Linkord 0.2.15, like everything below that happens live.');
+const GAME_SINCE = msg('Measured since Pottira 0.2.15, like everything below that happens live.');
 
 export function StatsPage() {
   const [stats] = createResource(() =>
@@ -392,7 +392,7 @@ export function StatsPage() {
             </div>
           </Block>
           <p class="muted small">
-            {t("Time in voice is counted from Linkord 0.1.14 on. Deleted messages don't count.")} {t(GAME_SINCE)}
+            {t("Time in voice is counted from Pottira 0.1.14 on. Deleted messages don't count.")} {t(GAME_SINCE)}
           </p>
         </div>
       )}

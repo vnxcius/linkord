@@ -340,7 +340,7 @@ async fn save_files(st: &AppState, a: &Access, bot: Id, files: Vec<ReplyFile>) -
     for f in files.into_iter().take(MAX_FILES) {
         let bytes = base64::engine::general_purpose::STANDARD.decode(f.data.as_bytes()).map_err(|_| bad("bad file"))?;
         if bytes.is_empty() || bytes.len() > uploads::MAX_FILE {
-            return Err(bad("that file is too big for Linkord"));
+            return Err(bad("that file is too big for Pottira"));
         }
         let hash = hex::encode(Sha256::digest(&bytes));
         let key = (a.ch.id, hash);
@@ -355,7 +355,7 @@ async fn save_files(st: &AppState, a: &Access, bot: Id, files: Vec<ReplyFile>) -
         let content_type = f.content_type.filter(|c| !c.is_empty() && !c.contains(char::is_whitespace)).unwrap_or_else(|| mime_guess::from_path(&filename).first_or_octet_stream().to_string());
         uploads::reserve(st, bot, bytes.len()).await?;
         let url = uploads::save(st, &format!("attachments/{}", a.ch.id), &filename, &bytes).await?;
-        let att = Attachment { id: Id::new(), filename, url, size: bytes.len() as u64, content_type, duration_secs: None, waveform: None, width: None, height: None };
+        let att = Attachment { id: Id::new(), filename, url, size: bytes.len() as u64, content_type, duration_secs: None, waveform: None, width: None, height: None, codec: None, playable: None };
         st.steve.files.insert(key, att.clone());
         out.push(att);
     }

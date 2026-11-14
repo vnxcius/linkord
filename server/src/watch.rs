@@ -16,7 +16,7 @@ use crate::state::AppState;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Watch {
-    /// youtube | twitch | kick
+    /// youtube | twitch | kick | clip (a REC clip shared on this server: media = its slug)
     pub provider: String,
     /// YouTube video id, Twitch channel or "v<id>" for a Twitch video, Kick channel.
     pub media: String,
@@ -131,7 +131,11 @@ struct Start {
 
 async fn start(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<Start>) -> ApiResult<Json<Watch>> {
     let guild = in_call(&st, id, me).await?;
-    let (provider, media, live, position) = parse(&body.url).ok_or_else(|| bad("paste a YouTube, Twitch or Kick link"))?;
+    let parsed = match crate::clips::from_link(&st, &body.url).await {
+        Some(clip) => Some(("clip".to_string(), clip.slug, false, 0.0)),
+        None => parse(&body.url),
+    };
+    let (provider, media, live, position) = parsed.ok_or_else(|| bad("paste a YouTube, Twitch or Kick link"))?;
     // Whoever shares it is watching it; a new link keeps the people who already had the player open.
     let mut viewers = st.watches.get(&id).map(|w| w.viewers.clone()).unwrap_or_default();
     if !viewers.contains(&me) {
@@ -228,6 +232,13 @@ async fn view(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path
     };
     if changed {
         announce(&st, id, guild).await;
+        // REC: a clip watched together by 3 or more people is its author's premiere.
+        let clip = st.watches.get(&id).filter(|w| w.provider == "clip" && w.viewers.len() >= 3).map(|w| w.media.clone());
+        if let Some(slug) = clip {
+            if let Some(author) = crate::clips::author_of(&st, &slug).await {
+                crate::badges::grant(&st, author, "premiere").await;
+            }
+        }
     }
     Ok(())
 }

@@ -480,6 +480,17 @@ async fn remove_media(State(st): State<AppState>, Json(b): Json<RemoveMedia>) ->
             crate::uploads::release(&st, user, freed).await;
             freed
         }
+        // REC: a shared clip (its quota is apart from attachments, so nothing to give back there).
+        "clip" => {
+            let id = required(b.item_id, "item_id")?;
+            let clip: crate::clips::Clip = sqlx::query_as("SELECT id, slug, user_id, kind, title, game, duration_ms, width, height, size, views, on_profile, created_at FROM clips WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&st.db)
+                .await?
+                .ok_or(ApiError::NotFound)?;
+            crate::clips::delete_clip(&st, &clip).await?;
+            clip.size as u64
+        }
         _ => return Err(ApiError::NotFound),
     };
     let id = |i: Option<Id>| i.map(|i| i.to_string()).unwrap_or_default();

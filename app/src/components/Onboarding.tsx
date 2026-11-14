@@ -300,7 +300,7 @@ function Release() {
     <Showcase
       features={FEATURES}
       more={MORE}
-      kicker={t('Linkord {version}', { version: '1.0' })}
+      kicker={t('Pottira {version}', { version: '1.0' })}
       title={t('Version 1.0 is here!')}
       intro={t('Thanks for being here since the early days, {name}. This is what came with it.', {
         name: displayName(state.me),
@@ -327,7 +327,7 @@ function Release() {
 const CHRISTMAS: Feature[] = [
   {
     id: 'christmas-look',
-    title: msg('Linkord in evergreen'),
+    title: msg('Pottira in evergreen'),
     text: msg(
       'A Christmas theme with falling snow, string lights, a tree, Santa hats on everyone and snow that slowly piles up behind the message box. Click the snow to clear it.',
     ),
@@ -390,9 +390,9 @@ function ChristmasGreeting() {
     <Showcase
       features={CHRISTMAS}
       more={CHRISTMAS_MORE}
-      kicker={t('Happy holidays from Linkord')}
+      kicker={t('Happy holidays from Pottira')}
       title={t('Merry Christmas, {name}!', { name: displayName(state.me) })}
-      intro={t('Linkord dressed up for the season. Here is everything that came with it.')}
+      intro={t('Pottira dressed up for the season. Here is everything that came with it.')}
       emblem={<Emblem size={64} christmas />}
       class="xmas-modal"
       decor={
@@ -447,7 +447,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     hero: true,
-    title: msg('Welcome to Linkord'),
+    title: msg('Welcome to Pottira'),
     text: msg("Here's a quick look at where everything is. It takes a minute, and you can leave whenever you like."),
   },
   {
@@ -624,7 +624,7 @@ function Tour() {
       classList={{ anchored: anchored() }}
       role="dialog"
       aria-modal="true"
-      aria-label={t('Linkord tour')}
+      aria-label={t('Pottira tour')}
     >
       <Show when={anchored()} fallback={<div class="tour-dim" />}>
         <div
@@ -667,7 +667,7 @@ function Tour() {
               <p class="tour-kicker">
                 <Show
                   when={!step().hero}
-                  fallback={index() === 0 ? t('Linkord {version}', { version: '1.0' }) : t('Tour complete')}
+                  fallback={index() === 0 ? t('Pottira {version}', { version: '1.0' }) : t('Tour complete')}
                 >
                   {t('Step {n} of {total}', {
                     n: String(index()).padStart(2, '0'),
@@ -677,7 +677,7 @@ function Tour() {
               </p>
               <h2>
                 {index() === 0 && state.me
-                  ? t('Welcome to Linkord, {name}', { name: displayName(state.me) })
+                  ? t('Welcome to Pottira, {name}', { name: displayName(state.me) })
                   : t(step().title)}
               </h2>
               <p class="tour-text">{t(step().text)}</p>

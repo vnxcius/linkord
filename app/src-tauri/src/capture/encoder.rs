@@ -2,13 +2,28 @@
 //! all register as MF transforms) and falls back to Microsoft's software encoder.
 //! Output is Annex B byte stream; SPS/PPS are guaranteed in front of every keyframe so viewers can
 //! start decoding at any keyframe.
+//!
+//! Two ways in: NV12 bytes from the CPU (streams, `new` + `encode`), or NV12 textures that never leave the GPU (REC,
+//! `new_gpu` + `encode_sample` with a DXGI surface buffer). The GPU one only takes a hardware encoder on the same
+//! adapter as the device, since a software encoder would cost games CPU for as long as they're recorded.
 
 use std::mem::ManuallyDrop;
 
 use windows::core::{Interface, GUID};
+use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_MULTITHREADED};
 use windows::Win32::System::Variant::VARIANT;
+
+/// What the encoder is tuned for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tuning {
+    /// Constant bitrate (predictable for the relay), rare keyframes (viewers ask for one when they need it).
+    Stream,
+    /// Variable bitrate under a peak; the caller forces a keyframe every couple of seconds so recordings can be cut
+    /// and played from any segment.
+    Record,
+}
 
 pub struct Encoder {
     transform: IMFTransform,
@@ -21,18 +36,27 @@ pub struct Encoder {
     pub hardware: bool,
     pub width: u32,
     pub height: u32,
-    // Last, so it is released after the transform (fields drop in declaration order).
+    /// The GPU encoder's device manager; released after the transform (fields drop in declaration order).
+    _manager: Option<IMFDXGIDeviceManager>,
+    // Last, so it is released after the transform.
     _mf: MfSession,
+}
+
+/// A finished frame: Annex B data, whether it's a keyframe, and the time it was given (100 ns units).
+pub struct Packet {
+    pub data: Vec<u8>,
+    pub key: bool,
+    pub time: i64,
 }
 
 /// Media Foundation (and COM on this thread) for as long as an encoder lives: every MFStartup needs its
 /// MFShutdown, and encoders are rebuilt on every quality or size change.
-struct MfSession {
+pub(crate) struct MfSession {
     com: bool,
 }
 
 impl MfSession {
-    unsafe fn start() -> windows::core::Result<MfSession> {
+    pub(crate) unsafe fn start() -> windows::core::Result<MfSession> {
         // S_FALSE (already initialized) also needs a CoUninitialize; RPC_E_CHANGED_MODE (an STA thread) doesn't.
         let com = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
         if let Err(e) = MFStartup(MF_VERSION, MFSTARTUP_FULL) {
@@ -60,7 +84,8 @@ fn pack(hi: u32, lo: u32) -> u64 {
     ((hi as u64) << 32) | lo as u64
 }
 
-unsafe fn find_encoder(hardware: bool) -> windows::core::Result<Option<IMFTransform>> {
+/// Every registered H.264 encoder of that kind, best first.
+unsafe fn candidates(hardware: bool) -> windows::core::Result<Vec<IMFActivate>> {
     let input = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
     let output = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_H264 };
     let flags = if hardware { MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER } else { MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER };
@@ -68,16 +93,13 @@ unsafe fn find_encoder(hardware: bool) -> windows::core::Result<Option<IMFTransf
     let mut count = 0u32;
     MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, flags, Some(&input), Some(&output), &mut activates, &mut count)?;
     let list = std::slice::from_raw_parts_mut(activates, count as usize);
-    let mut found = None;
-    for a in list.iter_mut() {
-        if let Some(act) = a.take() {
-            if found.is_none() {
-                found = act.ActivateObject::<IMFTransform>().ok();
-            }
-        }
-    }
+    let found = list.iter_mut().filter_map(Option::take).collect();
     CoTaskMemFree(Some(activates as *const _));
     Ok(found)
+}
+
+unsafe fn find_encoder(hardware: bool) -> windows::core::Result<Option<IMFTransform>> {
+    Ok(candidates(hardware)?.into_iter().find_map(|a| a.ActivateObject::<IMFTransform>().ok()))
 }
 
 unsafe fn set_codec(codec: &ICodecAPI, api: &GUID, value: u32) {
@@ -86,6 +108,7 @@ unsafe fn set_codec(codec: &ICodecAPI, api: &GUID, value: u32) {
 }
 
 impl Encoder {
+    /// For NV12 frames from the CPU (streams). Hardware if there is one, else Microsoft's software encoder.
     pub fn new(width: u32, height: u32, fps: u32, bitrate: u32) -> windows::core::Result<Encoder> {
         unsafe {
             let mf = MfSession::start()?;
@@ -94,12 +117,63 @@ impl Encoder {
                 None => (find_encoder(false)?.ok_or_else(|| windows::core::Error::from(MF_E_TOPO_CODEC_NOT_FOUND))?, false),
             };
             if hardware {
-                // Hardware encoders are asynchronous MFTs and must be unlocked before use.
-                let attrs = transform.GetAttributes()?;
-                attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
-                let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
+                unlock(&transform)?;
             }
+            Self::configure(transform, None, mf, hardware, width, height, fps, bitrate, Tuning::Stream)
+        }
+    }
 
+    /// For NV12 textures of `device` (REC): only a hardware encoder that accepts this device, so frames stay on the GPU.
+    pub fn new_gpu(device: &ID3D11Device, width: u32, height: u32, fps: u32, bitrate: u32, tuning: Tuning) -> windows::core::Result<Encoder> {
+        unsafe {
+            let mf = MfSession::start()?;
+            let mut token = 0u32;
+            let mut manager = None;
+            MFCreateDXGIDeviceManager(&mut token, &mut manager)?;
+            let manager = manager.ok_or_else(|| windows::core::Error::from(MF_E_TOPO_CODEC_NOT_FOUND))?;
+            manager.ResetDevice(device, token)?;
+            let mut last = windows::core::Error::from(MF_E_TOPO_CODEC_NOT_FOUND);
+            // On a PC with two GPUs every one registers an encoder; only the one on the device's adapter takes it.
+            for activate in candidates(true)? {
+                let Ok(transform) = activate.ActivateObject::<IMFTransform>() else { continue };
+                let attached = unlock(&transform).and_then(|_| {
+                    let aware = transform.GetAttributes()?.GetUINT32(&MF_SA_D3D11_AWARE).unwrap_or(0) != 0;
+                    if !aware {
+                        return Err(windows::core::Error::from(MF_E_TOPO_CODEC_NOT_FOUND));
+                    }
+                    transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, manager.as_raw() as usize)
+                });
+                match attached {
+                    Ok(()) => return Self::configure(transform, Some(manager), mf, true, width, height, fps, bitrate, tuning),
+                    Err(e) => {
+                        last = e;
+                        let _ = activate.ShutdownObject();
+                    }
+                }
+            }
+            Err(last)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn configure(
+        transform: IMFTransform,
+        manager: Option<IMFDXGIDeviceManager>,
+        mf: MfSession,
+        hardware: bool,
+        width: u32,
+        height: u32,
+        fps: u32,
+        bitrate: u32,
+        tuning: Tuning,
+    ) -> windows::core::Result<Encoder> {
+        {
+            // Some encoders (NVIDIA's) only take the GOP length before the media types are set.
+            if tuning == Tuning::Record {
+                if let Ok(c) = transform.cast::<ICodecAPI>() {
+                    set_codec(&c, &CODECAPI_AVEncMPVGOPSize, fps * 10);
+                }
+            }
             let out = MFCreateMediaType()?;
             out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
             out.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
@@ -110,6 +184,10 @@ impl Encoder {
             out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
             out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
             out.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
+            // Said in the stream (VUI), so players that would guess BT.601 (ffmpeg-based ones) show the right colours.
+            let _ = out.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
+            let _ = out.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
+            let _ = out.SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32);
             transform.SetOutputType(0, &out, 0)?;
 
             let inp = MFCreateMediaType()?;
@@ -120,18 +198,32 @@ impl Encoder {
             inp.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pack(1, 1))?;
             inp.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
             inp.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
+            let _ = inp.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
             transform.SetInputType(0, &inp, 0)?;
 
-            // Streaming settings: constant bitrate (predictable for the relay), lowest latency,
-            // no B-frames, and rare periodic keyframes (viewers request one when they need it).
+            // Both: lowest latency (one frame in, one out, so the GPU texture pool stays small) and no B-frames (output
+            // order = input order, which the recorder's muxer relies on).
             let codec = transform.cast::<ICodecAPI>().ok();
             if let Some(c) = &codec {
-                set_codec(c, &CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR.0 as u32);
-                set_codec(c, &CODECAPI_AVEncCommonMeanBitRate, bitrate);
                 set_codec(c, &CODECAPI_AVLowLatencyMode, 1);
                 set_codec(c, &CODECAPI_AVEncMPVDefaultBPictureCount, 0);
-                set_codec(c, &CODECAPI_AVEncMPVGOPSize, fps * 10);
-                set_codec(c, &CODECAPI_AVEncCommonQualityVsSpeed, 70);
+                set_codec(c, &CODECAPI_AVEncCommonMeanBitRate, bitrate);
+                match tuning {
+                    Tuning::Stream => {
+                        set_codec(c, &CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR.0 as u32);
+                        set_codec(c, &CODECAPI_AVEncMPVGOPSize, fps * 10);
+                        set_codec(c, &CODECAPI_AVEncCommonQualityVsSpeed, 70);
+                    }
+                    Tuning::Record => {
+                        set_codec(c, &CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_PeakConstrainedVBR.0 as u32);
+                        set_codec(c, &CODECAPI_AVEncCommonMaxBitRate, bitrate.saturating_mul(3) / 2);
+                        // Long: the recorder forces a keyframe every 2 s of real time itself (frame rates vary), and
+                        // the encoder's own count would add more on top.
+                        set_codec(c, &CODECAPI_AVEncMPVGOPSize, fps * 10);
+                        // Faster presets: the GPU is shared with the game being recorded.
+                        set_codec(c, &CODECAPI_AVEncCommonQualityVsSpeed, 50);
+                    }
+                }
             }
 
             let info = transform.GetOutputStreamInfo(0)?;
@@ -149,6 +241,7 @@ impl Encoder {
                 hardware,
                 width,
                 height,
+                _manager: manager,
                 _mf: mf,
             })
         }
@@ -160,8 +253,8 @@ impl Encoder {
         }
     }
 
-    /// Encodes one NV12 frame; `out` receives every finished frame as (annex-b data, is_keyframe).
-    pub fn encode(&mut self, nv12: &[u8], time_100ns: i64, duration_100ns: i64, out: &mut dyn FnMut(Vec<u8>, bool)) -> windows::core::Result<()> {
+    /// Encodes one NV12 frame; `out` receives every finished frame.
+    pub fn encode(&mut self, nv12: &[u8], time_100ns: i64, duration_100ns: i64, out: &mut dyn FnMut(Packet)) -> windows::core::Result<()> {
         unsafe {
             let buffer = MFCreateMemoryBuffer(nv12.len() as u32)?;
             let mut ptr = std::ptr::null_mut();
@@ -173,7 +266,13 @@ impl Encoder {
             sample.AddBuffer(&buffer)?;
             sample.SetSampleTime(time_100ns)?;
             sample.SetSampleDuration(duration_100ns)?;
+            self.encode_sample(&sample, out)
+        }
+    }
 
+    /// Encodes a sample the caller built (REC: a tracked sample around a DXGI surface, with its time set).
+    pub fn encode_sample(&mut self, sample: &IMFSample, out: &mut dyn FnMut(Packet)) -> windows::core::Result<()> {
+        unsafe {
             match self.events.clone() {
                 // Asynchronous (hardware): only feed input when asked, collect output when announced.
                 Some(events) => {
@@ -182,16 +281,16 @@ impl Encoder {
                         self.handle_event(&ev, out)?;
                     }
                     self.need_input -= 1;
-                    self.transform.ProcessInput(0, &sample, 0)?;
+                    self.transform.ProcessInput(0, sample, 0)?;
                     // Pick up anything already finished without waiting.
                     while let Ok(ev) = events.GetEvent(MF_EVENT_FLAG_NO_WAIT) {
                         self.handle_event(&ev, out)?;
                     }
                 }
                 None => {
-                    self.transform.ProcessInput(0, &sample, 0)?;
-                    while let Some((data, key)) = self.process_output()? {
-                        out(data, key);
+                    self.transform.ProcessInput(0, sample, 0)?;
+                    while let Some(packet) = self.process_output()? {
+                        out(packet);
                     }
                 }
             }
@@ -199,19 +298,46 @@ impl Encoder {
         Ok(())
     }
 
-    unsafe fn handle_event(&mut self, ev: &IMFMediaEvent, out: &mut dyn FnMut(Vec<u8>, bool)) -> windows::core::Result<()> {
+    /// Hands out the frames still inside the encoder (the end of a recording). Gives up after half a second: a
+    /// driver that never says it's done mustn't hang the recorder.
+    pub fn drain(&mut self, out: &mut dyn FnMut(Packet)) -> windows::core::Result<()> {
+        unsafe {
+            self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0)?;
+            let Some(events) = self.events.clone() else {
+                while let Some(packet) = self.process_output()? {
+                    out(packet);
+                }
+                return Ok(());
+            };
+            let until = std::time::Instant::now() + std::time::Duration::from_millis(500);
+            while std::time::Instant::now() < until {
+                match events.GetEvent(MF_EVENT_FLAG_NO_WAIT) {
+                    Ok(ev) => {
+                        if ev.GetType()? == METransformDrainComplete.0 as u32 {
+                            break;
+                        }
+                        self.handle_event(&ev, out)?;
+                    }
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                }
+            }
+            Ok(())
+        }
+    }
+
+    unsafe fn handle_event(&mut self, ev: &IMFMediaEvent, out: &mut dyn FnMut(Packet)) -> windows::core::Result<()> {
         let kind = ev.GetType()?;
         if kind == METransformNeedInput.0 as u32 {
             self.need_input += 1;
         } else if kind == METransformHaveOutput.0 as u32 {
-            if let Some((data, key)) = self.process_output()? {
-                out(data, key);
+            if let Some(packet) = self.process_output()? {
+                out(packet);
             }
         }
         Ok(())
     }
 
-    unsafe fn process_output(&mut self) -> windows::core::Result<Option<(Vec<u8>, bool)>> {
+    unsafe fn process_output(&mut self) -> windows::core::Result<Option<Packet>> {
         let sample = if self.provides_samples {
             None
         } else {
@@ -237,6 +363,7 @@ impl Encoder {
         }
         let Some(sample) = sample else { return Ok(None) };
         let key = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) == 1;
+        let time = sample.GetSampleTime().unwrap_or(0);
         let media = sample.ConvertToContiguousBuffer()?;
         let mut ptr = std::ptr::null_mut();
         let mut len = 0u32;
@@ -246,7 +373,7 @@ impl Encoder {
         if key {
             self.ensure_parameter_sets(&mut data);
         }
-        Ok(Some((data, key)))
+        Ok(Some(Packet { data, key, time }))
     }
 
     /// Some encoders only put SPS/PPS in the media type; prepend them so every keyframe is self-contained.
@@ -268,6 +395,14 @@ impl Encoder {
             frame.splice(0..0, self.sequence_header.iter().copied());
         }
     }
+}
+
+/// Hardware encoders are asynchronous MFTs and must be unlocked before use.
+unsafe fn unlock(transform: &IMFTransform) -> windows::core::Result<()> {
+    let attrs = transform.GetAttributes()?;
+    attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
+    let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
+    Ok(())
 }
 
 /// Looks for an SPS NAL unit (type 7) among the first few NAL units.

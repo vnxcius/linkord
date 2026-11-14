@@ -1,6 +1,6 @@
 //! The soundboard, like Discord's: short sounds anyone in a voice call can play for everyone in it.
 //! Default sounds are the audio files in LINKORD_SOUNDS_DIR (served at /soundboard/<file>; a leading emoji in
-//! the file name, "🦆 quack.mp3", becomes the sound's emoji). Servers add their own (Manage Emojis).
+//! the file name, "🔔 sleigh bells.mp3", becomes the sound's emoji). Servers add their own (Manage Emojis).
 //! Playing goes over the voice socket (voice.rs, op `sound`): everyone in the channel gets the sound's URL and
 //! plays it themselves, at the sound's volume times their own volume for whoever played it.
 

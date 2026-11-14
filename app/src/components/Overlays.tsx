@@ -19,7 +19,7 @@ export function ContextMenu() {
   const [pos, setPos] = createSignal({ x: 0, y: 0 });
   const close = () => setUi('menu', null);
   const onDoc = (e: MouseEvent) => !el.contains(e.target as Node) && close();
-  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (e.preventDefault(), close());
   onOutsideMouseDown(onDoc);
   onMount(() => {
     document.addEventListener('keydown', onKey);

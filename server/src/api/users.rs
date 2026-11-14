@@ -474,6 +474,10 @@ struct ProfileUpdate {
     show_stats: Option<bool>,
     show_top_songs: Option<bool>,
     show_league: Option<bool>,
+    /// REC: keep my voice out of other people's recordings.
+    rec_opt_out: Option<bool>,
+    /// REC: the recent clips widget on my profile.
+    show_clips: Option<bool>,
 }
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<ProfileUpdate>) -> ApiResult<Json<serde_json::Value>> {
@@ -523,7 +527,7 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     sqlx::query(
         "UPDATE users SET display_name = $2, bio = $3, status = $4, accent_color = $5, pronouns = $6, birthday = $7,
              links = COALESCE($8, links), show_stats = COALESCE($9, show_stats), show_top_songs = COALESCE($10, show_top_songs),
-             show_league = COALESCE($11, show_league)
+             show_league = COALESCE($11, show_league), rec_opt_out = COALESCE($12, rec_opt_out), show_clips = COALESCE($13, show_clips)
          WHERE id = $1",
     )
     .bind(me)
@@ -537,6 +541,8 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     .bind(body.show_stats)
     .bind(body.show_top_songs)
     .bind(body.show_league)
+    .bind(body.rec_opt_out)
+    .bind(body.show_clips)
     .execute(&st.db)
     .await?;
     let after = User::get(&st.db, me).await?;
@@ -551,7 +557,7 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
 
 const MAX_FAVORITE_GAMES: usize = 20;
 
-/// A user's favorite games, in their order, with art from the game catalog and the time Linkord saw them play it.
+/// A user's favorite games, in their order, with art from the game catalog and the time Pottira saw them play it.
 #[derive(Deserialize)]
 struct GameQuery {
     /// The game's name as their activity shows it ("Teamfight Tactics", a game added by hand...).

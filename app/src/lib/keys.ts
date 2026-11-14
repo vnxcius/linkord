@@ -21,7 +21,12 @@ export type KeyAction =
   | 'stream-game'
   | 'toggle-camera'
   | 'toggle-overlay'
-  | 'disconnect';
+  | 'disconnect'
+  | 'rec-clip'
+  | 'rec-screenshot'
+  | 'rec-bookmark'
+  | 'rec-toggle'
+  | 'rec-overlay';
 
 export interface Keybind {
   id: string;
@@ -29,7 +34,8 @@ export interface Keybind {
   combo: Combo | null;
 }
 
-export const ACTIONS: Record<KeyAction, { label: string; hint: string; hold: boolean }> = {
+/** `rec`: a REC hotkey, set on the REC page instead of Settings -> Keybinds. */
+export const ACTIONS: Record<KeyAction, { label: string; hint: string; hold: boolean; rec?: true }> = {
   ptt: { label: msg('Push to Talk'), hint: msg('Hold to talk. Switches your input mode to Push to Talk.'), hold: true },
   ptm: { label: msg('Push to Mute'), hint: msg('Hold to mute yourself for a moment.'), hold: true },
   'toggle-mute': { label: msg('Toggle Mute'), hint: msg('Mute or unmute your microphone.'), hold: false },
@@ -51,7 +57,40 @@ export const ACTIONS: Record<KeyAction, { label: string; hint: string; hold: boo
     hold: false,
   },
   disconnect: { label: msg('Disconnect from Voice'), hint: msg('Leave the voice channel you are in.'), hold: false },
+  'rec-clip': {
+    label: msg('Save a Clip'),
+    hint: msg('Saves the last moments of your game as a clip.'),
+    hold: false,
+    rec: true,
+  },
+  'rec-screenshot': {
+    label: msg('Take a Screenshot'),
+    hint: msg('Saves a picture of your game.'),
+    hold: false,
+    rec: true,
+  },
+  'rec-bookmark': {
+    label: msg('Bookmark'),
+    hint: msg('Marks this moment in the recording, to find it later.'),
+    hold: false,
+    rec: true,
+  },
+  'rec-toggle': {
+    label: msg('Start / Stop Recording'),
+    hint: msg('Stops or starts recording your game. With no game open, records the display you pick.'),
+    hold: false,
+    rec: true,
+  },
+  'rec-overlay': {
+    label: msg('Open REC Overlay'),
+    hint: msg('Opens REC over your game. Only works while a game is open.'),
+    hold: false,
+    rec: true,
+  },
 };
+
+/** The REC actions, in the order the REC page lists them. */
+export const REC_ACTIONS: KeyAction[] = ['rec-overlay', 'rec-clip', 'rec-screenshot', 'rec-bookmark', 'rec-toggle'];
 
 export const DEFAULT_KEYBINDS: Keybind[] = [
   { id: 'default-mute', action: 'toggle-mute', combo: { vk: 0x4d, mods: MOD.ctrl | MOD.shift, label: 'M' } },

@@ -46,8 +46,8 @@ export function Performance() {
           </ul>
         </Show>
         <div class="chart-grid">
-          <TimeChart title="CPU" note="share of the whole machine" series={[{ key: 'cpu', label: 'Machine', slot: 1 }, { key: 'app_cpu', label: 'Linkord', slot: 2 }]} range={range} format={(n) => `${Math.round(n)}%`} max={100} />
-          <TimeChart title="Memory" series={[{ key: 'mem_used', label: 'Machine', slot: 1 }, { key: 'app_rss', label: 'Linkord', slot: 2 }]} range={range} format={(n) => bytes(n, 0)} byteAxis />
+          <TimeChart title="CPU" note="share of the whole machine" series={[{ key: 'cpu', label: 'Machine', slot: 1 }, { key: 'app_cpu', label: 'Pottira', slot: 2 }]} range={range} format={(n) => `${Math.round(n)}%`} max={100} />
+          <TimeChart title="Memory" series={[{ key: 'mem_used', label: 'Machine', slot: 1 }, { key: 'app_rss', label: 'Pottira', slot: 2 }]} range={range} format={(n) => bytes(n, 0)} byteAxis />
           <TimeChart title="Disk activity" series={[{ key: 'disk_write', label: 'Written', slot: 1 }, { key: 'disk_read', label: 'Read', slot: 2 }]} range={range} format={(n) => rate(n)} byteAxis />
           <Show when={s()?.cpu?.load}>
             <TimeChart title="Load" note="1 minute average" series={[{ key: 'load1', label: 'Load' }]} range={range} format={(n) => num(n)} />

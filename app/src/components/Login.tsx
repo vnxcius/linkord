@@ -1,14 +1,5 @@
 import { createResource, createSignal, For, Show } from 'solid-js';
-import {
-  api,
-  checkServer,
-  defaultServer,
-  INVITE_KEY,
-  LOGIN_PENDING_KEY,
-  serverUrl,
-  setServerUrl,
-  setToken,
-} from '../lib/api';
+import { api, checkServer, defaultServer, LOGIN_PENDING_KEY, serverUrl, setServerUrl, setToken } from '../lib/api';
 import { t } from '../lib/i18n';
 import { isTauri, openExternal } from '../lib/platform';
 import * as I from './Icons';
@@ -61,11 +52,9 @@ export function Login(p: { onLogin: () => void }) {
 
   async function discordLogin() {
     setError(null);
-    const invite = sessionStorage.getItem(INVITE_KEY);
-    const inviteParam = invite ? `invite=${encodeURIComponent(invite)}` : '';
     if (!isTauri) {
       sessionStorage.setItem(LOGIN_PENDING_KEY, '1');
-      location.href = `${serverUrl()}/api/auth/discord/start${inviteParam ? `?${inviteParam}` : ''}`;
+      location.href = `${serverUrl()}/api/auth/discord/start`;
       return;
     }
     // Desktop: sign in through the system browser, which comes back to a listener on this computer. Only this app
@@ -88,7 +77,7 @@ export function Login(p: { onLogin: () => void }) {
     try {
       const port = await invoke<number>('login_listen', { state });
       setWaiting(true);
-      const params = `port=${port}&state=${state}&challenge=${challenge}${inviteParam ? `&${inviteParam}` : ''}`;
+      const params = `port=${port}&state=${state}&challenge=${challenge}`;
       await openExternal(`${serverUrl()}/api/auth/discord/start?${params}`);
     } catch (err) {
       unlisten();
@@ -113,7 +102,7 @@ export function Login(p: { onLogin: () => void }) {
       <section class="login-panel">
         <header class="login-brand">
           <Emblem size={30} />
-          <span>Linkord</span>
+          <span>Pottira</span>
         </header>
 
         <div class="login-card">
@@ -167,8 +156,8 @@ export function Login(p: { onLogin: () => void }) {
                 <p class="login-note">
                   <I.Lock size={14} />
                   {isTauri
-                    ? t('Opens in your browser. Linkord never sees your Discord password.')
-                    : t('Linkord never sees your Discord password.')}
+                    ? t('Opens in your browser. Pottira never sees your Discord password.')
+                    : t('Pottira never sees your Discord password.')}
                 </p>
               </Show>
             </Show>

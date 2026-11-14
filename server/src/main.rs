@@ -1,6 +1,7 @@
 mod activities;
 mod api;
 mod badges;
+mod clips;
 mod auth;
 mod config;
 mod direct;
@@ -28,6 +29,7 @@ mod stats;
 mod steve;
 mod uploads;
 mod voice;
+mod videos;
 mod watch;
 
 use std::sync::Arc;
@@ -134,6 +136,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(music::keep_ytdlp_updated(st.clone()));
     tokio::spawn(auth::sweep(st.clone()));
     tokio::spawn(uploads::backfill_image_sizes(st.clone()));
+    tokio::spawn(videos::backfill(st.clone()));
     tokio::spawn(logs::prune(st.clone()));
     tokio::spawn(gateway::presence_sweeper(st.clone()));
     tokio::spawn(voice::afk_sweeper(st.clone()));
@@ -149,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
     }
     tokio::fs::create_dir_all(cfg.data_dir.join("updates")).await?;
     tokio::spawn(internal::serve(st.clone()));
+    tokio::spawn(clips::sweep_uploads(st.clone()));
 
     let api = Router::new()
         .merge(auth::routes())
@@ -166,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(previews::routes())
         .merge(push::routes())
         .merge(badges::routes())
+        .merge(clips::routes())
         .route("/gateway", get(gateway::ws_handler))
         .route("/health", get(|| async { "ok" }))
         // The real limit per route is in security::api_limit.
@@ -175,6 +180,8 @@ async fn main() -> anyhow::Result<()> {
     let web = ServeDir::new(&cfg.web_dir).fallback(ServeFile::new(cfg.web_dir.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
+        // REC's shared clips: a plain page anyone with the link can open (clips.rs).
+        .merge(clips::page_routes())
         // Uploads live under random paths and nameplates rarely change: let browsers keep them, so long lists
         // (member list, nameplate picker) don't fetch every file again.
         .nest_service("/uploads", from_fn(security::upload_headers).layer(cached(ServeDir::new(cfg.uploads_dir()), "public, max-age=604800")))

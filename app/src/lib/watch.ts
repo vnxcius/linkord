@@ -3,7 +3,8 @@ import { createStore, produce } from 'solid-js/store';
 import { api } from './api';
 
 export interface Watch {
-  provider: 'youtube' | 'twitch' | 'kick';
+  /** clip = a REC clip shared on this server (media = its slug), played by our own <video>. */
+  provider: 'youtube' | 'twitch' | 'kick' | 'clip';
   media: string;
   url: string;
   live: boolean;

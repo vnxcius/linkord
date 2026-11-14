@@ -4,13 +4,13 @@
 //! Other platforms report "unsupported" and the app falls back to the browser's capture.
 
 #[cfg(windows)]
-mod audio;
+pub(crate) mod audio;
 #[cfg(windows)]
-mod convert;
+pub(crate) mod convert;
 #[cfg(windows)]
-mod duplication;
+pub(crate) mod duplication;
 #[cfg(windows)]
-mod encoder;
+pub(crate) mod encoder;
 
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -37,7 +37,7 @@ pub struct CaptureInfo {
 
 #[derive(Serialize)]
 pub struct CaptureCapabilities {
-    /// Per-application audio (and excluding Linkord's own audio) needs Windows 11.
+    /// Per-application audio (and excluding Pottira's own audio) needs Windows 11.
     per_app_audio: bool,
 }
 
@@ -55,10 +55,28 @@ pub fn set_webview_pid(pid: u32) {
     imp::WEBVIEW_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The process tree to leave out of "everything the PC plays" (Pottira's voice chat), ours if not known yet.
+#[cfg(windows)]
+pub fn linkord_audio_pid() -> u32 {
+    match imp::WEBVIEW_PID.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => std::process::id(),
+        pid => pid,
+    }
+}
+
 #[tauri::command]
 pub async fn list_capture_sources() -> Result<Vec<CaptureSource>, String> {
     #[cfg(windows)]
     return tauri::async_runtime::spawn_blocking(imp::list).await.map_err(|e| e.to_string())?;
+    #[cfg(not(windows))]
+    Err("native capture is only available on Windows".into())
+}
+
+/// The monitors, for picking which one a desktop recording records (REC).
+#[tauri::command]
+pub async fn list_capture_screens() -> Result<Vec<CaptureSource>, String> {
+    #[cfg(windows)]
+    return tauri::async_runtime::spawn_blocking(imp::screens).await.map_err(|e| e.to_string())?;
     #[cfg(not(windows))]
     Err("native capture is only available on Windows".into())
 }
@@ -336,7 +354,8 @@ mod imp {
         Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg.into_inner())))
     }
 
-    pub fn list() -> Result<Vec<CaptureSource>, String> {
+    /// The monitors only (REC's display picker).
+    pub fn screens() -> Result<Vec<CaptureSource>, String> {
         let mut out = Vec::new();
         for (i, m) in xcap::Monitor::all().map_err(|e| e.to_string())?.into_iter().enumerate() {
             let Ok(id) = m.id() else { continue };
@@ -350,6 +369,11 @@ mod imp {
                 thumbnail: m.capture_image().ok().and_then(thumbnail),
             });
         }
+        Ok(out)
+    }
+
+    pub fn list() -> Result<Vec<CaptureSource>, String> {
+        let mut out = screens()?;
         let me = std::process::id();
         for w in xcap::Window::all().map_err(|e| e.to_string())?.into_iter().take(40) {
             let title = w.title().unwrap_or_default();
@@ -526,10 +550,10 @@ mod imp {
             let time = frame.at.duration_since(started).as_nanos() as i64 / 100;
             let duration = 10_000_000 / params.fps as i64;
             let started = Instant::now();
-            let result = enc.encode(&frame.nv12, time, duration, &mut |data, key| {
-                let mut msg = Vec::with_capacity(data.len() + 1);
-                msg.push(key as u8);
-                msg.extend_from_slice(&data);
+            let result = enc.encode(&frame.nv12, time, duration, &mut |packet| {
+                let mut msg = Vec::with_capacity(packet.data.len() + 1);
+                msg.push(packet.key as u8);
+                msg.extend_from_slice(&packet.data);
                 let _ = on_video.send(InvokeResponseBody::Raw(msg));
             });
             let stats = &shared.stats;

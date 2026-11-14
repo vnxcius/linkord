@@ -41,7 +41,7 @@ let quiet = false;
 let quietTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
- * Tells the server whether Linkord is being used here, so phones only get notifications (server push.rs) when it
+ * Tells the server whether Pottira is being used here, so phones only get notifications (server push.rs) when it
  * isn't: `active` on input (at most every 30 s, while focused), `away` as soon as the window or tab goes to the
  * background (minimized, switched apps on a phone).
  */

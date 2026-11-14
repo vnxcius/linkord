@@ -81,7 +81,7 @@ struct SpotifyUser {
 async fn callback(State(st): State<AppState>, base: PublicBase, Query(q): Query<CallbackQuery>) -> Response {
     let user = match q.state.as_deref().and_then(|s| st.spotify_states.remove(s)) {
         Some((_, (user, at))) if at.elapsed() < STATE_TTL => user,
-        _ => return result_page("This link expired. Connect Spotify again from Linkord's settings.").into_response(),
+        _ => return result_page("This link expired. Connect Spotify again from Pottira's settings.").into_response(),
     };
     let Some(code) = q.code.filter(|_| q.error.is_none()) else {
         return result_page("Spotify wasn't connected.").into_response();
@@ -89,7 +89,7 @@ async fn callback(State(st): State<AppState>, base: PublicBase, Query(q): Query<
     match finish_connect(&st, user, &code, &base).await {
         Ok(name) => {
             st.hub.send(&[user], "USER_CONNECTIONS_UPDATE", &json!({}));
-            result_page(&format!("Spotify ({name}) is connected. You can close this tab and return to Linkord.")).into_response()
+            result_page(&format!("Spotify ({name}) is connected. You can close this tab and return to Pottira.")).into_response()
         }
         Err(e) => {
             tracing::warn!("spotify connect failed: {e:#}");

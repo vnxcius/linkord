@@ -628,7 +628,7 @@ async fn steam_details(st: &AppState, app: &str, lang: &str) -> Option<Value> {
 // ---------- Wikipedia / Wikidata (games that aren't on Steam: Nintendo, Riot, consoles...) ----------
 
 /// Wikimedia asks API clients to say who they are.
-const WIKI_AGENT: &str = "Linkord/1.0 (self-hosted chat app; game cards)";
+const WIKI_AGENT: &str = "Pottira/1.0 (self-hosted chat app; game cards)";
 
 async fn wiki_get(st: &AppState, url: &str) -> Option<Value> {
     let res = st.http.get(url).header(reqwest::header::USER_AGENT, WIKI_AGENT).timeout(Duration::from_secs(10)).send().await.ok()?;

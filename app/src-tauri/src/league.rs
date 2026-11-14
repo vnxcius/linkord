@@ -28,11 +28,37 @@ pub struct LeagueStatus {
     /// The Riot ID signed in to the client (Settings -> Profile offers to link it).
     game_name: Option<String>,
     tag_line: Option<String>,
-    /// The signed-in summoner, for lobby invites through Linkord (the client invites by summoner id).
+    /// The signed-in summoner, for lobby invites through Pottira (the client invites by summoner id).
     summoner_id: Option<i64>,
     puuid: Option<String>,
     /// In a lobby and allowed to invite (the leader, or invites opened to everyone).
     can_invite: Option<bool>,
+    /// The match being played (Riot's match id is <PLATFORM>_<game_id>): REC's pentakill claim.
+    game_id: Option<i64>,
+}
+
+/// What happened in the match so far, for REC (Live Client Data, only while a match runs).
+#[derive(Serialize, Default, Debug)]
+pub struct LeagueEvents {
+    /// The player's name as events name them (Riot ID "Name#TAG" on current versions).
+    active: String,
+    /// Seconds into the match now.
+    game_time: f64,
+    /// Riot's events after `after`, as sent: EventID, EventName, EventTime, KillerName, VictimName, KillStreak,
+    /// Acer, Stolen...
+    events: Vec<serde_json::Value>,
+}
+
+/// The match's events with an id above `after`; None when no match is running.
+#[tauri::command]
+pub async fn league_events(after: i64) -> Result<Option<LeagueEvents>, String> {
+    #[cfg(windows)]
+    return Ok(imp::events(after).await);
+    #[cfg(not(windows))]
+    {
+        let _ = after;
+        Err("League of Legends events are only available on Windows".into())
+    }
 }
 
 /// What the League client installed in `dir` is doing; None when it isn't running (or is still starting).
@@ -47,7 +73,7 @@ pub async fn league_status(dir: Option<String>) -> Result<Option<LeagueStatus>, 
     }
 }
 
-/// Has the League client invite this summoner to your lobby (someone asked through Linkord).
+/// Has the League client invite this summoner to your lobby (someone asked through Pottira).
 #[tauri::command]
 pub async fn league_invite(
     dir: Option<String>,
@@ -87,7 +113,7 @@ mod imp {
 
     use serde_json::Value;
 
-    use super::LeagueStatus;
+    use super::{LeagueEvents, LeagueStatus};
 
     const DEFAULT_DIR: &str = r"C:\Riot Games\League of Legends";
 
@@ -142,6 +168,36 @@ mod imp {
             .filter(|v| v["puuid"].is_string())?;
         *ME.lock().unwrap() = Some((lock.port, lock.password.clone(), v.clone()));
         Some(v)
+    }
+
+    async fn live(path: &str) -> Option<Value> {
+        let res = client()
+            .get(format!("https://127.0.0.1:2999/liveclientdata/{path}"))
+            .send()
+            .await
+            .ok()
+            .filter(|r| r.status().is_success())?;
+        res.json().await.ok()
+    }
+
+    pub async fn events(after: i64) -> Option<LeagueEvents> {
+        let active = live("activeplayername").await?;
+        let stats = live("gamestats").await?;
+        let data = live(&format!("eventdata?eventID={}", after + 1)).await?;
+        let events = data["Events"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter(|e| e["EventID"].as_i64().is_some_and(|id| id > after))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(LeagueEvents {
+            active: active.as_str().unwrap_or_default().to_string(),
+            game_time: stats["gameTime"].as_f64().unwrap_or(0.0),
+            events,
+        })
     }
 
     fn text(v: &Value) -> Option<String> {
@@ -298,6 +354,10 @@ mod imp {
                 let puuid = me
                     .as_ref()
                     .and_then(|m| m["puuid"].as_str().map(str::to_string));
+                out.game_id = session
+                    .as_ref()
+                    .and_then(|s| s["gameData"]["gameId"].as_i64())
+                    .filter(|id| *id > 0);
                 if let (Some(data), Some(puuid)) = (session.as_ref().map(|s| &s["gameData"]), puuid)
                 {
                     out.champion_id = ["playerChampionSelections", "teamOne", "teamTwo"]

@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgPool};
 use crate::error::{ApiError, ApiResult};
 use crate::id::Id;
 
-pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, pronouns, birthday, status, bot, needs_username";
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, pronouns, birthday, status, bot, needs_username, rec_opt_out";
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct User {
@@ -24,6 +24,8 @@ pub struct User {
     pub birthday: Option<String>,
     /// A bot account (music.rs), shown with a BOT tag.
     pub bot: bool,
+    /// Doesn't want their voice in other people's REC recordings (everyone's client leaves it out).
+    pub rec_opt_out: bool,
     /// The user's chosen status. Only sent to the user themselves; others see presence.
     #[serde(skip)]
     pub status: String,
@@ -247,6 +249,12 @@ pub struct Attachment {
     pub width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    /// Videos: the picture's codec once checked ("" = not a video the server reads), videos.rs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codec: Option<String>,
+    /// Videos browsers can't show (HEVC from phones, MKV...): an H.264 copy every app plays. Downloads keep `url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playable: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]

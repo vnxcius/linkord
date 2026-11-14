@@ -1,6 +1,6 @@
 // Runs keybind actions. Two sources feed it:
 //  - the desktop app's native hook (Windows): works in games, minimized and from the tray;
-//  - key and mouse events in the Linkord window (everywhere, and a backup while Linkord is focused).
+//  - key and mouse events in the Pottira window (everywhere, and a backup while Pottira is focused).
 // A press seen by both counts once; a hold lasts until both sources saw the release.
 
 import { t } from './i18n';
@@ -60,6 +60,16 @@ function press(action: KeyAction) {
       return setPrefs({ overlay: !prefs.overlay });
     case 'disconnect':
       return void leaveVoice();
+    case 'rec-clip':
+      return void import('./rec').then((r) => r.recClip());
+    case 'rec-screenshot':
+      return void import('./rec').then((r) => r.recScreenshot());
+    case 'rec-bookmark':
+      return void import('./rec').then((r) => r.recBookmark());
+    case 'rec-toggle':
+      return void import('./rec').then((r) => r.recToggle(false));
+    case 'rec-overlay':
+      return void import('./rec').then((r) => r.toggleRecOverlay());
     case 'stream-game':
       return void import('./games').then((g) => g.toggleGameStream());
     case 'toggle-stream':

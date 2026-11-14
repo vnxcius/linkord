@@ -159,7 +159,9 @@ export function SoundboardButton(p: { class: string; label?: boolean; size?: num
         onClick={toggle}
       >
         <I.Music size={p.size ?? 20} />
-        <Show when={p.label}> {t('Sounds')}</Show>
+        <Show when={p.label}>
+          <span>{t('Sounds')}</span>
+        </Show>
       </button>
       {/* On <body>: inside the call controls it would share their stacking context, under the watch-together player. */}
       <Show when={open()}>

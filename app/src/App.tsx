@@ -95,7 +95,7 @@ function LaunchUpdate(p: { version: string; progress: number }) {
       <div class="splash-emblem">
         <Emblem size={72} />
       </div>
-      <p class="muted">{t('Updating to Linkord {version}…', { version: p.version })}</p>
+      <p class="muted">{t('Updating to Pottira {version}…', { version: p.version })}</p>
       <div class="stat-bar launch-update-bar">
         <i style={{ width: `${Math.round(p.progress * 100)}%` }} />
       </div>
@@ -225,7 +225,7 @@ function UpdateBanner() {
   return (
     <Show when={update()}>
       <div class="update-banner">
-        <span>{t('Linkord {version} is available.', { version: update()!.version })}</span>
+        <span>{t('Pottira {version} is available.', { version: update()!.version })}</span>
         <Button size="sm" disabled={updating()} onClick={() => void update()!.install()}>
           {updating() ? t('Updating…') : t('Update & restart')}
         </Button>
@@ -246,7 +246,7 @@ function ReconnectBanner() {
       {(c) => (
         <div class="update-banner reconnect-banner">
           <span>
-            {t('Linkord closed while you were in')} <strong>{c().name}</strong>
+            {t('Pottira closed while you were in')} <strong>{c().name}</strong>
             {c().guild_id && state.guilds[c().guild_id!] ? ` (${state.guilds[c().guild_id!].name})` : ''}.
           </span>
           <Button

@@ -1,5 +1,5 @@
 //! Global keybinds (push-to-talk, toggle mute, go live...) on Windows via low-level keyboard and
-//! mouse hooks. They work while a game has focus, while Linkord is focused, minimized or in the tray.
+//! mouse hooks. They work while a game has focus, while Pottira is focused, minimized or in the tray.
 //! The hooks only observe input (keys always reach the focused app).
 //!
 //! Windows silently removes low-level hooks that answer slowly, so the hook callbacks only update

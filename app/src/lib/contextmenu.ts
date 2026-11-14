@@ -1,5 +1,5 @@
 // The WebView's own right-click menu (Back, Reload, Inspect...) never shows: everything the app doesn't handle
-// itself gets Linkord's menu for text fields and selected text, or nothing.
+// itself gets Pottira's menu for text fields and selected text, or nothing.
 import { t } from './i18n';
 import { setUi, toast, type MenuEntry } from './ui';
 import { prefs, setPrefs } from './prefs';

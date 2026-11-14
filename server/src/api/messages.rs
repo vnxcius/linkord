@@ -237,6 +237,8 @@ async fn create_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path
                     waveform: None,
                     width: size.map(|s| s.0),
                     height: size.map(|s| s.1),
+                    codec: None,
+                    playable: None,
                 });
             }
         }
@@ -405,6 +407,7 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     msg.nonce = d.nonce;
     st.hub.send(&audience, "MESSAGE_CREATE", &msg);
     crate::push::on_message(st, &ch, &msg, &audience);
+    crate::videos::spawn(st.clone(), ch.clone(), mid, msg.attachments.clone());
     if !d.content.is_empty() && d.embeds.is_none() {
         embeds::spawn(st.clone(), ch, mid, d.content);
     }

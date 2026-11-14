@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "rec-overlay",
+  "description": "The REC overlay over games: REC's commands and events with the main window, nothing else",
+  "windows": [
+    "rec-overlay"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

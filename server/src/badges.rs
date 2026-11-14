@@ -1,11 +1,11 @@
 //! Profile badges (Settings -> Badges, owner 2026-11-12). Stored in `user_badges` (migration 0026): once earned a
-//! badge stays, except Linkord Admin, which follows LINKORD_ADMINS.
+//! badge stays, except Pottira Admin, which follows LINKORD_ADMINS.
 //!
 //! - Milestones have 5 tiers (0 Bronze .. 4 Diamond) and keep the highest one reached: account age, games, time
 //!   played, streaming, calls, watch together, soundboard, snowballs. Thresholds: [`LADDERS`] (the client's
 //!   lib/badges.ts has the same numbers to label them).
 //! - Single badges: admin, early (accounts from before 1.0, given by the migration), owner (owns a server),
-//!   christmas_<year> (used Linkord during that Christmas season), and the ones an admin gives from the monitor
+//!   christmas_<year> (used Pottira during that Christmas season), and the ones an admin gives from the monitor
 //!   ([`MANUAL`], through internal.rs).
 //!
 //! [`sweeper`] checks everyone connected once a minute; a new badge or tier reaches its owner as BADGE_EARNED (for the
@@ -58,7 +58,30 @@ const LADDERS: &[Ladder] = &[
     Ladder { id: "watch", source: Source::Stat("watch_together_seconds"), thresholds: [HOUR, 10 * HOUR, 25 * HOUR, 50 * HOUR, 100 * HOUR] },
     Ladder { id: "sounds", source: Source::Stat("sounds_played"), thresholds: [10, 100, 500, 1000, 5000] },
     Ladder { id: "snowball", source: Source::Stat("snowballs_thrown"), thresholds: [1, 10, 50, 100, 500] },
+    // REC (2.0): clips shared, others' views of them (clips.rs), hours recorded (POST /users/@me/rec/recorded).
+    Ladder { id: "clips", source: Source::Stat("clips_shared"), thresholds: [1, 10, 50, 150, 500] },
+    Ladder { id: "views", source: Source::Stat("clip_views"), thresholds: [25, 250, 1000, 5000, 25000] },
+    Ladder { id: "recorded", source: Source::Stat("rec_seconds"), thresholds: [10 * HOUR, 50 * HOUR, 100 * HOUR, 500 * HOUR, 1000 * HOUR] },
 ];
+
+/// Single badges an event gives (never taken away): `premiere` (a clip of yours watched together by 3+ people, watch.rs),
+/// `pentakill` (a League pentakill REC caught, checked against Riot's match, league.rs).
+pub const EARNED: [&str; 2] = ["premiere", "pentakill"];
+
+/// Gives someone a single badge (if they didn't have it) and tells their apps.
+pub async fn grant(st: &AppState, user: Id, badge: &str) {
+    let new: Vec<(String, i16)> = sqlx::query_as(
+        "INSERT INTO user_badges (user_id, badge, tier) VALUES ($1, $2, 0) ON CONFLICT (user_id, badge) DO NOTHING RETURNING badge, tier",
+    )
+    .bind(user)
+    .bind(badge)
+    .fetch_all(&st.db)
+    .await
+    .unwrap_or_default();
+    if !new.is_empty() {
+        announce(st, user, &new).await;
+    }
+}
 
 /// Badges only an admin gives (monitor -> Accounts).
 pub const MANUAL: [&str; 4] = ["bug_hunter", "tester", "contributor", "helper"];
@@ -77,6 +100,9 @@ fn rank(badge: &str) -> usize {
     }
     if let Some(i) = MANUAL.iter().position(|b| *b == badge) {
         return 40 + i;
+    }
+    if let Some(i) = EARNED.iter().position(|b| *b == badge) {
+        return 35 + i;
     }
     99
 }
@@ -250,6 +276,31 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/users/@me/badges", get(mine).put(arrange))
         .route("/users/{id}/badges", get(theirs))
+        .route("/users/@me/rec/recorded", axum::routing::post(recorded))
+}
+
+#[derive(Deserialize)]
+struct Recorded {
+    seconds: i64,
+}
+
+/// REC: time recorded, reported by the desktop app when a recording ends (the `recorded` badge). Never more than the
+/// time played: a report only counts up to what game time hasn't been matched by recordings yet.
+async fn recorded(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<Recorded>) -> ApiResult<Json<Value>> {
+    st.limits.check(format!("rec-recorded:{me}"), 20.0, 20.0 / 3600.0)?;
+    let (played, done): (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE((SELECT value FROM user_stats WHERE user_id = $1 AND key = 'game_seconds'), 0),
+                COALESCE((SELECT value FROM user_stats WHERE user_id = $1 AND key = 'rec_seconds'), 0)",
+    )
+    .bind(me)
+    .fetch_one(&st.db)
+    .await?;
+    let counted = body.seconds.clamp(0, 12 * HOUR).min((played - done).max(0));
+    crate::stats::add(&st, me, "rec_seconds", counted).await;
+    if counted > 0 {
+        let _ = check(&st, me).await;
+    }
+    Ok(Json(json!({ "counted": counted })))
 }
 
 async fn mine(State(st): State<AppState>, AuthUser(me): AuthUser) -> ApiResult<Json<Value>> {

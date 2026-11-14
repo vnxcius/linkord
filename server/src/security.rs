@@ -99,6 +99,8 @@ fn body_limit(path: &str) -> usize {
     let tail = path.rsplit('/').next().unwrap_or("");
     if path.starts_with("/channels/") && tail == "messages" {
         MESSAGE_BODY
+    } else if path.starts_with("/clips/uploads/") && !path.ends_with("/finish") {
+        crate::clips::CHUNK_BODY
     } else if matches!(tail, "avatar" | "banner" | "nameplate" | "icon" | "emojis" | "soundboard" | "profile-song") {
         UPLOAD_BODY
     } else {
@@ -117,6 +119,8 @@ mod tests {
         assert_eq!(body_limit("/users/@me/profile-song"), crate::uploads::UPLOAD_BODY);
         assert_eq!(body_limit("/voice/preview"), 1024 * 1024);
         assert_eq!(body_limit("/guilds/1"), 1024 * 1024);
+        assert_eq!(body_limit("/clips/uploads/abc"), crate::clips::CHUNK_BODY);
+        assert_eq!(body_limit("/clips/uploads/abc/finish"), 1024 * 1024);
     }
 
     #[test]

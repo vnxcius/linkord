@@ -1,5 +1,5 @@
 // Changing your username (Settings → Account), and picking one right after signing up when your Discord
-// username was already taken on Linkord (the server gave you a stand-in like "name_1234": needs_username).
+// username was already taken on Pottira (the server gave you a stand-in like "name_1234": needs_username).
 import { createSignal, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { api } from '../lib/api';
@@ -123,7 +123,7 @@ export function PickUsername() {
           <h2>{t('Pick a username')}</h2>
           <p class="muted">
             {t(
-              'Someone on Linkord already has your Discord username, so your account got a stand-in. Pick the name people will find you by; you can change it later in Settings.',
+              'Someone on Pottira already has your Discord username, so your account got a stand-in. Pick the name people will find you by; you can change it later in Settings.',
             )}
           </p>
           <UsernameForm initial={state.me!.username} submit={t('Continue')} onDone={() => {}} />

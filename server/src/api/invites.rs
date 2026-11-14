@@ -101,15 +101,6 @@ async fn valid_invite(st: &AppState, code: &str) -> ApiResult<Invite> {
     .ok_or(ApiError::NotFound)
 }
 
-/// Whether a new account may be created through this invite.
-pub async fn is_valid(st: &AppState, code: &str) -> ApiResult<bool> {
-    match valid_invite(st, code).await {
-        Ok(_) => Ok(true),
-        Err(ApiError::NotFound) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
 async fn preview(State(st): State<AppState>, AuthUser(_): AuthUser, Path(code): Path<String>) -> ApiResult<Json<serde_json::Value>> {
     let inv = valid_invite(&st, &code).await?;
     let guild = sqlx::query_as::<_, GuildRow>(&format!("SELECT {GUILD_COLS} FROM guilds WHERE id = $1")).bind(inv.guild_id).fetch_one(&st.db).await?;

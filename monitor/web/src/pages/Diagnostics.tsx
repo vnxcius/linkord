@@ -95,7 +95,7 @@ export function Diagnostics() {
   const n = (status: string) => results().filter((r) => r.status === status).length;
   const copy = async () => {
     const text = [
-      `Linkord diagnostics, ${dateTime(report().ran_at)}`,
+      `Pottira diagnostics, ${dateTime(report().ran_at)}`,
       ...results().map((r) => `[${WORD[r.status]}] ${r.group} / ${r.name}: ${r.detail}${r.fix ? ` (${r.fix})` : ''}`),
     ].join('\n');
     await navigator.clipboard.writeText(text);

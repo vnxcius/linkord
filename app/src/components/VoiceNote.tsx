@@ -83,7 +83,7 @@ export function createVoiceRecording(send: (clip: VoiceClip) => void) {
       setRec(r);
       navigator.vibrate?.(25);
     } catch {
-      toast(t("Linkord can't use your microphone. Check your browser or system permissions."));
+      toast(t("Pottira can't use your microphone. Check your browser or system permissions."));
       return;
     } finally {
       setStarting(false);

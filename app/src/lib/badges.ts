@@ -52,8 +52,8 @@ interface Ladder {
 
 const age = (days: number) =>
   days >= 365
-    ? plural(Math.floor(days / 365), '{n} year on Linkord', '{n} years on Linkord', { n: num(Math.floor(days / 365)) })
-    : plural(Math.max(1, Math.floor(days / 30)), '{n} month on Linkord', '{n} months on Linkord', {
+    ? plural(Math.floor(days / 365), '{n} year on Pottira', '{n} years on Pottira', { n: num(Math.floor(days / 365)) })
+    : plural(Math.max(1, Math.floor(days / 30)), '{n} month on Pottira', '{n} months on Pottira', {
         n: num(Math.max(1, Math.floor(days / 30))),
       });
 
@@ -103,16 +103,36 @@ const LADDERS: Record<string, Ladder> = {
     thresholds: [1, 10, 50, 100, 500],
     amount: (n) => plural(n, '{n} snowball thrown', '{n} snowballs thrown', { n: num(n) }),
   },
+  clips: {
+    name: msg('Clip maker'),
+    unit: 'count',
+    thresholds: [1, 10, 50, 150, 500],
+    amount: (n) => plural(n, '{n} clip shared', '{n} clips shared', { n: num(n) }),
+  },
+  views: {
+    name: msg('Audience'),
+    unit: 'count',
+    thresholds: [25, 250, 1000, 5000, 25000],
+    amount: (n) => plural(n, '{n} view on your clips', '{n} views on your clips', { n: num(n) }),
+  },
+  recorded: {
+    name: msg('On record'),
+    unit: 'seconds',
+    thresholds: hours([10, 50, 100, 500, 1000]),
+    amount: (n) => plural(n, '{n} hour recorded', '{n} hours recorded', { n: num(n) }),
+  },
 };
 
 const SINGLES: Record<string, { name: string; about: string }> = {
-  admin: { name: msg('Linkord Admin'), about: msg('Runs this Linkord') },
-  early: { name: msg('Early Member'), about: msg('Here before Linkord 1.0') },
+  admin: { name: msg('Pottira Admin'), about: msg('Runs this Pottira') },
+  early: { name: msg('Early Member'), about: msg('Here before Pottira 1.0') },
   owner: { name: msg('Server Owner'), about: msg('Created a server') },
   bug_hunter: { name: msg('Bug Hunter'), about: msg('Found and reported a bug') },
   tester: { name: msg('Tester'), about: msg('Tried new builds before release') },
-  contributor: { name: msg('Contributor'), about: msg('Helped build Linkord') },
+  contributor: { name: msg('Contributor'), about: msg('Helped build Pottira') },
   helper: { name: msg('Helper'), about: msg('Helped others in the community') },
+  premiere: { name: msg('Premiere'), about: msg('A clip of theirs was watched together by 3 or more people') },
+  pentakill: { name: msg('Pentakill'), about: msg('Caught a League of Legends pentakill on REC') },
 };
 
 /** A milestone's number in words ("612 hours in calls"), from the raw value the server counts. */

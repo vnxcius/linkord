@@ -1,4 +1,4 @@
-//! Linkord's monitor: a dashboard for the server's health and for moderating what's on it.
+//! Pottira's monitor: a dashboard for the server's health and for moderating what's on it.
 //!
 //! A separate service so it can't get in the app's way, and still works when the app doesn't: its own process, port,
 //! login and history. It reads the app's log and upload files from disk and Postgres over a small read-only connection.

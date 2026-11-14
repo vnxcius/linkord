@@ -28,6 +28,8 @@ interface LeagueStatus {
   summoner_id?: number | null;
   puuid?: string | null;
   can_invite?: boolean | null;
+  /** The match being played (REC's pentakill claim). */
+  game_id?: number | null;
 }
 
 export type LeaguePhase = 'client' | 'lobby' | 'queue' | 'champ_select' | 'in_game' | 'post_game';
@@ -83,11 +85,13 @@ const PHASES: Record<string, LeaguePhase> = {
 const [leagueReport, setLeagueReport] = createSignal<LeagueReport | null>(null);
 /** The Riot ID signed in to the League client on this PC (Settings -> Profile offers to link it). */
 const [leagueSignedIn, setLeagueSignedIn] = createSignal<string | null>(null);
-/** The summoner signed in on this PC (lobby invites through Linkord go by it), while the client runs. */
+/** The summoner signed in on this PC (lobby invites through Pottira go by it), while the client runs. */
 const [leagueMe, setLeagueMe] = createSignal<{ summoner_id: number; puuid?: string } | null>(null);
 /** You're in a lobby and allowed to invite (the leader, or invites open to everyone). */
 const [leagueCanInvite, setLeagueCanInvite] = createSignal(false);
-export { leagueReport, leagueSignedIn, leagueMe, leagueCanInvite };
+/** The match being played on this PC (REC: League events, the pentakill claim). */
+const [leagueGameId, setLeagueGameId] = createSignal<number | null>(null);
+export { leagueReport, leagueSignedIn, leagueMe, leagueCanInvite, leagueGameId };
 
 /** The client's folder (null: only its file name was readable; the shell then tries the default folder). */
 let dir: string | null = null;
@@ -108,6 +112,7 @@ export function watchLeague(clientPath: string | null, changed: () => void) {
     phaseStart = null;
     setLeagueMe(null);
     setLeagueCanInvite(false);
+    setLeagueGameId(null);
     if (leagueReport()) {
       setLeagueReport(null);
       last = '';
@@ -134,6 +139,7 @@ async function poll() {
     if (active) {
       setLeagueMe(status?.summoner_id ? { summoner_id: status.summoner_id, puuid: status.puuid ?? undefined } : null);
       setLeagueCanInvite(report?.phase === 'lobby' && !!status?.can_invite);
+      setLeagueGameId(report?.phase === 'in_game' ? (status?.game_id ?? null) : null);
     }
     if (report?.phase === 'in_game') next = IN_GAME_POLL_MS;
     const key = JSON.stringify(report);
@@ -152,7 +158,7 @@ function toReport(s: LeagueStatus): LeagueReport {
   const phase = PHASES[s.phase] ?? 'client';
   const now = Date.now();
   if (phaseStart?.phase !== phase) phaseStart = { phase, at: now };
-  // The queue and the match know how long they've been going (even when Linkord started late); keep the first
+  // The queue and the match know how long they've been going (even when Pottira started late); keep the first
   // estimate unless it's off by more than a few seconds, so the report doesn't change on every poll.
   const known =
     phase === 'queue' && s.queue_seconds != null
@@ -283,7 +289,7 @@ export function art(url?: string | null): string | undefined {
 export const splashOf = (id: number) =>
   art(`${CDRAGON}plugins/rcp-be-lol-game-data/global/default/v1/champion-splashes/${id}/${id}000.jpg`);
 
-// ---------- lobby invites through Linkord ----------
+// ---------- lobby invites through Pottira ----------
 // Ask to join from someone's League card, or invite someone from their menu (server/src/league.rs join/invite).
 // The League client does the actual inviting: only the host's desktop app, with League open, can. Then the host's
 // app tells the server who it invited (POST /league/invited) and the joiner's app accepts that invite in its own
@@ -416,7 +422,7 @@ export async function askToJoin(userId: string, messageId?: string): Promise<boo
   }
 }
 
-/** Invites them to your lobby through Linkord (they accept in Linkord, then your League client invites them). */
+/** Invites them to your lobby through Pottira (they accept in Pottira, then your League client invites them). */
 export async function inviteToLobby(userId: string, name: string) {
   try {
     await api('POST', '/league/invite', { user_id: userId });

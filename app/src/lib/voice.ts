@@ -106,6 +106,40 @@ let droppedAt = 0;
 
 const send = (m: WorkerIn, transfer: Transferable[] = []) => worker?.postMessage(m, transfer);
 
+/** REC: whether the voice chat goes into the recording, and whose voice stays out (lib/rec.ts decides). */
+let recordingVoices: { on: boolean; exclude: string[] } = { on: false, exclude: [] };
+/** Recording mix frames waiting to go to the desktop shell: sent ~100 ms at a time instead of 50 calls a second. */
+let recPending: Float32Array[] = [];
+const REC_BATCH = 5;
+
+/** REC records the voice chat (on) without the people in `exclude` (they opted out of recordings). */
+export function setRecordingVoices(on: boolean, exclude: string[]) {
+  const same =
+    on === recordingVoices.on &&
+    exclude.length === recordingVoices.exclude.length &&
+    exclude.every((id, i) => id === recordingVoices.exclude[i]);
+  if (same) return;
+  recordingVoices = { on, exclude };
+  if (!on) recPending = [];
+  send({ type: 'recording', on, exclude });
+}
+
+function sendRecAudio(data: ArrayBuffer) {
+  if (!recordingVoices.on) return;
+  recPending.push(new Float32Array(data));
+  if (recPending.length < REC_BATCH) return;
+  const out = new Float32Array(recPending.reduce((n, f) => n + f.length, 0));
+  let at = 0;
+  for (const f of recPending) {
+    out.set(f, at);
+    at += f.length;
+  }
+  recPending = [];
+  void import('@tauri-apps/api/core').then(({ invoke }) =>
+    invoke('rec_voice_audio', new Uint8Array(out.buffer)).catch(() => {}),
+  );
+}
+
 let mediaPlaying = false;
 /**
  * Watch together is playing out loud here: its sound reaches the mic, and the voice gate eases up so it doesn't
@@ -177,6 +211,7 @@ export async function joinVoice(channelId: string) {
     worker.onmessage = (e: MessageEvent<WorkerOut>) => gen === generation && onWorker(e.data, channelId);
     send({ type: 'mute', muted: voiceUi.muted });
     send({ type: 'deafen', deafened: voiceUi.deafened });
+    send({ type: 'recording', ...recordingVoices });
     syncVad();
     for (const [id, v] of Object.entries(prefs.userVolumes)) send({ type: 'gain', id, gain: v });
     const url = serverUrl().replace(/^http/, 'ws') + '/api/voice/connect';
@@ -202,6 +237,8 @@ export async function joinVoice(channelId: string) {
 
 function onWorker(m: WorkerOut, channelId: string) {
   switch (m.type) {
+    case 'rec_audio':
+      return sendRecAudio(m.data);
     case 'ready': {
       const again = retries > 0 || reconnecting;
       if (!again) sounds.selfJoin();

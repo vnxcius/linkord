@@ -3,7 +3,7 @@ import { isTauri } from './platform';
 
 /** A web login started in this tab (see App.tsx captureUrlState). */
 export const LOGIN_PENDING_KEY = 'linkord.loginPending';
-/** The invite link this person arrived through; it lets Discord login create their account. */
+/** The invite link this person arrived through before signing in; its join dialog opens after login (App.tsx). */
 export const INVITE_KEY = 'linkord.pendingInvite';
 
 const SERVER_KEY = 'linkord.server';
@@ -116,7 +116,7 @@ export async function checkServer(url: string): Promise<ServerCheck> {
     return {
       ok: false,
       reason: t(
-        '{host} answered, but not like a Linkord server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.',
+        '{host} answered, but not like a Pottira server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.',
         { host, url, status: res.status },
       ),
     };

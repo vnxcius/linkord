@@ -1,4 +1,4 @@
-// The Christmas theme's falling snow (the lights and snow on the panels are plain CSS, see styles.css). Linkord often
+// The Christmas theme's falling snow (the lights and snow on the panels are plain CSS, see styles.css). Pottira often
 // runs beside a game, so this costs nothing unless you're looking at it: it stops drawing while the window is hidden
 // or unfocused, and stays away from calls so it never falls over someone's stream.
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';

@@ -1171,7 +1171,7 @@ test('logs: clients report errors into the log files, the app no longer serves t
 
 test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const defaults = await ok(member.token, 'GET', '/soundboard/default');
-  assert.ok(defaults.some((s) => s.name === 'quack' && s.emoji === '🦆'), JSON.stringify(defaults.slice(0, 2)));
+  assert.ok(defaults.some((s) => s.name === 'sleigh bells' && s.emoji === '🔔'), JSON.stringify(defaults.slice(0, 2)));
   const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=1', '-f', 'mp3', 'pipe:1']);
   const form = () => {
     const fd = new FormData();
@@ -2048,7 +2048,7 @@ test('leaving a group DM ends your part in its call, and blocks cover DM calls',
   assert.equal(blocked.closed, 4004);
 });
 
-test('Discord sign-in: invites, the browser that started it, and only the app that started it', async () => {
+test('Discord sign-in: anyone can sign up, from the browser that started it, and only the app that started it', async () => {
   // A new address each time: sign-ins are limited per address, and this test does many.
   let address = 0;
   const from = () => ({ 'cf-connecting-ip': `198.51.100.${++address}` });
@@ -2064,31 +2064,24 @@ test('Discord sign-in: invites, the browser that started it, and only the app th
   assert.match(await old.text(), /can't sign in any more/);
   assert.ok(!(await (await fetch(`${BASE}/api/auth/poll?nonce=${'a'.repeat(40)}`)).text()).includes('"token"'), 'polling is gone');
 
-  // No invite, no account.
+  // The callback must come back to the browser that started the sign-in.
   let s = await start('');
   assert.match(s.headers.get('location'), /prompt=none/);
-  let res = await callback(stateOf(s), name, cookieOf(s));
-  assert.match(await res.text(), /invite-only/);
-
-  // The callback must come back to the browser that started the sign-in.
-  const owner = await login('secinviter');
-  const { invite } = await serverWithVoice(owner);
-  s = await start(`?invite=${invite.code}`);
-  res = await callback(stateOf(s), name);
+  let res = await callback(stateOf(s), name);
   assert.match(await res.text(), /expired/, 'no cookie');
-  s = await start(`?invite=${invite.code}`);
+  s = await start('');
   res = await callback(stateOf(s), name, 'linkord_login=someone-elses');
   assert.match(await res.text(), /expired/, 'wrong cookie');
 
-  // With the invite, the web sign-in creates the account and lands in the client.
-  s = await start(`?invite=${invite.code}`);
+  // No invite needed: the web sign-in creates the account and lands in the client.
+  s = await start('');
   res = await callback(stateOf(s), name, cookieOf(s));
   assert.equal(res.status, 303);
   const webToken = res.headers.get('location').match(/#token=([\w-]+)/)[1];
   const me = await ok(webToken, 'GET', '/users/@me');
   assert.equal(me.username, name.toLowerCase());
 
-  // Existing accounts don't need one any more. Desktop: the code only goes to the local callback...
+  // Signing in again finds the same account. Desktop: the code only goes to the local callback...
   const verifier = 'v'.repeat(43);
   const challenge = (await import('node:crypto')).createHash('sha256').update(verifier).digest('base64url');
   const clientState = 's'.repeat(40);
@@ -2594,7 +2587,7 @@ test('push: encrypted notifications reach a phone when it should, and only then'
   assert.equal(n.url, `/channels/@me/${dm.id}`);
   assert.equal(n.channel_id, dm.id);
 
-  // Using Linkord on another device: no push. In the background: pushes again.
+  // Using Pottira on another device: no push. In the background: pushes again.
   const desk = await gateway(a.token);
   desk.ws.send(JSON.stringify({ op: 'active' }));
   await settle();
@@ -2651,4 +2644,179 @@ test('push: encrypted notifications reach a phone when it should, and only then'
   await until(() => pushesTo('a').length >= before + 5);
   assert.equal(pushesTo('tablet').length, 0, 'gone with its login');
   service.close();
+});
+
+test('REC: opting out of other people\'s recordings is on everyone\'s copy of the user', async () => {
+  const quiet = await login('recquiet');
+  const friend = await login('recfriend');
+  await ok(quiet.token, 'POST', '/users/@me/relationships', { username: friend.username });
+  await ok(friend.token, 'PUT', `/users/@me/relationships/${quiet.id}`, {});
+  assert.equal((await ok(friend.token, 'GET', `/users/${quiet.id}`)).rec_opt_out, false, 'recorded unless they say no');
+  const me = await ok(quiet.token, 'PATCH', '/users/@me', { rec_opt_out: true });
+  assert.equal(me.rec_opt_out, true);
+  assert.equal((await ok(friend.token, 'GET', `/users/${quiet.id}`)).rec_opt_out, true);
+  // Other profile changes leave it alone.
+  await ok(quiet.token, 'PATCH', '/users/@me', { bio: 'shy' });
+  assert.equal((await ok(friend.token, 'GET', `/users/${quiet.id}`)).rec_opt_out, true);
+  assert.equal((await ok(quiet.token, 'PATCH', '/users/@me', { rec_opt_out: false })).rec_opt_out, false);
+});
+
+test('REC: a clip uploads in chunks, plays for anyone at its link, counts viewers once and unfurls in chat', async () => {
+  const owner = await login('recsharer');
+  const stranger = await login('recstranger');
+  const { text, voice, invite } = await serverWithVoice(owner);
+  // A real H.264 + AAC MP4, like the app's clips.
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const file = join(mkdtempSync(join(tmpdir(), 'linkord-clip-')), 'clip.mp4');
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=30:d=2', '-f', 'lavfi', '-i', 'sine=d=2',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', file]);
+  const bytes = readFileSync(file);
+  const put = (token, id, offset, body) =>
+    fetch(`${BASE}/api/clips/uploads/${id}?offset=${offset}`, { method: 'PUT', headers: { authorization: `Bearer ${token}` }, body });
+
+  // Too big for one person's share, before anything is sent.
+  assert.equal((await call(owner.token, 'POST', '/clips', { size: 2 * 1024 ** 3 })).status, 400);
+  const start = await ok(owner.token, 'POST', '/clips', { size: bytes.length, title: 'Clutch <3', game: 'Stand-in' });
+  const half = Math.floor(bytes.length / 2);
+  assert.equal((await put(owner.token, start.upload_id, 0, bytes.subarray(0, half))).status, 200);
+  // Resending from the wrong place says where the upload is.
+  const wrong = await put(owner.token, start.upload_id, 0, bytes.subarray(0, 10));
+  assert.equal(wrong.status, 409);
+  assert.equal((await wrong.json()).received, half);
+  assert.equal((await put(stranger.token, start.upload_id, half, bytes.subarray(half))).status, 404, 'not theirs');
+  assert.equal((await put(owner.token, start.upload_id, half, bytes.subarray(half))).status, 200);
+  const clip = await ok(owner.token, 'POST', `/clips/uploads/${start.upload_id}/finish`);
+  assert.equal(clip.title, 'Clutch <3');
+  assert.deepEqual([clip.width, clip.height], [320, 180]);
+  assert.ok(clip.duration_ms > 1500 && clip.duration_ms < 2500, `${clip.duration_ms}`);
+  assert.match(clip.slug, /^[A-Za-z0-9]{12}$/);
+  // The first shared clip earns the bronze Clip maker badge.
+  assert.ok(JSON.stringify(await ok(owner.token, 'GET', '/users/@me/badges')).includes('"clips"'), 'clips badge');
+
+  // Not a video from REC: refused, and nothing kept.
+  const junk = Buffer.from('#EXTM3U\n#EXT-X-STREAM-INF\nfile:///etc/passwd\n');
+  const bad = await ok(owner.token, 'POST', '/clips', { size: junk.length });
+  await put(owner.token, bad.upload_id, 0, junk);
+  assert.equal((await call(owner.token, 'POST', `/clips/uploads/${bad.upload_id}/finish`)).status, 400);
+
+  // Anyone with the link: details, the page (no login, Open Graph video, only our own player's script), the file with
+  // seeking.
+  assert.equal((await call(null, 'GET', `/clips/${clip.slug}`)).body.id, clip.id);
+  const page = await fetch(`${BASE}/clip/${clip.slug}`, { headers: { 'user-agent': 'Mozilla/5.0 Chrome/130', 'cf-connecting-ip': '198.51.100.70' } });
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /property="og:video" content="[^"]+\/uploads\/clips\/[A-Za-z0-9]{12}\.mp4"/);
+  assert.match(html, /Clutch &lt;3/, 'escaped');
+  assert.match(html, /Download Pottira/);
+  assert.doesNotMatch(html, /<script(?![^>]*\ssrc="\/assets\/)/, 'no inline or outside scripts');
+  assert.match(html, /<div id="clip-player"[^>]*><video src=/, 'plays without the script too');
+  const pageCsp = page.headers.get('content-security-policy');
+  assert.match(pageCsp, /default-src 'none'/);
+  assert.match(pageCsp, /script-src 'self';/);
+  // The same viewer again, and a link preview bot: still one view.
+  await fetch(`${BASE}/clip/${clip.slug}`, { headers: { 'user-agent': 'Mozilla/5.0 Chrome/130', 'cf-connecting-ip': '198.51.100.70' } });
+  await fetch(`${BASE}/clip/${clip.slug}`, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; Discordbot/2.0)', 'cf-connecting-ip': '198.51.100.71' } });
+  assert.equal((await call(null, 'GET', `/clips/${clip.slug}`)).body.views, 1);
+  assert.equal((await fetch(`${BASE}/clip/${clip.id}`)).status, 404, 'ids are guessable, only the slug opens it');
+  const range = await fetch(`${BASE}${clip.video}`, { headers: { range: 'bytes=0-99' } });
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get('content-type'), 'video/mp4');
+  assert.equal((await fetch(`${BASE}${clip.thumbnail}`)).headers.get('content-type'), 'image/jpeg');
+
+  // In chat, the link becomes a clip embed.
+  const message = await ok(owner.token, 'POST', `/channels/${text.id}/messages`, { content: `look ${clip.url}` });
+  await until(async () => (await ok(owner.token, 'GET', `/channels/${text.id}/messages?limit=5`)).find((m) => m.id === message.id)?.embeds?.length);
+  const [embed] = (await ok(owner.token, 'GET', `/channels/${text.id}/messages?limit=5`)).find((m) => m.id === message.id).embeds;
+  assert.equal(embed.type, 'clip');
+  assert.equal(embed.clip.slug, clip.slug);
+
+  // Watched together: the link plays as a clip in the call; three people watching is its author's premiere.
+  const friends = [await login('recfan1'), await login('recfan2')];
+  for (const f of friends) await ok(f.token, 'POST', `/invites/${invite.code}`);
+  const sockets = [await voiceJoin(owner, voice.id), ...(await Promise.all(friends.map((f) => voiceJoin(f, voice.id))))];
+  try {
+    const w = await ok(friends[0].token, 'PUT', `/channels/${voice.id}/watch`, { url: clip.url });
+    assert.deepEqual([w.provider, w.media, w.live], ['clip', clip.slug, false]);
+    await ok(owner.token, 'PUT', `/channels/${voice.id}/watch/view`, { on: true });
+    const premiere = async () => JSON.stringify(await ok(owner.token, 'GET', '/users/@me/badges')).includes('"premiere"');
+    assert.equal(await premiere(), false, 'two viewers are not a premiere');
+    await ok(friends[1].token, 'PUT', `/channels/${voice.id}/watch/view`, { on: true });
+    await until(premiere);
+  } finally {
+    for (const ws of sockets) ws.close();
+  }
+
+  // Listed for its owner with their space; only they can change or delete it.
+  const mine = await ok(owner.token, 'GET', '/users/@me/clips');
+  assert.equal(mine.clips.length, 1);
+  assert.ok(mine.used >= bytes.length && mine.quota > mine.used);
+  assert.equal((await call(stranger.token, 'DELETE', `/clips/${clip.id}`)).status, 403);
+  assert.equal((await ok(owner.token, 'PATCH', `/clips/${clip.id}`, { title: 'Ace' })).title, 'Ace');
+  assert.equal((await call(owner.token, 'DELETE', `/clips/${clip.id}`)).status, 204);
+  assert.equal((await fetch(`${BASE}/clip/${clip.slug}`)).status, 404);
+  assert.equal((await fetch(`${BASE}${clip.video}`)).status, 404);
+});
+
+test('REC: recorded time counts toward its badge only up to the time played', async () => {
+  const u = await login('recrecorder');
+  // Nothing played yet: a recording can't count.
+  assert.equal((await ok(u.token, 'POST', '/users/@me/rec/recorded', { seconds: 3600 })).counted, 0);
+  assert.equal((await ok(u.token, 'POST', '/users/@me/rec/recorded', { seconds: -50 })).counted, 0);
+});
+
+test('REC: a pentakill is only claimed through Riot, with a linked League account', async () => {
+  const u = await login('recpenta');
+  assert.equal((await call(u.token, 'POST', '/league/pentakill', { game_id: -1 })).status, 400);
+  const r = await call(u.token, 'POST', '/league/pentakill', { game_id: 123 });
+  // Without a Riot key the route is off; with one (server/.env on a dev PC), an account that linked none gets no
+  // badge and Riot is never asked.
+  if (r.status === 400) assert.match(r.body.error, /League profiles/);
+  else assert.equal(r.body.status, 'no_account');
+  assert.ok(!JSON.stringify(await ok(u.token, 'GET', '/users/@me/badges')).includes('"pentakill"'));
+});
+
+test('videos: a format browsers cannot show gets a copy every app plays; the original stays the download', async () => {
+  const u = await login('videoposter');
+  const { text } = await serverWithVoice(u);
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'linkord-video-'));
+  const make = (name, args) => {
+    const file = join(dir, name);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=30:d=1', '-f', 'lavfi', '-i', 'sine=d=1', '-shortest', ...args, file]);
+    return readFileSync(file);
+  };
+  const files = {
+    // An iPhone-style video (HEVC in a MOV): encoded again.
+    hevc: make('phone.mov', ['-c:v', 'libx265', '-x265-params', 'log-level=error', '-tag:v', 'hvc1', '-c:a', 'aac']),
+    // OBS's MKV: H.264 already, only rewrapped.
+    mkv: make('obs.mkv', ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac']),
+    // What every app plays: left alone.
+    mp4: make('fine.mp4', ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac']),
+  };
+  const gw = await gateway(u.token);
+  const posted = {};
+  for (const [name, bytes] of Object.entries(files)) {
+    const fd = new FormData();
+    fd.append('payload_json', JSON.stringify({ content: name }));
+    fd.append('file', new Blob([bytes], { type: name === 'mkv' ? 'video/x-matroska' : name === 'hevc' ? 'video/quicktime' : 'video/mp4' }), `${name}.video`);
+    posted[name] = await ok(u.token, 'POST', `/channels/${text.id}/messages`, fd);
+  }
+  const checked = (name) => gw.events.filter((e) => e.t === 'MESSAGE_UPDATE' && e.d.id === posted[name].id).pop()?.d.attachments[0];
+  await until(() => Object.keys(files).every(checked), 18_000);
+  assert.equal(checked('mp4').codec, 'h264');
+  assert.equal(checked('mp4').playable, undefined);
+  for (const name of ['hevc', 'mkv']) {
+    const a = checked(name);
+    assert.ok(a.playable?.endsWith('/playable.mp4'), `${name}: ${JSON.stringify(a)}`);
+    assert.equal(a.url, posted[name].attachments[0].url, 'the original stays');
+    const res = await fetch(`${BASE}${a.playable}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'video/mp4');
+  }
+  assert.equal(checked('hevc').codec, 'hevc');
+  gw.ws.close();
 });

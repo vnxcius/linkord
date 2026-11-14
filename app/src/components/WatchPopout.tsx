@@ -9,7 +9,7 @@ import { putWatch, routeWatchControl, setServerOffset, watches, type Watch, type
 import * as I from './Icons';
 import { Player, WatchEnded } from './WatchPlayer';
 
-const PROVIDERS = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' } as const;
+const PROVIDERS = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick', clip: 'REC' } as const;
 
 interface PopOutState {
   channelId: string;

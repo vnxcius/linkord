@@ -41,7 +41,17 @@ export function formatDuration(s: number) {
 let active: HTMLVideoElement | null = null;
 export const pauseChatVideo = () => active?.pause();
 
-export function VideoPlayer(p: { src: string; filename: string }) {
+export function VideoPlayer(p: {
+  src: string;
+  filename: string;
+  /** What Download saves, when it isn't `src` (a chat video's original, while the player shows its copy). */
+  download?: string;
+  /** The server is still checking this video (and may be making a copy every app plays). */
+  checking?: boolean;
+  /** Fills its container instead of a chat-sized box (the public clip page). */
+  large?: boolean;
+  poster?: string;
+}) {
   let root!: HTMLDivElement;
   let v!: HTMLVideoElement;
   let seekBar!: HTMLDivElement;
@@ -55,6 +65,8 @@ export function VideoPlayer(p: { src: string; filename: string }) {
   const [muted, setMuted] = createSignal(false);
   const [rate, setRate] = createSignal(1);
   const [waiting, setWaiting] = createSignal(false);
+  /** Played to the end: a "watch again" button instead of a spinner. */
+  const [ended, setEnded] = createSignal(false);
   const [idle, setIdle] = createSignal(false);
   const [menu, setMenu] = createSignal<'speed' | 'keys' | null>(null);
   const [fullscreen, setFullscreen] = createSignal(false);
@@ -127,7 +139,7 @@ export function VideoPlayer(p: { src: string; filename: string }) {
     if (saving() !== null) return;
     setSaving(0);
     try {
-      await downloadFile(p.src, p.filename, (x) => setSaving(x));
+      await downloadFile(p.download ?? p.src, p.filename, (x) => setSaving(x));
     } catch (e) {
       toast(t('Download failed: {error}', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
@@ -251,11 +263,18 @@ export function VideoPlayer(p: { src: string; filename: string }) {
   return (
     <div
       class="vp"
-      classList={{ playing: !paused(), idle: idle() && !paused(), fullscreen: fullscreen(), started: started() }}
+      classList={{
+        playing: !paused(),
+        idle: idle() && !paused(),
+        fullscreen: fullscreen(),
+        started: started(),
+        ended: ended(),
+        large: !!p.large,
+      }}
       ref={root}
       tabindex="0"
       // Sized to the video so portrait clips don't sit in a wide black box (max height 380px).
-      style={fullscreen() ? undefined : { width: `${clamp(Math.round(380 * aspect()), 320, 560)}px` }}
+      style={fullscreen() || p.large ? undefined : { width: `${clamp(Math.round(380 * aspect()), 320, 560)}px` }}
       onKeyDown={onKey}
       onPointerMove={wake}
       onPointerLeave={() => !paused() && setIdle(true)}
@@ -263,6 +282,7 @@ export function VideoPlayer(p: { src: string; filename: string }) {
       <video
         ref={v}
         src={p.src}
+        poster={p.poster}
         preload="metadata"
         playsinline
         onClick={() => (menu() ? setMenu(null) : toggle())}
@@ -272,6 +292,7 @@ export function VideoPlayer(p: { src: string; filename: string }) {
           active = v;
           setPaused(false);
           setStarted(true);
+          setEnded(false);
           cancelAnimationFrame(raf);
           raf = requestAnimationFrame(tick);
           wake();
@@ -297,6 +318,8 @@ export function VideoPlayer(p: { src: string; filename: string }) {
         onWaiting={() => setWaiting(true)}
         onPlaying={() => setWaiting(false)}
         onCanPlay={() => setWaiting(false)}
+        onEnded={() => (setEnded(true), setWaiting(false))}
+        onSeeking={() => v.currentTime < v.duration - 0.05 && setEnded(false)}
         onError={() => setFailed(true)}
       />
 
@@ -307,9 +330,9 @@ export function VideoPlayer(p: { src: string; filename: string }) {
         <div class="vp-novideo">
           <I.Warning size={16} />
           <span>
-            {t(
-              "This browser can't show this video's picture (its format isn't supported here), only the sound. Download it to watch.",
-            )}
+            {p.checking
+              ? t("This video's format doesn't show here. Pottira is making a copy that does; it appears by itself.")
+              : t("This video's picture can't be shown here (its format), only the sound. Download it to watch.")}
           </span>
         </div>
       </Show>
@@ -326,10 +349,22 @@ export function VideoPlayer(p: { src: string; filename: string }) {
           <I.Play size={30} />
         </button>
       </Show>
-      <Show when={waiting() && !paused()}>
+      <Show when={waiting() && !paused() && !ended()}>
         <div class="vp-center">
           <div class="spinner" />
         </div>
+      </Show>
+      <Show when={ended() && !failed()}>
+        <button
+          class="vp-replay"
+          onClick={() => {
+            root.focus({ preventScroll: true });
+            void play();
+          }}
+        >
+          <I.Refresh size={20} />
+          {t('Watch again')}
+        </button>
       </Show>
       <Show when={osd()} keyed>
         {(o) => <div class="vp-osd">{o.text}</div>}
@@ -385,7 +420,7 @@ export function VideoPlayer(p: { src: string; filename: string }) {
 
         <div class="vp-bar">
           <button class="vp-btn" data-tip={paused() ? t('Play (k)') : t('Pause (k)')} onClick={toggle}>
-            {paused() ? <I.Play size={18} /> : <I.Pause size={18} />}
+            {ended() ? <I.Refresh size={18} /> : paused() ? <I.Play size={18} /> : <I.Pause size={18} />}
           </button>
           <VolumeControl
             value={volume()}

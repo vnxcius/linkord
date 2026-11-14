@@ -1,4 +1,4 @@
-// Offers to rejoin voice after Linkord closed while connected without the user leaving: a crash, an
+// Offers to rejoin voice after Pottira closed while connected without the user leaving: a crash, an
 // update restart or a killed process. A plain page reload (F5 / Ctrl+R) rejoins by itself, like Discord. Leaving on purpose (Disconnect, tray Quit,
 // closing the window without close-to-tray) forgets the session, so no banner shows next time.
 

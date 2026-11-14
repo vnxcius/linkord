@@ -2,7 +2,8 @@
 // and the widget cards beside it (Kass's top songs, the stats card). Server side: users.rs profile().
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { Avatar } from './Avatar';
-import type { User } from '../lib/types';
+import type { SharedClip, User } from '../lib/types';
+import { VideoPlayer } from './VideoPlayer';
 import { api, media } from '../lib/api';
 import { brandOf } from '../lib/brand-icons';
 import { plural, t } from '../lib/i18n';
@@ -246,6 +247,53 @@ export function SnowballsCard(p: { snowballs: Snowballs }) {
             )}
           </For>
         </ol>
+      </Show>
+    </section>
+  );
+}
+
+/** REC: the clips someone shared lately (their profile's side card); one plays right here when clicked. */
+export function RecentClipsCard(p: { clips: SharedClip[]; isMe: boolean; hidden?: boolean }) {
+  const [playing, setPlaying] = createSignal<SharedClip | null>(null);
+  const length = (ms: number) => {
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  return (
+    <section class="widget-card" aria-label={t('Clips')}>
+      <header class="widget-head">
+        <span class="label">{t('REC · shared lately')}</span>
+        <h3>{t('Clips')}</h3>
+      </header>
+      <Show when={playing()}>
+        {(c) => <VideoPlayer src={media(c().video)!} filename={`${c().title || c().game || 'clip'}.mp4`} />}
+      </Show>
+      <Show
+        when={p.clips.length}
+        fallback={
+          <p class="widget-empty static">
+            <I.Rec size={22} />
+            {t('Clips you share from REC show up here.')}
+          </p>
+        }
+      >
+        <div class="profile-clips">
+          <For each={p.clips}>
+            {(c) => (
+              <button class="profile-clip" classList={{ active: playing()?.id === c.id }} onClick={() => setPlaying(c)}>
+                <span class="profile-clip-art">
+                  <img src={media(c.thumbnail)} alt="" loading="lazy" />
+                  <small>{length(c.duration_ms)}</small>
+                </span>
+                <strong>{c.title || c.game || t('Clip')}</strong>
+                <small>{plural(c.views, '{n} view', '{n} views')}</small>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={p.isMe}>
+        <HiddenHint shown={!p.hidden} />
       </Show>
     </section>
   );

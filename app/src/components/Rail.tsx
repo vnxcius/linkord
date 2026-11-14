@@ -1,7 +1,8 @@
-// Server list, a strip of tiles across the top of the channel list: drag a server left or right to
+// Server list, tiles across the top of the channel list: at most two rows, the rest behind a "+N" tile that opens a
+// searchable panel (owner, 2026-11-14: a sideways-scrolling row was too hard to browse). Drag a server left or right to
 // reorder, onto another server to make a folder, or onto a folder to add it. Folders open in place; the order syncs across devices
 // (settings.guild_folders), which folders are open is per device.
-import { createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { markRead, patchSettings, selectView } from '../lib/actions';
 import { t } from '../lib/i18n';
 import { openPage } from '../lib/route';
@@ -11,7 +12,7 @@ import type { GuildFolder } from '../lib/types';
 import { attempt, isMobile, openMenu, setUi, type MenuEntry } from '../lib/ui';
 import { guildMenu } from './Sidebar';
 import { GuildIcon } from './Avatar';
-import { Download, Emblem, Folder, Plus } from './Icons';
+import { Download, Folder, Mark, Plus } from './Icons';
 import { accentCss } from './Profile';
 
 /** The server list as stored, cleaned up: unknown servers dropped, servers not listed yet appended. */
@@ -172,8 +173,102 @@ const markClass = (key: string) => ({
 
 // ---------- rail ----------
 
+/** Tile sizes, to lay the strip out before rendering it: a tile is 38 px, tiles are 6 px apart, an open folder holds its
+ * own tile and its servers' plus 4 px of padding on each side. Keep in step with .rail-btn / .rail-servers / .rail-folder. */
+const TILE = 38;
+const GAP = 6;
+const entryWidth = (f: GuildFolder) =>
+  f.id && openFolders().includes(f.id) ? 8 + (f.guild_ids.length + 1) * TILE + f.guild_ids.length * GAP : TILE;
+
+/** How many entries fit in two rows of `width` px: all of them, or as many as leave room for the "+N" tile. */
+function fitTwoRows(widths: number[], width: number): number {
+  const fits = (n: number, more: boolean) => {
+    let row = 1;
+    let x = 0;
+    const put = (w: number) => {
+      if (x === 0) x = w;
+      else if (x + GAP + w <= width) x += GAP + w;
+      else {
+        row += 1;
+        x = w;
+      }
+      return row <= 2;
+    };
+    for (let i = 0; i < n; i++) if (!put(widths[i])) return false;
+    return more ? put(TILE) : true;
+  };
+  if (fits(widths.length, false)) return widths.length;
+  let n = 0;
+  while (n < widths.length && fits(n + 1, true)) n++;
+  return n;
+}
+
+const fold = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+
 export function Rail() {
   const dmMentions = () => state.dmOrder.reduce((n, id) => n + (state.mentions[id] ?? 0), 0);
+  let servers!: HTMLDivElement;
+  const [width, setWidth] = createSignal(0);
+  onMount(() => {
+    const ro = new ResizeObserver(() => setWidth(servers.clientWidth));
+    ro.observe(servers);
+    onCleanup(() => ro.disconnect());
+  });
+
+  /** What the two rows show and what waits behind "+N". The server you're in never hides: it takes the last place. */
+  const split = createMemo(() => {
+    const entries = railEntries();
+    const n = width() ? fitTwoRows(entries.map(entryWidth), width()) : entries.length;
+    if (n >= entries.length) return { shown: entries, hidden: [] as GuildFolder[] };
+    const shown = entries.slice(0, n);
+    const hidden = entries.slice(n);
+    const i = hidden.findIndex((f) => f.guild_ids.includes(state.view));
+    if (i >= 0 && shown.length) {
+      const [current] = hidden.splice(i, 1);
+      hidden.unshift(shown.pop()!);
+      shown.push(current);
+    }
+    return { shown, hidden };
+  });
+  const hiddenIds = () => split().hidden.flatMap((f) => f.guild_ids);
+
+  const [panel, setPanel] = createSignal(false);
+  const [query, setQuery] = createSignal('');
+  const close = () => {
+    setPanel(false);
+    setQuery('');
+  };
+  const go = (id: string) => {
+    close();
+    selectView(id);
+  };
+  createEffect(() => {
+    if (!panel()) return;
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.rail-more-panel, .more-btn') && close();
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('keydown', key, true);
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('keydown', key, true);
+    });
+  });
+  // Nothing left behind "+N" (a wider window, a server left): the panel closes.
+  createEffect(() => !hiddenIds().length && close());
+
+  /** The panel's list: the hidden servers, or while searching, every server whose name matches. */
+  const listed = () => {
+    const q = fold(query().trim());
+    const rows = (list: GuildFolder[]) =>
+      list.flatMap((f) => f.guild_ids.map((id) => ({ id, folder: f.id ? folderName(f) : '' })));
+    if (!q) return rows(split().hidden);
+    return rows(railEntries()).filter((x) => fold(state.guilds[x.id]?.name ?? '').includes(q));
+  };
+
   return (
     <nav class="rail">
       <RailItem
@@ -183,10 +278,25 @@ export function Rail() {
         badge={dmMentions()}
         onClick={() => selectView('@me')}
       >
-        <Emblem size={24} />
+        <Mark size={22} />
       </RailItem>
       <div class="rail-sep" />
-      <For each={railEntries()}>{(f) => (f.id ? <FolderItem folder={f} /> : <GuildItem id={f.guild_ids[0]} />)}</For>
+      <div class="rail-servers" ref={servers}>
+        <For each={split().shown}>{(f) => (f.id ? <FolderItem folder={f} /> : <GuildItem id={f.guild_ids[0]} />)}</For>
+        <Show when={hiddenIds().length}>
+          <RailItem
+            more
+            active={panel()}
+            label={t('More servers')}
+            badge={hiddenIds().reduce((n, id) => n + guildMentions(id), 0)}
+            alert={hiddenIds().some(guildAlert)}
+            unread={hiddenIds().some(guildUnread)}
+            onClick={() => (panel() ? close() : setPanel(true))}
+          >
+            <span class="rail-more-count">+{hiddenIds().length}</span>
+          </RailItem>
+        </Show>
+      </div>
       <RailItem label={t('Add a server')} add onClick={() => setUi('modal', { type: 'add-server' })}>
         <Plus size={22} />
       </RailItem>
@@ -194,6 +304,58 @@ export function Rail() {
         <RailItem label={t('Download the app')} add onClick={() => openPage('download')}>
           <Download size={20} />
         </RailItem>
+      </Show>
+      <Show when={panel()}>
+        <div class="rail-more-panel" role="dialog" aria-label={t('More servers')}>
+          <input
+            class="rail-more-search"
+            placeholder={t('Search servers')}
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const first = listed()[0];
+              if (first) go(first.id);
+            }}
+            ref={(el) => queueMicrotask(() => el.focus())}
+          />
+          <div class="rail-more-list">
+            <For each={listed()} fallback={<p class="rail-more-empty">{t('No servers match.')}</p>}>
+              {(x) => (
+                <Show when={state.guilds[x.id]}>
+                  {(g) => (
+                    <button
+                      class="rail-more-item"
+                      classList={{ active: state.view === x.id, unread: guildUnread(x.id) }}
+                      onClick={() => go(x.id)}
+                      onContextMenu={(e) => openMenu(e, guildMenu(x.id))}
+                    >
+                      <GuildIcon name={g().name} icon={g().icon} size={28} />
+                      <span class="rmi-text">
+                        <span class="rmi-name">{g().name}</span>
+                        <Show when={x.folder}>
+                          <small>{x.folder}</small>
+                        </Show>
+                      </span>
+                      <Show
+                        when={guildMentions(x.id)}
+                        fallback={
+                          <Show when={guildAlert(x.id)}>
+                            <span class="badge rail-alert" aria-label={t('New messages')}>
+                              <i />
+                            </span>
+                          </Show>
+                        }
+                      >
+                        {(n) => <span class="badge">{n() > 99 ? '99+' : n()}</span>}
+                      </Show>
+                    </button>
+                  )}
+                </Show>
+              )}
+            </For>
+          </div>
+        </div>
       </Show>
     </nav>
   );
@@ -225,7 +387,7 @@ function GuildItem(p: { id: string; inFolder?: boolean }) {
 function FolderItem(p: { folder: GuildFolder }) {
   const key = `f:${p.folder.id}`;
   const open = () => openFolders().includes(p.folder.id!);
-  const color = () => accentCss(p.folder.color) ?? 'var(--glow)';
+  const color = () => accentCss(p.folder.color) ?? 'var(--brand)';
   const mentions = () => p.folder.guild_ids.reduce((n, id) => n + guildMentions(id), 0);
   const unread = () => p.folder.guild_ids.some(guildUnread);
   const alert = () => p.folder.guild_ids.some(guildAlert);
@@ -273,6 +435,7 @@ function RailItem(p: {
   add?: boolean;
   folder?: boolean;
   home?: boolean;
+  more?: boolean;
   onClick: () => void;
   onContextMenu?: (e: MouseEvent) => void;
   drag?: ReturnType<typeof dnd>;
@@ -284,12 +447,13 @@ function RailItem(p: {
       class="rail-item"
       classList={{ active: p.active, unread: p.unread, muted: p.muted, ...p.marks }}
       data-tip={p.label}
+      data-tip-side="below"
       {...p.drag}
     >
       <span class="rail-pill" />
       <button
         class="rail-btn"
-        classList={{ add: p.add, 'folder-btn': p.folder, 'home-btn': p.home }}
+        classList={{ add: p.add, 'folder-btn': p.folder, 'home-btn': p.home, 'more-btn': p.more }}
         onClick={p.onClick}
         onContextMenu={p.onContextMenu}
         aria-label={p.label}

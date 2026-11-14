@@ -26,14 +26,12 @@ function place(t: HTMLElement) {
   const r = t.getBoundingClientRect();
   const w = el.offsetWidth;
   const h = el.offsetHeight;
-  const above = r.top - GAP - h >= 4;
+  // data-tip-side="below" (the server strip): below unless there's no room, so it never covers the title bar.
+  const above = t.dataset.tipSide === 'below' ? r.bottom + GAP + h > innerHeight - 4 : r.top - GAP - h >= 4;
   const x = Math.max(6, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 6));
   const y = above ? r.top - GAP - h : Math.min(r.bottom + GAP, innerHeight - h - 4);
   el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
 }
-
-/** Elements that draw their own tooltip (the server list's, which sits beside the tile). */
-const ownTooltip = (t: Element) => !!t.closest('.rail-item');
 
 export function initTooltips() {
   document.addEventListener('pointerover', (e) => {
@@ -41,7 +39,7 @@ export function initTooltips() {
     const t = (e.target as Element | null)?.closest?.<HTMLElement>('[data-tip]') ?? null;
     if (t === target) return;
     hide();
-    if (!t || ownTooltip(t)) return;
+    if (!t) return;
     target = t;
     timer = window.setTimeout(() => target === t && place(t), SHOW_DELAY_MS);
   });

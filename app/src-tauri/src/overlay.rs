@@ -243,7 +243,7 @@ fn run() {
 fn create_window() -> windows::core::Result<HWND> {
     unsafe {
         let instance: HMODULE = GetModuleHandleW(None)?;
-        let class = w!("LinkordOverlay");
+        let class = w!("PottiraOverlay");
         let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
         RegisterClassW(&wc);
         // Layered + transparent: clicks go through to the game. Noactivate: it never takes focus, which is what would
@@ -285,7 +285,7 @@ fn is_desktop_class(hwnd: HWND) -> bool {
 }
 
 /// The screen this window fills, if it's one that does: a game, or anything else fullscreen.
-/// A maximized window doesn't count, nor do the desktop and Linkord.
+/// A maximized window doesn't count, nor do the desktop and Pottira.
 fn fullscreen_on(hwnd: HWND) -> Option<Screen> {
     unsafe {
         if hwnd.is_invalid() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() || IsZoomed(hwnd).as_bool() {

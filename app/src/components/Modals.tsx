@@ -26,6 +26,7 @@ import { accentCss, ProfileModal } from './Profile';
 import { GameModal } from './Game';
 import { ColorPicker } from './ColorPicker';
 import { railEntries, updateFolder } from './Rail';
+import { RecPage } from './Rec';
 import { Settings } from './Settings';
 import { ServerSettings } from './SettingsModals';
 import { ChannelSettingsScreen } from './ChannelSettings';
@@ -52,7 +53,7 @@ import {
 /** Server channels and categories get full-window settings; threads and group DMs a small dialog. */
 function fullWindow(m: Modal | null) {
   if (!m) return false;
-  if (m.type === 'settings' || m.type === 'server-settings') return true;
+  if (m.type === 'settings' || m.type === 'server-settings' || m.type === 'rec') return true;
   if (m.type !== 'channel-settings') return false;
   const c = state.channels[m.channelId];
   return !!c?.guild_id && c.kind !== Kind.Thread;
@@ -86,6 +87,9 @@ export function ModalHost() {
               </Match>
               <Match when={m().type === 'settings' && (m() as Extract<Modal, { type: 'settings' }>)}>
                 {(x) => <Settings tab={x().tab} />}
+              </Match>
+              <Match when={m().type === 'rec' && (m() as Extract<Modal, { type: 'rec' }>)}>
+                {(x) => <RecPage tab={x().tab} />}
               </Match>
               <Match
                 when={m().type === 'server-settings' && (m() as Extract<Modal, { type: 'server-settings' }>)}
@@ -1390,10 +1394,10 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
                       ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
                       : caps() && !caps()!.per_app_audio
                         ? t(
-                            'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
+                            'Windows 10 shares all PC sound (Pottira removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
                           )
                         : selected()?.kind === 'screen'
-                          ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
+                          ? t('Everything you hear except Pottira, so nobody hears the voice chat echoed.')
                           : t('Only the sound of the app you share.')}
                 </small>
               </span>

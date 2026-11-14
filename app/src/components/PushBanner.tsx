@@ -1,4 +1,4 @@
-// On phones (web): offers notifications once (lib/push.ts), at the top of the dock (Sidebar.tsx Dock). On an iPhone that hasn't added Linkord to the Home Screen
+// On phones (web): offers notifications once (lib/push.ts), at the top of the dock (Sidebar.tsx Dock). On an iPhone that hasn't added Pottira to the Home Screen
 // it explains that first, since Safari only allows notifications there. Dismissed per device.
 import { createSignal, Show } from 'solid-js';
 import { t } from '../lib/i18n';
@@ -42,7 +42,7 @@ export function PushBanner() {
         <span class="push-banner-text">
           {pushState() === 'install'
             ? t(
-                'To get notifications on this phone, add Linkord to your Home Screen: tap Share, then Add to Home Screen.',
+                'To get notifications on this phone, add Pottira to your Home Screen: tap Share, then Add to Home Screen.',
               )
             : t('Get notifications on this phone for DMs and mentions.')}
         </span>

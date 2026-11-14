@@ -176,7 +176,7 @@ await step('messages, link preview, reactions via context menu', async () => {
   await a.page.fill('.composer textarea', 'Emoji check 😀 1️⃣ 🏳️‍🌈 ❤️‍🔥');
   await a.page.keyboard.press('Enter');
   await b.page.waitForSelector('.message:has-text("Emoji check")');
-  const loaded = await b.page.evaluate(async () => (await document.fonts.load('16px "Linkord Twemoji"', '😀')).length);
+  const loaded = await b.page.evaluate(async () => (await document.fonts.load('16px "Pottira Twemoji"', '😀')).length);
   assert.ok(loaded > 0, 'Twemoji font did not load');
   await shot(b.page, 'e2e-emoji');
 });
@@ -448,7 +448,7 @@ await step('spotify: connect (the Connections tab is hidden for now, so through 
   await a.page.click('[aria-label="Settings"]');
   assert.equal(await a.page.locator('.settings-nav button:has-text("Connections")').count(), 0, 'Connections tab is on hold');
   await a.page.click('.settings-close');
-  // Spotify's (fake) consent page approves and returns to Linkord.
+  // Spotify's (fake) consent page approves and returns to Pottira.
   const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
   const { url } = await (await fetch(`${BASE}/api/connections/spotify/authorize`, { headers: { authorization: `Bearer ${token}` } })).json();
   const consent = await a.page.context().newPage();
@@ -1036,7 +1036,7 @@ await step('very long text: stays responsive, goes as message.txt; a failed mess
   const { root } = await cdp.send('DOM.getDocument');
   const { nodeIds } = await cdp.send('DOM.querySelectorAll', { nodeId: root.nodeId, selector: '.reaction-emoji' });
   const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: nodeIds[nodeIds.length - 1] });
-  assert.deepEqual(fonts.map((f) => f.familyName), ['Linkord Twemoji'], JSON.stringify(fonts));
+  assert.deepEqual(fonts.map((f) => f.familyName), ['Pottira Twemoji'], JSON.stringify(fonts));
 
   // The emoji picker's search box takes the keyboard when it opens (the soundboard's uses the same picker).
   await last.hover();
@@ -1228,7 +1228,7 @@ await step('desktop app: dismissable banner, download page with this computer fi
   const pg = c.page;
   try {
     await pg.waitForSelector('.download-banner:has-text("Get the desktop app")');
-    await pg.waitForSelector('.update-banner:has-text("Linkord was updated to")');
+    await pg.waitForSelector('.update-banner:has-text("Pottira was updated to")');
     await shot(pg, 'e2e-download-banner');
     await pg.click('.download-banner-btn');
     await pg.waitForSelector('.site-page .dl-primary a:has-text("Download .deb")');
@@ -1251,8 +1251,8 @@ await step('desktop app: dismissable banner, download page with this computer fi
     await pg.waitForSelector('.site-page', { state: 'detached' });
     assert.match(new URL(pg.url()).pathname, /^\/channels\//);
     // Seeing the patch notes retired the "updated" banner.
-    await pg.waitForSelector('.update-banner:has-text("Linkord was updated to")', { state: 'detached' });
-    // Opened straight from a link: Back to Linkord still lands in the app, even after switching pages.
+    await pg.waitForSelector('.update-banner:has-text("Pottira was updated to")', { state: 'detached' });
+    // Opened straight from a link: Back to Pottira still lands in the app, even after switching pages.
     await pg.goto(`${BASE}/changelog`);
     await pg.waitForSelector('.notes-release');
     await pg.click('.site-links button:has-text("Download")');
@@ -1298,7 +1298,7 @@ await step('onboarding: a new account gets the tour; an account from before 1.0 
   const n = await user('nova', undefined, {}, true);
   const pg = n.page;
   try {
-    await pg.waitForSelector(`.tour-card h2:has-text("Welcome to Linkord, ${n.name}")`);
+    await pg.waitForSelector(`.tour-card h2:has-text("Welcome to Pottira, ${n.name}")`);
     await shot(pg, 'e2e-tour-welcome');
     await pg.click('.tour-next:has-text("Show me around")');
     // Step 1 points at the server list: the spotlight sits on it and the card beside it.
@@ -1350,7 +1350,7 @@ await step('onboarding: a new account gets the tour; an account from before 1.0 
     // Both can be seen again from Settings.
     await pg.click('[aria-label="Settings"]');
     await pg.click('.settings-foot button:has-text("Take the tour")');
-    await pg.waitForSelector('.tour-card h2:has-text("Welcome to Linkord")');
+    await pg.waitForSelector('.tour-card h2:has-text("Welcome to Pottira")');
     await pg.keyboard.press('Escape');
     await pg.waitForSelector('.tour', { state: 'detached' });
   } finally {

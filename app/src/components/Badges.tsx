@@ -292,7 +292,7 @@ export function BadgesPage() {
     <div class="stack badges-settings">
       <p class="set-desc">
         {t(
-          'Badges come as you use Linkord. Pick which ones your profile shows and in what order; new ones are shown when you earn them.',
+          'Badges come as you use Pottira. Pick which ones your profile shows and in what order; new ones are shown when you earn them.',
         )}
       </p>
       <Show when={myBadges()} fallback={<p class="muted">{t('Loading…')}</p>}>
@@ -324,7 +324,7 @@ export function BadgesPage() {
           </Show>
         </div>
         <div class="badge-list">
-          <For each={all()} fallback={<p class="empty-hint">{t('No badges yet. They come as you use Linkord.')}</p>}>
+          <For each={all()} fallback={<p class="empty-hint">{t('No badges yet. They come as you use Pottira.')}</p>}>
             {(b, i) => {
               const info = () => describe(b)!;
               return (
@@ -413,7 +413,7 @@ export function BadgesPage() {
             </For>
           </div>
           <p class="muted small">
-            {t('Time is counted since Stats came out (Linkord 1.0); account age counts from the day you joined.')}
+            {t('Time is counted since Stats came out (Pottira 1.0); account age counts from the day you joined.')}
           </p>
         </Show>
       </Show>

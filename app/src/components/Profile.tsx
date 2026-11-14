@@ -6,7 +6,7 @@ import { dateLocale, plural, t } from '../lib/i18n';
 import { can, P, topPosition } from '../lib/perms';
 import { gameOf, memberRoles, nameOf, profileOf, spotifyOf, state } from '../lib/store';
 import { openExternal } from '../lib/platform';
-import { displayName, Kind, Rel, type User } from '../lib/types';
+import { displayName, Kind, Rel, type SharedClip, type User } from '../lib/types';
 import { attempt, isMobile, setUi, ui, type MenuEntry } from '../lib/ui';
 import { LeagueCard, type LeagueAccount } from './League';
 import { GameCard, SpotifyCard, SpotifyIcon, StatusBubble } from './Activity';
@@ -32,6 +32,7 @@ import {
   SongPlayer,
   StatsCard,
   type TopSong,
+  RecentClipsCard,
   TopSongsCard,
   SnowballsCard,
   type Snowballs,
@@ -87,7 +88,7 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   const me = state.me?.id;
   const items: MenuEntry[] = [];
   if (userId !== me) items.push({ label: t('Message'), run: () => attempt(() => openDm(userId)) });
-  // You're in a League lobby and may invite: invite them through Linkord (they accept, your client invites them).
+  // You're in a League lobby and may invite: invite them through Pottira (they accept, your client invites them).
   if (userId !== me && !state.users[userId]?.bot && leagueCanInvite()) {
     items.push({
       label: t('Invite to League lobby'),
@@ -546,7 +547,7 @@ export function DmProfile(p: { userId: string }) {
             </Show>
             <Show when={full()}>
               <div class="profile-section">
-                <div class="label">{t('Linkord member since')}</div>
+                <div class="label">{t('Pottira member since')}</div>
                 <p>{longDate(full()!.created_at)}</p>
               </div>
               <Show when={servers().length || full()!.mutual_friends?.length}>
@@ -673,6 +674,12 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
   // Others' Kass songs only when there are some; yours always (it says how to fill it).
   const songs = () => full()?.top_songs;
   const showSongs = () => !!songs() && (songs()!.length > 0 || isMe());
+  // REC clips: a tab when they shared some (yours always, it says how).
+  const [clips] = createResource(
+    () => p.userId,
+    (id) => api<{ clips: SharedClip[]; hidden: boolean }>('GET', `/users/${id}/clips`).catch(() => null),
+  );
+  const showClips = () => !!clips() && (clips()!.clips.length > 0 || isMe());
   const picture = () => media(shown()?.avatar);
   return (
     <div class="profile-modal-wrap">
@@ -801,7 +808,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       <div class="profile-dates">
                         <Show when={full()}>
                           <div class="profile-section">
-                            <div class="label">{t('Linkord member since')}</div>
+                            <div class="label">{t('Pottira member since')}</div>
                             <p>{longDate(full()!.created_at)}</p>
                           </div>
                         </Show>
@@ -927,6 +934,15 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       id: 'songs',
                       label: t('Top songs'),
                       body: () => <TopSongsCard songs={songs()!} isMe={isMe()} shown={full()?.show_top_songs} />,
+                    },
+                  ]
+                : []),
+              ...(showClips()
+                ? [
+                    {
+                      id: 'clips',
+                      label: t('Clips'),
+                      body: () => <RecentClipsCard clips={clips()!.clips} isMe={isMe()} hidden={clips()!.hidden} />,
                     },
                   ]
                 : []),

@@ -147,7 +147,45 @@ const snowball = (m) => `
 <circle cx="24" cy="8.2" r="3.8" fill="${m.light}"/>
 <circle cx="25" cy="9.2" r="2" fill="${m.main}" opacity=".6"/>`;
 
-const TIERED = { member: hourglass, games, played: gamepad, live: microphone, calls: headphones, watch: popcorn, sounds: megaphone, snowball };
+// REC (2.0): clips shared, views of them, hours recorded.
+const clapper = (m) => `
+<rect x="8.5" y="20" width="31" height="21" rx="3.2" fill="${m.dark}"/>
+<rect x="8.5" y="18.5" width="31" height="20.5" rx="3.2" fill="${m.main}"/>
+<path d="M12.5 35.5H35.5" stroke="${m.dark}" stroke-width="1.4" stroke-linecap="round" opacity=".6"/>
+<path d="M12 23.4H22" stroke="${m.light}" stroke-width="1.6" stroke-linecap="round"/>
+<circle cx="24" cy="29.5" r="5.4" fill="#2f3138"/>
+<path d="M22.4 26.9L27 29.5L22.4 32.1Z" fill="#ffd23f"/>
+<rect x="8.5" y="15.5" width="31" height="5.5" rx="1.6" fill="#2f3138"/>
+<path d="M12.5 15.5L15.5 21M19.5 15.5L22.5 21M26.5 15.5L29.5 21M33.5 15.5L36.5 21" stroke="#f4f4f6" stroke-width="2.2"/>
+<g transform="rotate(-16 9 14)"><rect x="8.5" y="9" width="31" height="5.5" rx="1.6" fill="#2f3138"/>
+<path d="M12.5 9L15.5 14.5M19.5 9L22.5 14.5M26.5 9L29.5 14.5M33.5 9L36.5 14.5" stroke="#f4f4f6" stroke-width="2.2"/></g>
+<circle cx="9.8" cy="14.6" r="1.6" fill="${m.light}"/>`;
+
+const eye = (m) => `
+<path d="M4 25C9 15.5 16 11 24 11C32 11 39 15.5 44 25C39 34.5 32 39 24 39C16 39 9 34.5 4 25Z" fill="${m.main}"/>
+<path d="M4 25C9 34.5 16 39 24 39C32 39 39 34.5 44 25Z" fill="${m.dark}" opacity=".45"/>
+<path d="M8.5 25C12.5 18 18 14.6 24 14.6C30 14.6 35.5 18 39.5 25C35.5 32 30 35.4 24 35.4C18 35.4 12.5 32 8.5 25Z" fill="#fdfcf7"/>
+<circle cx="24" cy="25" r="8" fill="#4da3ff"/>
+<circle cx="24" cy="25" r="8" fill="none" stroke="#2c6fd0" stroke-width="1.2"/>
+<circle cx="24" cy="25" r="4.2" fill="#22252c"/>
+<circle cx="26.4" cy="22.6" r="1.9" fill="#fff"/>
+<circle cx="21.6" cy="27.6" r=".9" fill="#fff" opacity=".8"/>
+<path d="M10.5 18.6C14 14.6 18.5 12.7 23 12.4" stroke="${m.light}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+
+const camcorder = (m) => `
+<path d="M31 21L42 14.5V34.5L31 28Z" fill="${m.dark}"/>
+<path d="M31 21L42 14.5V19.5L31 25Z" fill="${m.light}" opacity=".55"/>
+<rect x="5.5" y="15" width="27" height="20" rx="4.2" fill="${m.main}"/>
+<path d="M5.5 26H32.5V30.8A4.2 4.2 0 0 1 28.3 35H9.7A4.2 4.2 0 0 1 5.5 30.8Z" fill="${m.dark}" opacity=".5"/>
+<circle cx="14.5" cy="25" r="6" fill="#2f3138"/>
+<circle cx="14.5" cy="25" r="3.2" fill="#6fd0ff"/>
+<circle cx="15.6" cy="23.9" r="1.1" fill="#fff"/>
+<circle cx="26.3" cy="20.3" r="2.5" fill="#ff4d6d"/>
+<circle cx="25.7" cy="19.7" r=".8" fill="#ffd0da"/>
+<path d="M9 18.4H19.5" stroke="${m.light}" stroke-width="1.5" stroke-linecap="round"/>
+<rect x="12" y="10.5" width="13" height="4.5" rx="1.6" fill="${m.dark}"/>`;
+
+const TIERED = { member: hourglass, games, played: gamepad, live: microphone, calls: headphones, watch: popcorn, sounds: megaphone, snowball, clips: clapper, views: eye, recorded: camcorder };
 
 const tiered = (draw, t) => {
   const m = TIERS[t];
@@ -255,6 +293,27 @@ ${sparkle(40, 8, 3.4)}`,
 <circle cx="24" cy="24" r="7.4" fill="none" stroke="#b82a3a" stroke-width="1.2"/>
 <path d="M13 18C14.6 14.2 17.6 11.6 21.4 10.6" stroke="#ffd0d6" stroke-width="1.6" fill="none" stroke-linecap="round"/>
 ${sparkle(40.5, 8, 3.4)}`,
+  // REC: a clip of yours watched together by 3+ people.
+  premiere: () => `
+<g transform="rotate(-10 24 24)">
+<path d="M6.5 14H41.5V20.2A3.8 3.8 0 0 0 41.5 27.8V34H6.5V27.8A3.8 3.8 0 0 0 6.5 20.2Z" fill="#ff4d6d"/>
+<path d="M6.5 25H41.5V27.8A3.8 3.8 0 0 0 41.5 34H6.5V27.8A3.8 3.8 0 0 0 6.5 25Z" fill="#d93450" opacity=".55"/>
+<path d="M14 14V34" stroke="#ffd0da" stroke-width="1.3" stroke-dasharray="2 2"/>
+<path d="M34 14V34" stroke="#ffd0da" stroke-width="1.3" stroke-dasharray="2 2"/>
+<path d="M24 16.5L26.4 21.3L31.6 22L27.8 25.6L28.7 30.8L24 28.3L19.3 30.8L20.2 25.6L16.4 22L21.6 21.3Z" fill="#ffd23f"/>
+<path d="M24 16.5L26.4 21.3L31.6 22L27.8 25.6L28.7 30.8L24 28.3Z" fill="#f2b51d"/>
+<path d="M9 17.2H12" stroke="#ffd0da" stroke-width="1.4" stroke-linecap="round"/>
+</g>
+${sparkle(40.5, 8, 3.4)}${sparkle(8, 40.5, 2.6, '#ffe9a8')}`,
+  // REC: a League pentakill caught on a recording (checked against Riot's match).
+  pentakill: () => `
+<circle cx="24" cy="25" r="16" fill="#3a2a6e"/>
+<circle cx="24" cy="25" r="16" fill="none" stroke="#f5b935" stroke-width="2.4"/>
+${[-56, -28, 0, 28, 56].map((a) => `<g transform="rotate(${a} 24 34)"><path d="M24 8.5L26 12V30H22V12Z" fill="#e8eef8"/><path d="M24 8.5L26 12V30H24Z" fill="#b9c4d6"/><rect x="20" y="29.5" width="8" height="2.2" rx="1" fill="#f5b935"/><rect x="23" y="31.5" width="2" height="4" rx=".8" fill="#8c560c"/></g>`).join('')}
+<circle cx="24" cy="35" r="6.3" fill="#ff4d6d"/>
+<circle cx="24" cy="35" r="6.3" fill="none" stroke="#f5b935" stroke-width="1.6"/>
+<text x="24" y="38.6" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="10" fill="#fff">5</text>
+${sparkle(40.5, 8, 3.6)}${sparkle(7.5, 9.5, 2.6, '#ffe9a8')}`,
 };
 
 const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">${body.replace(/\n/g, '')}</svg>\n`;

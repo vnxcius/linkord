@@ -42,7 +42,9 @@ export type WorkerIn =
   /** Play a soundboard sound for everyone in the channel. */
   | { type: 'sound'; sound_id: string }
   /** Leaving the call: tells the server (so the seat ends now, not after the reconnect grace) and closes. */
-  | { type: 'leave' };
+  | { type: 'leave' }
+  /** REC records the voice chat: mix everyone you hear except `exclude` (opted out) and send it as `rec_audio`. */
+  | { type: 'recording'; on: boolean; exclude: string[] };
 
 export type WorkerOut =
   /** Connected. `resumed`: the server kept our seat (after a dropped connection or a server restart). */
@@ -64,7 +66,9 @@ export type WorkerOut =
    * Move Members dragged us), or disconnects us (channelId null). `by` = who did it. */
   | { type: 'move'; channelId: string | null; reason?: string; by?: string }
   /** Someone in the channel (maybe us) played a soundboard sound. */
-  | { type: 'sound'; userId: string; sound: import('./soundboard').Sound };
+  | { type: 'sound'; userId: string; sound: import('./soundboard').Sound }
+  /** 20 ms of the recording mix (interleaved stereo f32) for REC. */
+  | { type: 'rec_audio'; data: ArrayBuffer };
 
 /** Once a second while streaming audio: what the capture delivers and what the echo canceller does with it. */
 export interface StreamAudioStats {
@@ -122,6 +126,8 @@ let encoder: OpusEncoderHandle | null = null;
 let screenEncoder: OpusEncoderHandle | null = null;
 const decoders = new Map<string, Promise<OpusDecoderHandle>>();
 let playback: MessagePort | null = null;
+/** REC's recording mix, kept for a playback port that comes later (a reconnect). */
+let recording: { on: boolean; exclude: string[] } = { on: false, exclude: [] };
 let muted = false;
 let deafened = false;
 let gateUntil = 0;
@@ -368,7 +374,12 @@ let lastHeardAt = 0;
 async function connect(msg: Extract<WorkerIn, { type: 'connect' }>) {
   connectMsg = msg;
   playback = msg.playback;
-  playback.onmessage = (e) => onReference(e.data);
+  playback.onmessage = (e) => {
+    if (e.data instanceof Float32Array) return onReference(e.data);
+    const rec: Float32Array | undefined = e.data?.rec;
+    if (rec) post({ type: 'rec_audio', data: rec.buffer as ArrayBuffer }, [rec.buffer]);
+  };
+  playback.postMessage({ recording: recording.on, exclude: recording.exclude });
   for (const [id, gain] of gains) playback.postMessage({ id, gain });
   encoder = await createEncoder({
     sampleRate: 48000,
@@ -541,6 +552,10 @@ self.onmessage = async (e: MessageEvent<WorkerIn>) => {
       setTimeout(() => self.close(), 500);
       return;
     }
+    case 'recording':
+      recording = { on: m.on, exclude: m.exclude };
+      playback?.postMessage({ recording: m.on, exclude: m.exclude });
+      return;
     case 'gain':
       gains.set(m.id, m.gain);
       playback?.postMessage({ id: m.id, gain: m.gain });

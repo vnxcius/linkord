@@ -20,7 +20,8 @@ import { openExternal } from '../lib/platform';
 import { messageLink, openAppLink } from '../lib/route';
 import { toDisplay, toRaw, type Tokens } from '../lib/mentions';
 import { dmName, findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/store';
-import type { Attachment, Channel, Embed, Forwarded, Message } from '../lib/types';
+import { voiceUi } from '../lib/voice';
+import type { Attachment, Channel, Embed, Forwarded, Message, SharedClip } from '../lib/types';
 import { videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
 import { isPrivate, Kind } from '../lib/types';
 import {
@@ -715,7 +716,7 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                       onClick={() => void attempt(() => toggleReaction(m(), r.emoji))}
                     >
                       <ReactionEmoji emoji={r.emoji} />
-                      <span>{r.users.length}</span>
+                      <span class="reaction-count">{r.users.length}</span>
                     </button>
                   )}
                 </For>
@@ -946,7 +947,17 @@ function AttachmentView(p: { a: Attachment; eager: boolean }) {
         <TextFileView a={p.a} />
       </Match>
       <Match when={kind() === 'video'}>
-        <VideoPlayer src={url()} filename={p.a.filename} />
+        {/* A copy every app plays when the original's format doesn't (server/src/videos.rs); the key reloads it. */}
+        <Show when={p.a.playable ?? p.a.url} keyed>
+          {(file) => (
+            <VideoPlayer
+              src={media(file)!}
+              download={url()}
+              filename={p.a.filename}
+              checking={p.a.codec === undefined}
+            />
+          )}
+        </Show>
       </Match>
       <Match when={kind() === 'audio'}>
         <audio class="attachment-audio" src={url()} controls preload="metadata" />
@@ -985,6 +996,45 @@ function RichParts(p: { e: Embed; guildId?: string | null }) {
   );
 }
 
+/** A REC clip someone shared: the app's player, what it is and who made it, and its public link. */
+function ClipCard(p: { clip: SharedClip }) {
+  const c = () => p.clip;
+  const name = () => c().title || c().game || t('Clip');
+  const who = () => c().author?.display_name || c().author?.username || '';
+  const length = () => {
+    const s = Math.round(c().duration_ms / 1000);
+    return s >= 3600
+      ? `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+      : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  return (
+    <div class="clip-card">
+      <div class="clip-card-head">
+        <span class="clip-kicker">REC</span>
+        <strong>{name()}</strong>
+        <small class="muted">
+          {[c().game && c().title ? c().game : '', who(), length()].filter(Boolean).join(' · ')}
+        </small>
+      </div>
+      <VideoPlayer src={media(c().video)!} filename={`${name()}.mp4`} />
+      <Show when={voiceUi.channelId}>
+        {(channel) => (
+          <button
+            class="btn small-btn clip-card-watch"
+            onClick={() =>
+              void import('../lib/watch')
+                .then((w) => w.startWatch(channel(), c().url))
+                .catch((e) => toast(String(e.message ?? e)))
+            }
+          >
+            <I.Play size={15} /> {t('Watch together in the call')}
+          </button>
+        )}
+      </Show>
+    </div>
+  );
+}
+
 function EmbedView(p: { e: Embed; eager: boolean; guildId?: string | null }) {
   return (
     <Switch>
@@ -1004,6 +1054,7 @@ function EmbedView(p: { e: Embed; eager: boolean; guildId?: string | null }) {
       <Match when={p.e.type === 'video'}>
         <VideoPlayer src={p.e.url} filename={filenameFromUrl(p.e.url)} />
       </Match>
+      <Match when={p.e.type === 'clip' && p.e.clip}>{(clip) => <ClipCard clip={clip()} />}</Match>
       <Match when={p.e.type === 'link' && videoPlayer(p.e.resolved_url ?? p.e.url)}>
         {(player) => <VideoLinkEmbed e={p.e} player={player()} />}
       </Match>

@@ -1,7 +1,7 @@
 // Push notifications on phones and in browsers (server/src/push.rs): the web app registers a service worker
 // (public/sw.js), subscribes with the server's key and hands the subscription to the server, which sends DMs,
-// mentions and the like while Linkord isn't in use. Web only: the desktop app has its own notifications.
-// iPhone/iPad: only once Linkord is added to the Home Screen (Safari doesn't offer push in a tab).
+// mentions and the like while Pottira isn't in use. Web only: the desktop app has its own notifications.
+// iPhone/iPad: only once Pottira is added to the Home Screen (Safari doesn't offer push in a tab).
 
 import { createSignal } from 'solid-js';
 import { api, getToken } from './api';
@@ -114,7 +114,7 @@ export async function disablePush() {
 
 let received: ((m: { shown: boolean; error?: string }) => void) | null = null;
 
-/** Seconds a test waits before it's sent, so Linkord can be closed and it arrives like a real notification. */
+/** Seconds a test waits before it's sent, so Pottira can be closed and it arrives like a real notification. */
 export const TEST_DELAY = 10;
 
 /** What happened to a test: 'shown' (the device showed it), 'not-shown' (it arrived but showing failed: the error),

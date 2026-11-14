@@ -1,7 +1,11 @@
-# Linkord
+# Pottira
 
-A self-hosted, Discord-style chat app for a small group of friends: servers, channels, threads, DMs, voice, video
-and screen share. Login is Discord OAuth only.
+A self-hosted chat app for a small group of friends: servers, channels, threads, DMs, voice, video and screen share.
+Login is Discord OAuth only.
+
+Pottira was called Linkord until November 2026. The rebrand is in progress: everything people see says Pottira, but
+internal names (`LINKORD_*` environment variables, the `linkord` services and containers, the `old.example.com`
+domain, the desktop app's identifier and product name) still say linkord until the migration described in CLAUDE.md.
 
 - **Server:** Rust (axum, sqlx) + PostgreSQL. REST API, a websocket gateway, and a voice/video relay, all on one
   HTTPS origin, so voice needs no port forwarding, TURN or media server.

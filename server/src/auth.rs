@@ -56,7 +56,7 @@ pub async fn is_admin(st: &AppState, user: Id) -> bool {
             .flatten();
     let Some((username, discord_id, discord_username)) = row else { return false };
     let id = user.to_string();
-    // Names are matched against the Discord username: Linkord usernames can be changed, so someone could take an
+    // Names are matched against the Discord username: Pottira usernames can be changed, so someone could take an
     // admin's old one. (Dev-login accounts have no Discord username; they can't sign in when dev login is off.)
     let name = discord_username.map(|n| n.to_lowercase()).or_else(|| discord_id.starts_with("dev:").then_some(username));
     st.cfg.admins.iter().any(|a| Some(a) == name.as_ref() || *a == discord_id || *a == id)
@@ -136,7 +136,6 @@ struct StartQuery {
     port: Option<u16>,
     state: Option<String>,
     challenge: Option<String>,
-    invite: Option<String>,
 }
 
 const LOGIN_COOKIE: &str = "linkord_login";
@@ -147,7 +146,7 @@ async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip
         return Err(bad("Discord login is not configured on this server"));
     }
     if q.nonce.is_some() {
-        return Ok(result_page("This version of Linkord can't sign in any more. Restart it to update, then try again.").into_response());
+        return Ok(result_page("This version of Pottira can't sign in any more. Restart it to update, then try again.").into_response());
     }
     let long_enough = |v: &str| (32..=128).contains(&v.len()) && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     let desktop = match (q.port, q.state, q.challenge) {
@@ -158,11 +157,10 @@ async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip
         _ => return Err(bad("invalid sign-in request")),
     };
     let state = random_token(24);
-    // Only people already signed in to Linkord on Discord skip the consent screen, and only in the browser client:
+    // Only people already signed in to Pottira on Discord skip the consent screen, and only in the browser client:
     // the desktop flow always shows it.
     let prompt = if desktop.is_some() { "" } else { "&prompt=none" };
-    let invite = q.invite.filter(|c| c.len() <= 64);
-    st.oauth_states.insert(state.clone(), OAuthState { desktop, invite, created: Instant::now() });
+    st.oauth_states.insert(state.clone(), OAuthState { desktop, created: Instant::now() });
     let url = format!(
         "https://discord.com/oauth2/authorize?client_id={}&response_type=code&scope=identify{prompt}&redirect_uri={}&state={}",
         st.cfg.discord_client_id,
@@ -212,8 +210,6 @@ struct DiscordUser {
 /// Why a sign-in was refused, in words for the person.
 #[derive(Debug, thiserror::Error)]
 enum Refused {
-    #[error("Linkord is invite-only. Open an invite link from a friend in this browser, then sign in.")]
-    NotInvited,
     #[error("New accounts aren't being created right now.")]
     Closed,
     #[error("This account has been suspended.")]
@@ -225,16 +221,16 @@ async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp
         return result_page("Too many sign-in attempts. Please wait a minute and try again.").into_response();
     }
     if q.state.is_none() || q.state.as_deref() != login_cookie(&headers) {
-        return result_page("This login link expired. Please try again from Linkord.").into_response();
+        return result_page("This login link expired. Please try again from Pottira.").into_response();
     }
     let oauth = match q.state.as_deref().and_then(|s| st.oauth_states.remove(s)) {
         Some((_, o)) if o.created.elapsed() < LOGIN_TTL => o,
-        _ => return result_page("This login link expired. Please try again from Linkord.").into_response(),
+        _ => return result_page("This login link expired. Please try again from Pottira.").into_response(),
     };
     let Some(code) = q.code.filter(|_| q.error.is_none()) else {
         return result_page("Discord login was cancelled.").into_response();
     };
-    let user = match finish_discord_login(&st, &code, &base, oauth.invite.as_deref()).await {
+    let user = match finish_discord_login(&st, &code, &base).await {
         Ok(u) => u,
         Err(e) => {
             if let Some(refused) = e.downcast_ref::<Refused>() {
@@ -258,7 +254,7 @@ async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp
     }
 }
 
-async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase, invite: Option<&str>) -> anyhow::Result<Id> {
+async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> anyhow::Result<Id> {
     let tok: DiscordToken = st
         .http
         .post(format!("{}/api/oauth2/token", st.cfg.discord_api_url))
@@ -284,7 +280,7 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase, invi
         .json()
         .await?;
 
-    check_signup(st, &du.id, invite).await?;
+    check_signup(st, &du.id).await?;
     let (id, inserted) = sign_up_or_in(&st.db, &du.id, &normalize_username(&du.username), Some(&du.username)).await?;
     if inserted {
         sqlx::query("UPDATE users SET display_name = $2, accent_color = $3 WHERE id = $1")
@@ -323,21 +319,15 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase, invi
     Ok(id)
 }
 
-/// Whether this Discord account may sign in: existing accounts unless suspended, new ones per LINKORD_SIGNUP.
-async fn check_signup(st: &AppState, discord_id: &str, invite: Option<&str>) -> anyhow::Result<()> {
+/// Whether this Discord account may sign in: existing accounts unless suspended, new ones unless signup is closed.
+async fn check_signup(st: &AppState, discord_id: &str) -> anyhow::Result<()> {
     let existing: Option<Option<chrono::DateTime<chrono::Utc>>> =
         sqlx::query_scalar("SELECT suspended_at FROM users WHERE discord_id = $1").bind(discord_id).fetch_optional(&st.db).await?;
     match existing {
         Some(Some(_)) => Err(Refused::Suspended.into()),
         Some(None) => Ok(()),
-        None => match st.cfg.signup.as_str() {
-            "open" => Ok(()),
-            "closed" => Err(Refused::Closed.into()),
-            _ => match invite {
-                Some(code) if crate::api::invites::is_valid(st, code).await? => Ok(()),
-                _ => Err(Refused::NotInvited.into()),
-            },
-        },
+        None if st.cfg.signup_closed => Err(Refused::Closed.into()),
+        None => Ok(()),
     }
 }
 
@@ -352,7 +342,7 @@ pub async fn username_taken(db: &PgPool, name: &str, except: Option<Id>) -> sqlx
 
 /// Finds or creates the account for `discord_id` -> (id, newly created). New accounts take `wanted` as their
 /// username; if someone has it, they get a free stand-in ("name_1234") and must pick their own (needs_username).
-/// Existing accounts follow their Discord username until they pick one in Linkord, as long as it's free.
+/// Existing accounts follow their Discord username until they pick one in Pottira, as long as it's free.
 async fn sign_up_or_in(db: &PgPool, discord_id: &str, wanted: &str, discord_username: Option<&str>) -> sqlx::Result<(Id, bool)> {
     let existing: Option<(Id, String, bool)> = sqlx::query_as("SELECT id, username, username_set FROM users WHERE discord_id = $1")
         .bind(discord_id)
@@ -418,10 +408,10 @@ fn normalize_username(raw: &str) -> String {
 
 pub fn result_page(message: &str) -> Html<String> {
     Html(format!(
-        r#"<!doctype html><html><head><meta charset="utf-8"><title>Linkord</title>
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>Pottira</title>
 <style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#0e1412;color:#e8e4d6;font:16px system-ui,sans-serif}}
 .c{{text-align:center;max-width:420px;padding:24px}}h1{{font-weight:600;letter-spacing:.02em;color:#d9b65d}}</style></head>
-<body><div class="c"><h1>Linkord</h1><p>{}</p></div></body></html>"#,
+<body><div class="c"><h1>Pottira</h1><p>{}</p></div></body></html>"#,
         message.replace('<', "&lt;")
     ))
 }
@@ -581,7 +571,8 @@ mod tests {
 struct AuthSnap {
     /// (code, user, challenge, age ms)
     pending: Vec<(String, Id, String, u64)>,
-    /// (state, desktop (port, state, challenge), invite, age ms)
+    /// (state, desktop (port, state, challenge), unused, age ms). The third slot held the invite-only signup's invite
+    /// code (removed 2026-11-13); kept so a handover from an older server still reads. Drop it after the next deploy.
     oauth: Vec<(String, Option<(u16, String, String)>, Option<String>, u64)>,
     /// (state, user, age ms)
     spotify: Vec<(String, Id, u64)>,
@@ -594,7 +585,7 @@ pub fn snapshot(st: &AppState) -> serde_json::Value {
         oauth: st
             .oauth_states
             .iter()
-            .map(|o| (o.key().clone(), o.desktop.as_ref().map(|d| (d.port, d.state.clone(), d.challenge.clone())), o.invite.clone(), ms(o.created)))
+            .map(|o| (o.key().clone(), o.desktop.as_ref().map(|d| (d.port, d.state.clone(), d.challenge.clone())), None::<String>, ms(o.created)))
             .collect(),
         spotify: st.spotify_states.iter().map(|s| (s.key().clone(), s.0, ms(s.1))).collect(),
     };
@@ -611,9 +602,9 @@ pub fn restore(st: &AppState, v: serde_json::Value, age_ms: i64) -> anyhow::Resu
     for (code, user, challenge, age) in snap.pending {
         st.pending_logins.insert(code, crate::state::PendingLogin { user, challenge, created: ago(age) });
     }
-    for (state, desktop, invite, age) in snap.oauth {
+    for (state, desktop, _, age) in snap.oauth {
         let desktop = desktop.map(|(port, state, challenge)| crate::state::DesktopLogin { port, state, challenge });
-        st.oauth_states.insert(state, crate::state::OAuthState { desktop, invite, created: ago(age) });
+        st.oauth_states.insert(state, crate::state::OAuthState { desktop, created: ago(age) });
     }
     for (state, user, age) in snap.spotify {
         st.spotify_states.insert(state, (user, ago(age)));
