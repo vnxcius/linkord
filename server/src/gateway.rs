@@ -523,7 +523,7 @@ struct Ready<'a> {
     watches: Vec<serde_json::Value>,
     server_now: i64,
     features: Features,
-    /// LINKORD_ADMINS: can change the music bot's picture.
+    /// POTTIRA_ADMINS: can change the music bot's picture.
     admin: bool,
     /// Slash commands of bots driven from outside (Steve, steve.rs), while they're connected.
     bot_commands: serde_json::Value,

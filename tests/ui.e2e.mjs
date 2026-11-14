@@ -1,6 +1,6 @@
 // Browser end-to-end test: two users exercise the main flows in the real UI.
-//   LINKORD_TEST_URL=http://localhost:7701 CHROMIUM=/path/to/chrome node tests/ui.e2e.mjs [screenshot-dir]
-// Needs a server with LINKORD_DEV_LOGIN=true (never production).
+//   POTTIRA_TEST_URL=http://localhost:7701 CHROMIUM=/path/to/chrome node tests/ui.e2e.mjs [screenshot-dir]
+// Needs a server with POTTIRA_DEV_LOGIN=true (never production).
 // While iterating: E2E_ONLY=<regex> runs only matching steps (plus the setup steps), E2E_FAILFAST=1 stops
 // at the first failure, E2E_TIMEOUT=<ms> shortens Playwright's waits (tests/run-local.sh --ui does all three).
 import assert from 'node:assert/strict';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 
-const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
+const BASE = process.env.POTTIRA_TEST_URL ?? 'http://localhost:7701';
 const SHOTS = process.argv[2];
 const run = Math.random().toString(36).slice(2, 6);
 const browser = await chromium.launch({
@@ -65,7 +65,7 @@ async function user(name, prefs, context = {}, tour = false) {
   page.on('console', (m) => (m.text().includes('noise suppression unavailable') || m.text().includes('Content Security Policy')) && errors.push(`${name}: ${m.text()}`));
   await page.goto(BASE);
   if (prefs) {
-    await page.evaluate((p) => localStorage.setItem('linkord.prefs', JSON.stringify(p)), prefs);
+    await page.evaluate((p) => localStorage.setItem('pottira.prefs', JSON.stringify(p)), prefs);
     await page.reload();
   }
   await page.fill('.dev-login input', `${name}.${run}`);
@@ -106,7 +106,7 @@ await step('second user joins with an invite', async () => {
 
 await step('nameplates: a WebM default plays behind your name in everyone\'s member list', async () => {
   const webm = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=s=264x48:d=2', '-c:v', 'libvpx-vp9', '-f', 'webm', 'pipe:1']);
-  fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'zz-e2e.webm'), webm);
+  fs.writeFileSync(path.join(process.env.POTTIRA_TEST_DATA_DIR, 'nameplates', 'zz-e2e.webm'), webm);
   await a.page.click('[aria-label="Settings"]');
   await a.page.click('.settings-nav button:has-text("Profile")');
   // Picker videos only load while on screen; data-src says which nameplate each one is.
@@ -160,7 +160,7 @@ await step('security: a crafted message runs nothing, and a link can\'t swap you
   const page = await other.newPage();
   await page.goto(`${BASE}/#token=someone-elses-token`);
   await page.waitForSelector('.login');
-  assert.equal(await page.evaluate(() => localStorage.getItem('linkord.token')), null);
+  assert.equal(await page.evaluate(() => localStorage.getItem('pottira.token')), null);
   await other.close();
 });
 
@@ -449,7 +449,7 @@ await step('spotify: connect (the Connections tab is hidden for now, so through 
   assert.equal(await a.page.locator('.settings-nav button:has-text("Connections")').count(), 0, 'Connections tab is on hold');
   await a.page.click('.settings-close');
   // Spotify's (fake) consent page approves and returns to Pottira.
-  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await a.page.evaluate(() => localStorage.getItem('pottira.token'));
   const { url } = await (await fetch(`${BASE}/api/connections/spotify/authorize`, { headers: { authorization: `Bearer ${token}` } })).json();
   const consent = await a.page.context().newPage();
   await consent.goto(url);
@@ -482,7 +482,7 @@ await step('spotify: connect (the Connections tab is hidden for now, so through 
 await step('games: "Playing <game>" (as the Windows app reports it) shows in lists, Active Now and the profile, before Spotify', async () => {
   // The browser can't detect games, so report one the way the desktop app does.
   const play = (track) => fetch('http://localhost:7702/mock/playing', { method: 'POST', body: JSON.stringify({ track }) });
-  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await a.page.evaluate(() => localStorage.getItem('pottira.token'));
   const playing = (method, body) =>
     fetch(`${BASE}/api/activities/playing`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
   await play({ id: 'trk2', name: 'Gerudo Valley', artists: ['Koume'], duration_ms: 200000 });
@@ -527,7 +527,7 @@ await step('custom status: set it from the status menu with an emoji; it replace
   await a.page.click('.modal-footer button:has-text("Save")');
   await a.page.waitForSelector('.me-names .custom-status:has-text("Exploring the ruins") .status-emoji');
   // Friends see it in place of "Playing ..." in the member list, and as a bubble on the profile.
-  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await a.page.evaluate(() => localStorage.getItem('pottira.token'));
   await fetch(`${BASE}/api/activities/playing`, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Some Game' }) });
   await b.page.click('.rail-item:first-child .rail-btn');
   await b.page.click('.tabs button:has-text("All")');
@@ -790,7 +790,7 @@ await step('voice channel: hide the channel list from the header; watch together
   await a.page.click('.chat-header [aria-label="Show channel list"]');
   await a.page.waitForSelector('.nav-pane', { state: 'visible' });
 
-  const token = await a.page.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await a.page.evaluate(() => localStorage.getItem('pottira.token'));
   const channelId = a.page.url().split('/').pop();
   const watch = (method, body) =>
     fetch(`${BASE}/api/channels/${channelId}/watch`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
@@ -844,7 +844,7 @@ await step('voice channel: hide the channel list from the header; watch together
 await step('profiles: the side card is there from the start, pictures open like attachments; DMs show the other person', async () => {
   const pg = a.page;
   const picture = fs.readFileSync(new URL('../assets/icon.png', import.meta.url));
-  const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await pg.evaluate(() => localStorage.getItem('pottira.token'));
   assert.ok(token, 'signed in');
   const post = async (path, body) => {
     const fd = body ? JSON.stringify(body) : new FormData();
@@ -1211,14 +1211,14 @@ await step('reload keeps the channel in the URL and rejoins voice; leaving on pu
 
 await step('desktop app: dismissable banner, download page with this computer first, patch notes, "updated" banner; Back returns to the app', async () => {
   // A release in the test server's update feed (this browser reports Linux, on any host, so the .deb/.rpm come first).
-  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR, 'updates');
+  const dir = path.join(process.env.POTTIRA_TEST_DATA_DIR, 'updates');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'Linkord_9.9.9_amd64.deb'), Buffer.alloc(3 * 1048576));
-  fs.writeFileSync(path.join(dir, 'Linkord-9.9.9-1.x86_64.rpm'), Buffer.alloc(1024));
-  fs.writeFileSync(path.join(dir, 'Linkord_9.9.9_x64-setup.exe'), Buffer.alloc(1024));
+  fs.writeFileSync(path.join(dir, 'Pottira_9.9.9_amd64.deb'), Buffer.alloc(3 * 1048576));
+  fs.writeFileSync(path.join(dir, 'Pottira-9.9.9-1.x86_64.rpm'), Buffer.alloc(1024));
+  fs.writeFileSync(path.join(dir, 'Pottira_9.9.9_x64-setup.exe'), Buffer.alloc(1024));
   const date = new Date().toISOString();
-  fs.writeFileSync(path.join(dir, 'linux.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, deb: 'Linkord_9.9.9_amd64.deb', rpm: 'Linkord-9.9.9-1.x86_64.rpm' }));
-  fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, platforms: { 'windows-x86_64': { signature: 's', file: 'Linkord_9.9.9_x64-setup.exe' } } }));
+  fs.writeFileSync(path.join(dir, 'linux.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, deb: 'Pottira_9.9.9_amd64.deb', rpm: 'Pottira-9.9.9-1.x86_64.rpm' }));
+  fs.writeFileSync(path.join(dir, 'latest.json'), JSON.stringify({ version: '9.9.9', notes: 'x', pub_date: date, platforms: { 'windows-x86_64': { signature: 's', file: 'Pottira_9.9.9_x64-setup.exe' } } }));
   fs.writeFileSync(path.join(dir, 'changelog.json'), JSON.stringify([
     { version: '9.9.9', date, notes: 'First change\n- Second change' },
     { version: '9.9.8', date, notes: 'Older change' },
@@ -1233,7 +1233,7 @@ await step('desktop app: dismissable banner, download page with this computer fi
     await pg.click('.download-banner-btn');
     await pg.waitForSelector('.site-page .dl-primary a:has-text("Download .deb")');
     assert.equal(new URL(pg.url()).pathname, '/download');
-    assert.match(await pg.getAttribute('.dl-primary a:has-text("Download .deb")', 'href'), /\/api\/updates\/download\/Linkord_9\.9\.9_amd64\.deb$/);
+    assert.match(await pg.getAttribute('.dl-primary a:has-text("Download .deb")', 'href'), /\/api\/updates\/download\/Pottira_9\.9\.9_amd64\.deb$/);
     assert.match(await pg.textContent('.dl-primary .dl-meta'), /Version 9\.9\.9 · 3\.0 MB/);
     await pg.waitForSelector('.dl-platform.mine:has-text("Linux")');
     await shot(pg, 'e2e-download-page');
@@ -1294,7 +1294,7 @@ await step('narrow window: the member list opens as a drawer', async () => {
   await a.page.setViewportSize({ width: 1400, height: 860 });
 });
 
-await step('onboarding: a new account gets the tour; an account from before 1.0 gets "Version 1.0 is here!" once, with confetti and the fanfare', async () => {
+await step('onboarding: a new account gets the tour; an existing account gets the 2.0 dialog ("Meet REC") once, with confetti and the fanfare', async () => {
   const n = await user('nova', undefined, {}, true);
   const pg = n.page;
   try {
@@ -1310,37 +1310,37 @@ await step('onboarding: a new account gets the tour; an account from before 1.0 
     const card = await pg.locator('.tour-card').boundingBox();
     assert.ok(card.x >= spot.x + spot.width, 'card beside the spotlight');
     await shot(pg, 'e2e-tour-rail');
-    // Back and forth with the keyboard; a step without a place (calls) shows its screenshot in the middle.
+    // Back and forth with the keyboard; a step without a place (calls) shows its drawn scene in the middle.
     await pg.keyboard.press('ArrowRight');
     await pg.keyboard.press('ArrowRight');
-    await pg.waitForSelector('.tour:not(.anchored) .tour-card.with-shot .tour-shot img');
+    await pg.waitForSelector('.tour:not(.anchored) .tour-card.with-shot .tour-shot > *');
     await pg.keyboard.press('ArrowLeft');
     await pg.waitForSelector('.tour-card h2:has-text("Channels")');
     for (let i = 0; i < 20 && !(await pg.locator('.tour-next:has-text("Start chatting")').count()); i++) await pg.click('.tour-next');
     await pg.click('.tour-next:has-text("Start chatting")');
     await pg.waitForSelector('.tour', { state: 'detached' });
-    // Remembered for the account: a reload doesn't bring it (or the 1.0 dialog) back.
+    // Remembered for the account: a reload doesn't bring it (or the release dialog) back.
     await pg.reload();
     await pg.waitForSelector('.layout');
     await pg.waitForTimeout(1500);
     assert.equal(await pg.locator('.tour, .release').count(), 0);
 
-    // An account from before 1.0 (the migration marks those tour_done) gets the dialog instead.
-    const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+    // An account that hasn't seen this release gets the dialog instead.
+    const token = await pg.evaluate(() => localStorage.getItem('pottira.token'));
     await fetch(`${BASE}/api/users/@me/settings`, {
       method: 'PATCH',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ release_seen: null }),
     });
     await pg.reload();
-    await pg.waitForSelector('.release h2:has-text("Version 1.0 is here!")');
+    await pg.waitForSelector('.release h2:has-text("Meet REC")');
     await pg.waitForSelector('canvas.confetti');
     await pg.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/fanfare[^/]*\.wav/.test(e.name)), null, { timeout: 5000 });
     await shot(pg, 'e2e-release');
-    await pg.click('.release-list button:has-text("Watch together")');
-    await pg.waitForSelector('.release-slide h3:has-text("Watch together")');
+    await pg.click('.release-list button:has-text("The studio")');
+    await pg.waitForSelector('.release-slide h3:has-text("The studio")');
     await pg.keyboard.press('ArrowDown');
-    await pg.waitForSelector('.release-slide h3:has-text("Kass, the music bot")');
+    await pg.waitForSelector('.release-slide h3:has-text("Over your game")');
     await pg.click(`.release button:has-text("Let's go")`);
     await pg.waitForSelector('.release', { state: 'detached' });
     await pg.reload();
@@ -1377,8 +1377,8 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
   await pg.waitForSelector('.sidebar');
   assert.equal(await pg.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal overflow');
 
-  // Own user card from the avatar in the user panel.
-  await pg.tap('.me-avatar');
+  // Own user card from your name in the user panel (a tap on the avatar lands on its presence dot: the status menu).
+  await pg.tap('.me-name');
   await pg.waitForSelector('.profile-card');
   await pg.tap('.sidebar', { position: { x: 150, y: 120 } });
   await pg.waitForSelector('.profile-card', { state: 'detached' });
@@ -1391,7 +1391,7 @@ await step('phone layout: one pane at a time, back button, no sideways scrolling
     for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(x0 + ((x1 - x0) * i) / 8) });
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   };
-  const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
+  const token = await pg.evaluate(() => localStorage.getItem('pottira.token'));
   await fetch(`${BASE}/api/guilds`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: `Swipe ${run}` }) });
   await pg.tap(`.rail-btn[aria-label="Swipe ${run}"]`);
   await pg.tap('.channel-item:has-text("general")');
@@ -1541,7 +1541,7 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
   await pg.click('.lang-row:has-text("English")');
   await pg.waitForSelector('.settings-content h1:text("Language")');
   await pg.waitForSelector('.settings-nav button:has-text("My Account")');
-  assert.equal(await pg.evaluate(() => JSON.parse(localStorage.getItem('linkord.prefs')).language), 'en');
+  assert.equal(await pg.evaluate(() => JSON.parse(localStorage.getItem('pottira.prefs')).language), 'en');
   await pg.click('.lang-row:has-text("System default")');
   await pg.waitForSelector('.settings-content h1:text("Idioma")');
   await ctx.close();
@@ -1550,8 +1550,8 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
 await step('spellcheck: Portuguese (Hunspell) underlines only the misspelled word', async () => {
   const setLang = (lang) =>
     b.page.evaluate((l) => {
-      const p = JSON.parse(localStorage.getItem('linkord.prefs') || '{}');
-      localStorage.setItem('linkord.prefs', JSON.stringify({ ...p, spellLanguage: l, spellcheck: true }));
+      const p = JSON.parse(localStorage.getItem('pottira.prefs') || '{}');
+      localStorage.setItem('pottira.prefs', JSON.stringify({ ...p, spellLanguage: l, spellcheck: true }));
     }, lang);
   await setLang('pt');
   await b.page.reload();

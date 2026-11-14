@@ -5,7 +5,7 @@ import http from 'node:http';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright-core';
 
-const APP = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
+const APP = process.env.POTTIRA_TEST_URL ?? 'http://localhost:7701';
 const MON = process.env.MONITOR_TEST_URL ?? 'http://localhost:7705';
 const PASSWORD = process.env.MONITOR_TEST_PASSWORD ?? 'monitor-test-password';
 const SHOTS = process.env.SHOTS;
@@ -109,7 +109,7 @@ test('pages get security headers', async () => {
 test('the app has no public address for its counters', async () => {
   const res = await fetch(`${APP}/metrics`);
   assert.doesNotMatch(await res.text(), /in_flight/);
-  const inner = process.env.LINKORD_INTERNAL_TEST_URL;
+  const inner = process.env.POTTIRA_INTERNAL_TEST_URL;
   if (inner) assert.equal((await fetch(`${inner}/metrics`)).status, 401, 'needs the token');
 });
 

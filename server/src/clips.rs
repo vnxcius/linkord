@@ -10,7 +10,7 @@
 //!   Views: each viewer once a day (a salted hash of address + day, never the address), link-preview bots left out.
 //! - In chat a clip link becomes a `clip` embed (embeds.rs asks `embed_for`): the app's player, no page fetched.
 //!
-//! Limits: LINKORD_CLIP_QUOTA_MB per person (default 5 GB), LINKORD_CLIP_MAX_MB per file (default 1 GB), apart from
+//! Limits: POTTIRA_CLIP_QUOTA_MB per person (default 5 GB), POTTIRA_CLIP_MAX_MB per file (default 1 GB), apart from
 //! the attachments quota.
 
 use std::path::{Path as FsPath, PathBuf};

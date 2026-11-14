@@ -1,4 +1,4 @@
-# Linkord in production: Postgres, the server (two slots, see below) and the monitor. Every container starts with
+# Pottira in production: Postgres, the server (two slots, see below) and the monitor. Every container starts with
 # the machine (Docker starts at boot; `unless-stopped` brings back whatever was running).
 #
 # Deploy with deploy/install-service.sh (server) and deploy/install-monitor.sh (monitor), not with `up` by hand.
@@ -8,21 +8,21 @@
 # sessions handed over, nobody disconnected), then the deploy stops the old slot. Both use the host's network so
 # the sockets can be handed over and the addresses stay what Cloudflare's tunnel, the monitor and the router expect
 # (127.0.0.1:7700, 127.0.0.1:7711, 0.0.0.0:8443).
-name: linkord
+name: pottira
 
 x-server: &server
-  image: linkord-server:latest
+  image: pottira-server:latest
   network_mode: host
   # Reaps ffmpeg / yt-dlp children and forwards SIGTERM to the server.
   init: true
   # Settings: the server reads server/.env itself (mounted below), as on the host. Per slot (in `environment` below):
-  # LINKORD_TAKEOVER=1, the new slot may take over from the running one (a stray `cargo run` with these settings may
-  # not); LINKORD_AFTER_HANDOVER=wait, after handing over it waits to be stopped (an exit would get it restarted).
+  # POTTIRA_TAKEOVER=1, the new slot may take over from the running one (a stray `cargo run` with these settings may
+  # not); POTTIRA_AFTER_HANDOVER=wait, after handing over it waits to be stopped (an exit would get it restarted).
   volumes:
-    - ../server/.env:/linkord/server/.env:ro
-    - ../server/data:/linkord/server/data
-    - ../server/soundboard:/linkord/server/soundboard:ro
-    - ../server/nameplates:/linkord/server/nameplates
+    - ../server/.env:/pottira/server/.env:ro
+    - ../server/data:/pottira/server/data
+    - ../server/soundboard:/pottira/server/soundboard:ro
+    - ../server/nameplates:/pottira/server/nameplates
   # Room for requests that were already running when it handed over (handover.rs DRAIN_TIMEOUT) or saving its state.
   stop_grace_period: 75s
   # The limits the systemd unit had: they hold even if a media tool goes wrong on something a stranger uploaded.
@@ -43,52 +43,52 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: linkord
-      POSTGRES_DB: linkord
+      POSTGRES_USER: pottira
+      POSTGRES_DB: pottira
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U linkord"]
+      test: ["CMD-SHELL", "pg_isready -U pottira"]
       interval: 5s
       retries: 10
 
   server-a:
     <<: *server
-    container_name: linkord-server-a
+    container_name: pottira-server-a
     environment:
-      LINKORD_TAKEOVER: "1"
-      LINKORD_AFTER_HANDOVER: wait
-      LINKORD_SLOT: a
+      POTTIRA_TAKEOVER: "1"
+      POTTIRA_AFTER_HANDOVER: wait
+      POTTIRA_SLOT: a
     # Not started by a plain `docker compose up`: the deploy script picks the slot.
     profiles: [server]
 
   server-b:
     <<: *server
-    container_name: linkord-server-b
+    container_name: pottira-server-b
     environment:
-      LINKORD_TAKEOVER: "1"
-      LINKORD_AFTER_HANDOVER: wait
-      LINKORD_SLOT: b
+      POTTIRA_TAKEOVER: "1"
+      POTTIRA_AFTER_HANDOVER: wait
+      POTTIRA_SLOT: b
     profiles: [server]
 
   # The dashboard (monitor/). Its own process, limits and history, so it can't get in the app's way and still works
   # when the app is down. It sees the host's processes and network (for its charts) and reads the app's data
   # folder read-only; anything that changes the app goes through the app's internal listener.
   monitor:
-    image: linkord-monitor:latest
-    container_name: linkord-monitor
+    image: pottira-monitor:latest
+    container_name: pottira-monitor
     network_mode: host
     pid: host
     init: true
     volumes:
-      - ../monitor/.env:/linkord/monitor/.env:ro
-      - ../monitor/data:/linkord/monitor/data
-      - ../server/.env:/linkord/server/.env:ro
-      - ../server/data:/linkord/server/data:ro
-      - ../server/nameplates:/linkord/server/nameplates:ro
+      - ../monitor/.env:/pottira/monitor/.env:ro
+      - ../monitor/data:/pottira/monitor/data
+      - ../server/.env:/pottira/server/.env:ro
+      - ../server/data:/pottira/server/data:ro
+      - ../server/nameplates:/pottira/server/nameplates:ro
       # So "Machine" names the host's system, not the image's.
       - /usr/lib/os-release:/usr/lib/os-release:ro
     # The systemd unit had Nice=10, CPUQuota=25%, MemoryMax=256M.

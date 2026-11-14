@@ -200,7 +200,7 @@ function voiceModItems(userId: string, guildId: string): MenuEntry[] {
 /** Each bot's own picture endpoint (Kass: music.rs, Steve: steve.rs). */
 const BOT_AVATAR: Record<string, string> = { kass: '/bots/music/avatar', steve: '/bots/steve/avatar' };
 
-/** Admins (LINKORD_ADMINS) choose the bots' pictures. */
+/** Admins (POTTIRA_ADMINS) choose the bots' pictures. */
 function botPictureItems(userId: string): MenuEntry[] {
   const path = BOT_AVATAR[state.users[userId]?.username ?? ''];
   if (!path) return [];

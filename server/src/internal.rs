@@ -1,7 +1,7 @@
 //! What the monitor (the separate `monitor/` service) gets from the server: counters only this process knows, and
 //! the one thing it may ask for, removing an uploaded file so connected apps hear about it.
 //!
-//! This listens on its own loopback address (LINKORD_INTERNAL_BIND, default 127.0.0.1:7711), never on the port the
+//! This listens on its own loopback address (POTTIRA_INTERNAL_BIND, default 127.0.0.1:7711), never on the port the
 //! tunnel forwards, and every request needs the token in `<data>/internal-token`. It must never get in the app's
 //! way: failing to bind only logs a warning, and the counters are relaxed atomics.
 
@@ -181,7 +181,7 @@ pub async fn serve(st: AppState) {
     tokio::spawn(watch_runtime_lag());
     let addr: Option<SocketAddr> = bind.parse().ok();
     let Some(addr) = addr.filter(|a| a.ip().is_loopback()) else {
-        tracing::warn!("LINKORD_INTERNAL_BIND must be a loopback address, not starting it: {bind}");
+        tracing::warn!("POTTIRA_INTERNAL_BIND must be a loopback address, not starting it: {bind}");
         return;
     };
     let (token, steve_token) = match (load_token(&st, "internal-token").await, load_token(&st, "steve-token").await) {
@@ -274,7 +274,7 @@ async fn metrics(State(st): State<AppState>) -> Json<Value> {
         "uptime_s": started().0.elapsed().as_secs(),
         "version": env!("CARGO_PKG_VERSION"),
         // Docker slot (deploy/docker-compose.yml) serving; empty outside Docker.
-        "slot": std::env::var("LINKORD_SLOT").unwrap_or_default(),
+        "slot": std::env::var("POTTIRA_SLOT").unwrap_or_default(),
         // What the server itself can run: the monitor lives in another container and can't check these on its own.
         "tools": tools().read().unwrap().clone(),
         "migrations_in_code": MIGRATIONS.get().copied(),

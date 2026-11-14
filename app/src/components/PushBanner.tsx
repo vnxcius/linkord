@@ -7,7 +7,7 @@ import { state } from '../lib/store';
 import { isMobile, toast } from '../lib/ui';
 import * as I from './Icons';
 
-const KEY = 'linkord.pushBannerDismissed';
+const KEY = 'pottira.pushBannerDismissed';
 
 function dismissed() {
   try {

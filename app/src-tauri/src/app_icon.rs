@@ -224,7 +224,7 @@ mod tests {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         }
-        let dir = std::env::temp_dir().join(format!("linkord-app-icon-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pottira-app-icon-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let exe = std::env::current_exe().unwrap();
         let other = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join(r"System32\notepad.exe");

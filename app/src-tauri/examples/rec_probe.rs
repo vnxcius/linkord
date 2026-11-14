@@ -3,7 +3,7 @@
 //!
 //!   cargo run --release --example rec_probe -- <seconds=15> <height=1080> <fps=60> <cursor=1> <mic=0|1|name>
 //!
-//! Leaves the recording (segments + the last 5 s as clip.mp4) in %TEMP%\linkord-rec.
+//! Leaves the recording (segments + the last 5 s as clip.mp4) in %TEMP%\pottira-rec.
 
 #[cfg(windows)]
 fn main() {
@@ -14,8 +14,8 @@ fn main() {
     }
     let args: Vec<String> = std::env::args().collect();
     let arg = |i: usize, default: u32| args.get(i).and_then(|a| a.parse().ok()).unwrap_or(default);
-    let settings = linkord_lib::rec::gpu::VideoSettings { max_height: arg(2, 1080), fps: arg(3, 60), bitrate: 12_000_000, cursor: arg(4, 1) == 1 };
-    let root = std::env::temp_dir().join("linkord-rec");
+    let settings = pottira_lib::rec::gpu::VideoSettings { max_height: arg(2, 1080), fps: arg(3, 60), bitrate: 12_000_000, cursor: arg(4, 1) == 1 };
+    let root = std::env::temp_dir().join("pottira-rec");
     // <mic>: 0 = none, 1 = Windows' communications mic, anything else = that device's name.
     let mic = match args.get(5).map(String::as_str) {
         None | Some("0") => None,
@@ -23,8 +23,8 @@ fn main() {
         Some(name) => Some(name.to_string()),
     };
     // Sound: everything the PC plays (this program plays nothing); the mic only with <mic=1>.
-    let audio = linkord_lib::rec::audio::AudioSettings { game: Some(linkord_lib::rec::audio::Source::AllExcept(std::process::id())), mic, output: String::new(), voices: false };
-    match linkord_lib::rec::trial(&root, arg(1, 15) as f32, settings, audio) {
+    let audio = pottira_lib::rec::audio::AudioSettings { game: Some(pottira_lib::rec::audio::Source::AllExcept(std::process::id())), mic, output: String::new(), voices: false };
+    match pottira_lib::rec::trial(&root, arg(1, 15) as f32, settings, audio) {
         Ok(report) => println!("{report:#?}"),
         Err(e) => eprintln!("failed: {e}"),
     }

@@ -15,7 +15,7 @@ self.addEventListener('push', (e) => {
     icon: n.icon || '/icon-192.png',
     badge: '/badge-96.png',
     // One per channel: a newer message replaces the older one, and it buzzes again.
-    tag: String(n.tag || 'linkord'),
+    tag: String(n.tag || 'pottira'),
     renotify: true,
     requireInteraction: !!n.call,
     data: {

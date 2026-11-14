@@ -30,7 +30,7 @@ const [launchUpdate, setLaunchUpdate] = createSignal<{ version: string; progress
 export { launchUpdate, update, updating };
 
 /** Set for the life of the window, so a reload isn't mistaken for a launch. */
-const LAUNCHED = 'linkord.launched';
+const LAUNCHED = 'pottira.launched';
 /** An update found later than this after launch waits for the banner: you may be using the app by then. */
 const LAUNCH_WINDOW = 15_000;
 

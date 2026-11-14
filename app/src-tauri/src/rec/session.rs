@@ -65,7 +65,7 @@ pub fn init(app: AppHandle) {
 pub fn start_housekeeping() {
     static STARTED: std::sync::Once = std::sync::Once::new();
     STARTED.call_once(|| {
-        std::thread::Builder::new().name("linkord-rec".into()).spawn(housekeeping).ok();
+        std::thread::Builder::new().name("pottira-rec".into()).spawn(housekeeping).ok();
     });
 }
 
@@ -221,7 +221,7 @@ fn audio_settings(c: &Config, pid: u32) -> AudioSettings {
     let per_process = process_loopback_supported();
     let game = match (per_process, pid) {
         (false, _) => Source::System,
-        (true, 0) => Source::AllExcept(crate::capture::linkord_audio_pid()),
+        (true, 0) => Source::AllExcept(crate::capture::pottira_audio_pid()),
         (true, pid) => Source::Only(pid),
     };
     AudioSettings {

@@ -412,8 +412,66 @@ fn watch_chat_close(app: AppHandle) {
     }
 }
 
+/// Pottira used to be called Linkord, with the identifier dev.linkord.app, and Tauri keeps everything (WebView2 or
+/// WebKitGTK storage with the sign-in and prefs, the window position, the Christmas icon marker) in folders named
+/// after the identifier. Before anything opens them, the old folders become the new ones: moved when possible,
+/// copied (without the browser caches) when the old app's webview processes still hold them. Folders already there
+/// under the new name win. Safe to delete once every installed app has started a 2.0 build.
+fn move_old_app_data(identifier: &str) {
+    let Some(rest) = identifier.strip_prefix("com.pottira.app") else { return };
+    let old = format!("dev.linkord.app{rest}");
+    let mut bases: Vec<std::path::PathBuf> =
+        [dirs::config_dir(), dirs::data_dir(), dirs::data_local_dir(), dirs::cache_dir()].into_iter().flatten().collect();
+    bases.sort();
+    bases.dedup();
+    for base in bases {
+        let (from, to) = (base.join(&old), base.join(identifier));
+        if !from.is_dir() || to.exists() {
+            continue;
+        }
+        let mut moved = false;
+        for _ in 0..20 {
+            if std::fs::rename(&from, &to).is_ok() {
+                moved = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        if !moved {
+            let part = base.join(format!("{identifier}.moving"));
+            let _ = std::fs::remove_dir_all(&part);
+            if copy_dir(&from, &part).is_ok() {
+                let _ = std::fs::rename(&part, &to);
+            }
+        }
+    }
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    const CACHES: [&str; 6] = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache", "GrShaderCache"];
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        if entry.file_type()?.is_dir() {
+            if !CACHES.iter().any(|c| name == *c) {
+                copy_dir(&path, &to.join(&name))?;
+            }
+        } else if let Err(e) = std::fs::copy(&path, to.join(&name)) {
+            // Lock files of a webview that is still shutting down can't be read; everything else must come along.
+            if !name.to_string_lossy().eq_ignore_ascii_case("lockfile") && name != "LOCK" {
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    move_old_app_data(&context.config().identifier);
     tauri::Builder::default()
         // A second launch focuses the running window instead of opening another client.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
@@ -531,8 +589,8 @@ pub fn run() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running linkord");
+        .run(context)
+        .expect("error while running Pottira");
 }
 
 /// Lets voice work out of the box on Linux: enables media capture in WebKitGTK and grants the

@@ -265,7 +265,7 @@ fn subscribe(target: Target, kind: Kind) -> Result<Duplicated, String> {
         if let Some(entry) = unsent {
             let (tx, rx) = channel();
             let _ = tx.send(entry);
-            std::thread::Builder::new().name("linkord-duplication".into()).spawn(move || run(rx)).map_err(|e| e.to_string())?;
+            std::thread::Builder::new().name("pottira-duplication".into()).spawn(move || run(rx)).map_err(|e| e.to_string())?;
             *hub = Some(tx);
         }
     }

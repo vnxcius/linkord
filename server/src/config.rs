@@ -6,21 +6,21 @@ use anyhow::Context;
 #[derive(Clone, Debug)]
 pub struct Config {
     pub bind: String,
-    /// Externally reachable base URL, e.g. https://linkord.example.com
+    /// Externally reachable base URL, e.g. https://pottira.example.com
     pub public_url: String,
     pub database_url: String,
     pub data_dir: PathBuf,
     pub web_dir: PathBuf,
-    /// Default nameplates users can pick without uploading anything (LINKORD_NAMEPLATES_DIR).
+    /// Default nameplates users can pick without uploading anything (POTTIRA_NAMEPLATES_DIR).
     pub nameplates_dir: PathBuf,
-    /// Default soundboard sounds (LINKORD_SOUNDS_DIR): audio files, "🔔 sleigh bells.mp3".
+    /// Default soundboard sounds (POTTIRA_SOUNDS_DIR): audio files, "🔔 sleigh bells.mp3".
     pub sounds_dir: PathBuf,
     pub discord_client_id: String,
     pub discord_client_secret: String,
     /// Discord's addresses (tests point these at a mock).
     pub discord_api_url: String,
     pub discord_cdn_url: String,
-    /// LINKORD_SIGNUP=closed: no new accounts (an emergency switch). Anything else: anyone can sign up with Discord.
+    /// POTTIRA_SIGNUP=closed: no new accounts (an emergency switch). Anything else: anyone can sign up with Discord.
     /// Existing accounts can always sign in.
     pub signup_closed: bool,
     /// Enables passwordless username login for local testing. Never enable on a public server.
@@ -44,7 +44,7 @@ pub struct Config {
     pub riot_api_key: String,
     /// Tests point Riot's hosts at a mock: `<url>/<region>` stands for `https://<region>.api.riotgames.com`.
     pub riot_api_url: Option<String>,
-    /// Game cards look up Steam and Wikipedia; LINKORD_GAME_INFO=off skips them (tests run offline).
+    /// Game cards look up Steam and Wikipedia; POTTIRA_GAME_INFO=off skips them (tests run offline).
     pub game_info: bool,
     /// Direct access that skips Cloudflare (direct.rs): listen address, e.g. 0.0.0.0:8443. Off when unset.
     pub direct_bind: Option<String>,
@@ -69,43 +69,43 @@ fn opt(key: &str) -> Option<String> {
 impl Config {
     pub fn from_env() -> anyhow::Result<Config> {
         Ok(Config {
-            bind: opt("LINKORD_BIND").unwrap_or_else(|| "127.0.0.1:7700".into()),
-            public_url: opt("LINKORD_PUBLIC_URL")
+            bind: opt("POTTIRA_BIND").unwrap_or_else(|| "127.0.0.1:7700".into()),
+            public_url: opt("POTTIRA_PUBLIC_URL")
                 .unwrap_or_else(|| "http://localhost:7700".into())
                 .trim_end_matches('/')
                 .to_string(),
             database_url: opt("DATABASE_URL").context("DATABASE_URL is required")?,
-            data_dir: opt("LINKORD_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
-            nameplates_dir: opt("LINKORD_NAMEPLATES_DIR").unwrap_or_else(|| "./nameplates".into()).into(),
-            sounds_dir: opt("LINKORD_SOUNDS_DIR").unwrap_or_else(|| "./soundboard".into()).into(),
-            web_dir: opt("LINKORD_WEB_DIR").unwrap_or_else(|| "../app/dist".into()).into(),
+            data_dir: opt("POTTIRA_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
+            nameplates_dir: opt("POTTIRA_NAMEPLATES_DIR").unwrap_or_else(|| "./nameplates".into()).into(),
+            sounds_dir: opt("POTTIRA_SOUNDS_DIR").unwrap_or_else(|| "./soundboard".into()).into(),
+            web_dir: opt("POTTIRA_WEB_DIR").unwrap_or_else(|| "../app/dist".into()).into(),
             discord_client_id: opt("DISCORD_CLIENT_ID").unwrap_or_default(),
             discord_client_secret: opt("DISCORD_CLIENT_SECRET").unwrap_or_default(),
             discord_api_url: opt("DISCORD_API_URL").unwrap_or_else(|| "https://discord.com".into()),
             discord_cdn_url: opt("DISCORD_CDN_URL").unwrap_or_else(|| "https://cdn.discordapp.com".into()),
-            signup_closed: opt("LINKORD_SIGNUP").is_some_and(|v| v == "closed"),
-            dev_login: opt("LINKORD_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
-            upload_quota: opt("LINKORD_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
-            clip_quota: opt("LINKORD_CLIP_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5120) * 1024 * 1024,
-            clip_max: opt("LINKORD_CLIP_MAX_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(1024) * 1024 * 1024,
+            signup_closed: opt("POTTIRA_SIGNUP").is_some_and(|v| v == "closed"),
+            dev_login: opt("POTTIRA_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
+            upload_quota: opt("POTTIRA_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
+            clip_quota: opt("POTTIRA_CLIP_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5120) * 1024 * 1024,
+            clip_max: opt("POTTIRA_CLIP_MAX_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(1024) * 1024 * 1024,
             spotify_client_id: opt("SPOTIFY_CLIENT_ID").unwrap_or_default(),
             spotify_client_secret: opt("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
             spotify_accounts_url: opt("SPOTIFY_ACCOUNTS_URL").unwrap_or_else(|| "https://accounts.spotify.com".into()),
             spotify_api_url: opt("SPOTIFY_API_URL").unwrap_or_else(|| "https://api.spotify.com".into()),
             spotify_poll: std::time::Duration::from_millis(opt("SPOTIFY_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(5000)),
-            detectable_url: opt("LINKORD_DETECTABLE_URL").unwrap_or_else(|| "https://discord.com/api/v9/applications/detectable".into()),
+            detectable_url: opt("POTTIRA_DETECTABLE_URL").unwrap_or_else(|| "https://discord.com/api/v9/applications/detectable".into()),
             riot_api_key: opt("RIOT_API_KEY").unwrap_or_default(),
             riot_api_url: opt("RIOT_API_URL").map(|u| u.trim_end_matches('/').to_string()),
-            game_info: opt("LINKORD_GAME_INFO").as_deref() != Some("off"),
-            direct_bind: opt("LINKORD_DIRECT_BIND"),
-            direct_host: opt("LINKORD_DIRECT_HOST").unwrap_or_default(),
-            direct_tls: opt("LINKORD_DIRECT_TLS").is_none_or(|v| v != "off"),
+            game_info: opt("POTTIRA_GAME_INFO").as_deref() != Some("off"),
+            direct_bind: opt("POTTIRA_DIRECT_BIND"),
+            direct_host: opt("POTTIRA_DIRECT_HOST").unwrap_or_default(),
+            direct_tls: opt("POTTIRA_DIRECT_TLS").is_none_or(|v| v != "off"),
             cloudflare_token: opt("CLOUDFLARE_API_TOKEN"),
-            acme_staging: opt("LINKORD_ACME_STAGING").is_some_and(|v| v == "true"),
-            admins: opt("LINKORD_ADMINS")
+            acme_staging: opt("POTTIRA_ACME_STAGING").is_some_and(|v| v == "true"),
+            admins: opt("POTTIRA_ADMINS")
                 .map(|v| v.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect())
                 .unwrap_or_default(),
-            internal_bind: match opt("LINKORD_INTERNAL_BIND").as_deref() {
+            internal_bind: match opt("POTTIRA_INTERNAL_BIND").as_deref() {
                 Some("off") => None,
                 Some(v) => Some(v.to_string()),
                 None => Some("127.0.0.1:7711".into()),

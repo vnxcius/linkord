@@ -1,4 +1,4 @@
-// Voice and video. Audio is Opus (WASM) relayed by the linkord server over a websocket, so it works
+// Voice and video. Audio is Opus (WASM) relayed by the pottira server over a websocket, so it works
 // wherever the app itself loads: no ports, TURN or media server to configure.
 
 import { t } from './i18n';
@@ -196,7 +196,7 @@ export async function joinVoice(channelId: string) {
     await audio.audioWorklet.addModule(workletUrl);
     if (gen !== generation) return;
 
-    const playback = new AudioWorkletNode(audio, 'linkord-playback', { numberOfInputs: 0, outputChannelCount: [2] });
+    const playback = new AudioWorkletNode(audio, 'pottira-playback', { numberOfInputs: 0, outputChannelCount: [2] });
     playback.connect(audio.destination);
     const playCh = new MessageChannel();
     playback.port.postMessage({ port: playCh.port1 }, [playCh.port1]);
@@ -976,7 +976,7 @@ function attachStreamAudio(pub: Publisher, stream: MediaStream, wanted: boolean)
   }
   const audioTrack = stream.getAudioTracks()[0];
   if (audioTrack && audio) {
-    const node = new AudioWorkletNode(audio, 'linkord-capture', {
+    const node = new AudioWorkletNode(audio, 'pottira-capture', {
       processorOptions: { channels: 2 },
       channelCount: 2,
       channelCountMode: 'explicit',
@@ -1606,7 +1606,7 @@ function openMic(): Promise<MediaStream | null> {
 
 /** The capture worklet the mic feeds; returns the port the voice worker reads it from. */
 function newCapture(ctx: AudioContext): MessagePort {
-  const capture = new AudioWorkletNode(ctx, 'linkord-capture');
+  const capture = new AudioWorkletNode(ctx, 'pottira-capture');
   captureNode = capture;
   // Route through a silent gain so the capture node is always pulled by the graph.
   const sink = ctx.createGain();

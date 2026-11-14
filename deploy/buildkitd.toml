@@ -1,4 +1,4 @@
-# Settings for linkord's own BuildKit builder (deploy/builder.sh). Docker's default builder deletes cache mounts unused
+# Settings for pottira's own BuildKit builder (deploy/builder.sh). Docker's default builder deletes cache mounts unused
 # for 48 h or past 2.83 GiB in total, so the desktop build (3.6 GB of caches: cargo target, crates, the MSVC SDK)
 # started from nothing almost every release (316 s instead of ~110 s). Here caches are kept much longer.
 # Each rule counts everything its filter matches; keep the catch-all's limit well above the cache mounts' own, or it

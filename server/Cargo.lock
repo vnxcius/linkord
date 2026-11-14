@@ -1369,46 +1369,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "linkord-server"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "axum",
- "axum-server",
- "base64 0.22.1",
- "chrono",
- "dashmap",
- "dotenvy",
- "futures-util",
- "hex",
- "hkdf",
- "http-body-util",
- "hyper-util",
- "imagesize",
- "instant-acme",
- "libc",
- "mime_guess",
- "p256",
- "rand 0.8.8",
- "regex",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "thiserror",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "x509-parser",
-]
-
-[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1753,6 +1713,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d83eb9bc6d8e5cf568e7a1101d60ee05e81ed50ea106026f3d18deeb046d7661"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "pottira-server"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "axum",
+ "axum-server",
+ "base64 0.22.1",
+ "chrono",
+ "dashmap",
+ "dotenvy",
+ "futures-util",
+ "hex",
+ "hkdf",
+ "http-body-util",
+ "hyper-util",
+ "imagesize",
+ "instant-acme",
+ "libc",
+ "mime_guess",
+ "p256",
+ "rand 0.8.8",
+ "regex",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "x509-parser",
 ]
 
 [[package]]

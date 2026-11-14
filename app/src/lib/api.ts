@@ -2,12 +2,12 @@ import { serverError, t } from './i18n';
 import { isTauri } from './platform';
 
 /** A web login started in this tab (see App.tsx captureUrlState). */
-export const LOGIN_PENDING_KEY = 'linkord.loginPending';
+export const LOGIN_PENDING_KEY = 'pottira.loginPending';
 /** The invite link this person arrived through before signing in; its join dialog opens after login (App.tsx). */
-export const INVITE_KEY = 'linkord.pendingInvite';
+export const INVITE_KEY = 'pottira.pendingInvite';
 
-const SERVER_KEY = 'linkord.server';
-const TOKEN_KEY = 'linkord.token';
+const SERVER_KEY = 'pottira.server';
+const TOKEN_KEY = 'pottira.token';
 
 function load(key: string): string | null {
   try {
@@ -27,7 +27,7 @@ function store(key: string, value: string | null) {
 // Desktop, this session only: the direct address when the usual one is unreachable (see pickReachableServer).
 let fallback: string | null = null;
 
-/** Base URL of the linkord server. The web build is served by the server itself. */
+/** Base URL of the pottira server. The web build is served by the server itself. */
 export function serverUrl(): string {
   if (!isTauri) return window.location.origin;
   return fallback || load(SERVER_KEY) || import.meta.env.VITE_DEFAULT_SERVER || '';
@@ -64,8 +64,8 @@ export async function pickReachableServer() {
 }
 
 /**
- * Turns whatever someone typed or pasted ("linkord.example.com", an invite link, ".../api") into
- * the server's origin, e.g. "https://linkord.example.com". Returns '' if it isn't usable.
+ * Turns whatever someone typed or pasted ("pottira.example.com", an invite link, ".../api") into
+ * the server's origin, e.g. "https://pottira.example.com". Returns '' if it isn't usable.
  */
 export function normalizeServerUrl(input: string): string {
   const t = input.trim();
@@ -89,7 +89,7 @@ export async function checkServer(url: string): Promise<ServerCheck> {
   if (!url)
     return {
       ok: false,
-      reason: t("That doesn't look like a server address. It should look like https://linkord.example.com"),
+      reason: t("That doesn't look like a server address. It should look like https://pottira.example.com"),
     };
   const host = new URL(url).host;
   const ctl = new AbortController();

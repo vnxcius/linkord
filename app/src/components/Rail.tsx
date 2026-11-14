@@ -33,7 +33,7 @@ export function railEntries(): GuildFolder[] {
 
 const saveEntries = (entries: GuildFolder[]) => attempt(() => patchSettings({ guild_folders: entries }));
 
-const OPEN_KEY = 'linkord.openFolders';
+const OPEN_KEY = 'pottira.openFolders';
 const [openFolders, setOpenFolders] = createSignal<string[]>(
   (() => {
     try {

@@ -178,7 +178,7 @@ export function Diagnostics() {
               { key: 'port', placeholder: 'Port', value: '443', width: '76px', type: 'number' },
             ]}
           />
-          <Tool title="Fetch an address" hint="What a web address answers from here." path="/tools/http" button="Fetch" fields={[{ key: 'url', placeholder: 'https://old.example.com/api/health' }]} />
+          <Tool title="Fetch an address" hint="What a web address answers from here." path="/tools/http" button="Fetch" fields={[{ key: 'url', placeholder: 'https://pottira.com/api/health' }]} />
           <Tool
             title="Read a certificate"
             hint="Who issued it and when it expires."

@@ -234,7 +234,7 @@ const DEFAULTS: Prefs = {
   recDefaults: 0,
 };
 
-const KEY = 'linkord.prefs';
+const KEY = 'pottira.prefs';
 
 function load(): Prefs {
   try {

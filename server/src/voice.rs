@@ -64,11 +64,11 @@ const KIND_MUSIC: u8 = 5;
 
 static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 
-/// How long a seat waits for its client to reconnect after the connection dropped (LINKORD_VOICE_GRACE_MS: tests).
+/// How long a seat waits for its client to reconnect after the connection dropped (POTTIRA_VOICE_GRACE_MS: tests).
 fn voice_grace() -> Duration {
     static G: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
     *G.get_or_init(|| {
-        let ms = std::env::var("LINKORD_VOICE_GRACE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000);
+        let ms = std::env::var("POTTIRA_VOICE_GRACE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000);
         Duration::from_millis(ms)
     })
 }

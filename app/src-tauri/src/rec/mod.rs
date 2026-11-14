@@ -150,7 +150,7 @@ pub async fn rec_debug_record(seconds: f32) -> Result<TrialReport, String> {
     let result = {
         let settings = gpu::VideoSettings { max_height: 1080, fps: 60, bitrate: 12_000_000, cursor: true };
         let sound = audio::AudioSettings { game: Some(crate::capture::audio::Source::AllExcept(std::process::id())), mic: None, output: String::new(), voices: true };
-        let root = std::env::temp_dir().join("linkord-rec");
+        let root = std::env::temp_dir().join("pottira-rec");
         tauri::async_runtime::spawn_blocking(move || trial(&root, seconds.clamp(1.0, 120.0), settings, sound)).await.map_err(|e| e.to_string())?
     };
     #[cfg(not(windows))]

@@ -42,7 +42,7 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-/// An admin (LINKORD_ADMINS): may read the logs and change the music bot's picture.
+/// An admin (POTTIRA_ADMINS): may read the logs and change the music bot's picture.
 pub async fn is_admin(st: &AppState, user: Id) -> bool {
     if st.cfg.admins.is_empty() {
         return false;
@@ -138,7 +138,7 @@ struct StartQuery {
     challenge: Option<String>,
 }
 
-const LOGIN_COOKIE: &str = "linkord_login";
+const LOGIN_COOKIE: &str = "pottira_login";
 
 async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, Query(q): Query<StartQuery>) -> ApiResult<Response> {
     st.limits.check(format!("login:{ip}"), 10.0, 0.2)?;
@@ -291,7 +291,7 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
             .await?;
     }
 
-    // Profile pictures are copied from Discord once, on first login. After that the profile is linkord's own.
+    // Profile pictures are copied from Discord once, on first login. After that the profile is pottira's own.
     if inserted {
         let ext = |h: &str| if h.starts_with("a_") { "gif" } else { "png" };
         let avatar_url = match &du.avatar {
@@ -389,7 +389,7 @@ async fn stand_in(db: &PgPool, base: &str) -> sqlx::Result<String> {
     }
 }
 
-/// Discord usernames already follow linkord's rules; this only guards against legacy names.
+/// Discord usernames already follow pottira's rules; this only guards against legacy names.
 fn normalize_username(raw: &str) -> String {
     let mut s: String = raw
         .to_lowercase()

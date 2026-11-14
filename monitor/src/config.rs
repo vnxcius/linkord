@@ -32,15 +32,15 @@ pub struct Config {
 /// Cloudflare...) never reach this process.
 const SHARED: &[&str] = &[
     "DATABASE_URL",
-    "LINKORD_BIND",
-    "LINKORD_PUBLIC_URL",
-    "LINKORD_DATA_DIR",
-    "LINKORD_NAMEPLATES_DIR",
-    "LINKORD_SOUNDS_DIR",
-    "LINKORD_DIRECT_BIND",
-    "LINKORD_DIRECT_HOST",
-    "LINKORD_DIRECT_TLS",
-    "LINKORD_INTERNAL_BIND",
+    "POTTIRA_BIND",
+    "POTTIRA_PUBLIC_URL",
+    "POTTIRA_DATA_DIR",
+    "POTTIRA_NAMEPLATES_DIR",
+    "POTTIRA_SOUNDS_DIR",
+    "POTTIRA_DIRECT_BIND",
+    "POTTIRA_DIRECT_HOST",
+    "POTTIRA_DIRECT_TLS",
+    "POTTIRA_INTERNAL_BIND",
 ];
 
 fn opt(key: &str) -> Option<String> {
@@ -62,7 +62,7 @@ fn shared_file(server_dir: &Path) -> HashMap<String, String> {
 impl Config {
     pub fn from_env() -> anyhow::Result<Config> {
         let _ = dotenvy::dotenv();
-        let server_dir = PathBuf::from(opt("LINKORD_MONITOR_SERVER_DIR").unwrap_or_else(|| "../server".into()));
+        let server_dir = PathBuf::from(opt("POTTIRA_MONITOR_SERVER_DIR").unwrap_or_else(|| "../server".into()));
         let file = shared_file(&server_dir);
         // The environment wins over server/.env (tests point at their own instance that way).
         let shared = |key: &str| opt(key).or_else(|| file.get(key).cloned());
@@ -76,41 +76,41 @@ impl Config {
             }
         };
 
-        let password = opt("LINKORD_MONITOR_PASSWORD").unwrap_or_default();
+        let password = opt("POTTIRA_MONITOR_PASSWORD").unwrap_or_default();
         if password.len() < 8 {
-            bail!("LINKORD_MONITOR_PASSWORD must be set in monitor/.env (8 characters or more)");
+            bail!("POTTIRA_MONITOR_PASSWORD must be set in monitor/.env (8 characters or more)");
         }
-        let app_bind = shared("LINKORD_BIND").unwrap_or_else(|| "127.0.0.1:7700".into());
-        let public_url = shared("LINKORD_PUBLIC_URL").unwrap_or_else(|| format!("http://{app_bind}")).trim_end_matches('/').to_string();
-        let direct_url = match (shared("LINKORD_DIRECT_BIND"), shared("LINKORD_DIRECT_HOST")) {
+        let app_bind = shared("POTTIRA_BIND").unwrap_or_else(|| "127.0.0.1:7700".into());
+        let public_url = shared("POTTIRA_PUBLIC_URL").unwrap_or_else(|| format!("http://{app_bind}")).trim_end_matches('/').to_string();
+        let direct_url = match (shared("POTTIRA_DIRECT_BIND"), shared("POTTIRA_DIRECT_HOST")) {
             (Some(bind), Some(host)) => {
                 let port = bind.rsplit(':').next().unwrap_or("443").to_string();
-                let tls = shared("LINKORD_DIRECT_TLS").is_none_or(|v| v != "off");
+                let tls = shared("POTTIRA_DIRECT_TLS").is_none_or(|v| v != "off");
                 Some(format!("{}://{host}:{port}", if tls { "https" } else { "http" }))
             }
             _ => None,
         };
-        let internal_url = match shared("LINKORD_INTERNAL_BIND").as_deref() {
+        let internal_url = match shared("POTTIRA_INTERNAL_BIND").as_deref() {
             Some("off") => None,
             Some(v) => Some(format!("http://{v}")),
             None => Some("http://127.0.0.1:7711".to_string()),
         };
         Ok(Config {
-            bind: opt("LINKORD_MONITOR_BIND").unwrap_or_else(|| "127.0.0.1:7710".into()),
-            allowed_hosts: opt("LINKORD_MONITOR_HOSTS").map(|v| v.split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()).unwrap_or_default(),
+            bind: opt("POTTIRA_MONITOR_BIND").unwrap_or_else(|| "127.0.0.1:7710".into()),
+            allowed_hosts: opt("POTTIRA_MONITOR_HOSTS").map(|v| v.split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect()).unwrap_or_default(),
             password,
-            data_dir: opt("LINKORD_MONITOR_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
-            web_dir: opt("LINKORD_MONITOR_WEB_DIR").unwrap_or_else(|| "./web/dist".into()).into(),
+            data_dir: opt("POTTIRA_MONITOR_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
+            web_dir: opt("POTTIRA_MONITOR_WEB_DIR").unwrap_or_else(|| "./web/dist".into()).into(),
             app_url: format!("http://{}", app_bind.replace("0.0.0.0", "127.0.0.1")),
             public_url,
             direct_url,
             internal_url,
-            app_data: in_server("LINKORD_DATA_DIR", "./data"),
-            nameplates_dir: in_server("LINKORD_NAMEPLATES_DIR", "./nameplates"),
-            sounds_dir: in_server("LINKORD_SOUNDS_DIR", "./soundboard"),
+            app_data: in_server("POTTIRA_DATA_DIR", "./data"),
+            nameplates_dir: in_server("POTTIRA_NAMEPLATES_DIR", "./nameplates"),
+            sounds_dir: in_server("POTTIRA_SOUNDS_DIR", "./soundboard"),
             database_url: shared("DATABASE_URL").context("DATABASE_URL not found in the environment or server/.env")?,
-            app_process: opt("LINKORD_MONITOR_APP_PROCESS").unwrap_or_else(|| "linkord-server".into()),
-            probe_internet: opt("LINKORD_MONITOR_PROBE_INTERNET").as_deref() != Some("off"),
+            app_process: opt("POTTIRA_MONITOR_APP_PROCESS").unwrap_or_else(|| "pottira-server".into()),
+            probe_internet: opt("POTTIRA_MONITOR_PROBE_INTERNET").as_deref() != Some("off"),
         })
     }
 

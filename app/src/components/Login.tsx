@@ -207,7 +207,7 @@ export function Login(p: { onLogin: () => void }) {
               <span>{t('Server')}</span>
               <input
                 value={server()}
-                placeholder="https://linkord.example.com"
+                placeholder="https://pottira.example.com"
                 onChange={(e) => {
                   useServer(e.currentTarget.value);
                   e.currentTarget.value = serverUrl();

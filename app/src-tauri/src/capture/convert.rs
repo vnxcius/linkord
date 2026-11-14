@@ -39,7 +39,7 @@ pub struct Converter {
 impl Converter {
     pub fn new() -> Converter {
         let threads = std::thread::available_parallelism().map_or(2, |n| n.get() / 2).clamp(1, 4);
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).thread_name(|i| format!("linkord-nv12-{i}")).build().ok();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).thread_name(|i| format!("pottira-nv12-{i}")).build().ok();
         Converter { pool, cols: Vec::new(), sizes: (0, 0), threads }
     }
 

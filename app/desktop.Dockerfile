@@ -18,15 +18,15 @@ ARG PROFILE=fast
 ENV VITE_DEFAULT_SERVER=${VITE_DEFAULT_SERVER} CI=true
 WORKDIR /src
 COPY package.json bun.lock ./
-RUN --mount=type=cache,id=linkord-bun,target=/root/.bun/install/cache \
+RUN --mount=type=cache,id=pottira-bun,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 COPY . .
 # The updater signing key comes in as a build secret so it never lands in an image layer.
 RUN --mount=type=secret,id=tauri_key,required=true \
-    --mount=type=cache,id=linkord-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=linkord-cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=linkord-xwin,target=/root/.cache/cargo-xwin \
-    --mount=type=cache,id=linkord-target-win,target=/src/src-tauri/target \
+    --mount=type=cache,id=pottira-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=pottira-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=pottira-xwin,target=/root/.cache/cargo-xwin \
+    --mount=type=cache,id=pottira-target-win,target=/src/src-tauri/target \
     export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/tauri_key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
     && if [ "$PROFILE" = fast ]; then \
       export CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \

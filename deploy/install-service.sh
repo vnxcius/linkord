@@ -4,17 +4,16 @@
 # calls, gateway sessions, watch together and Kass's queue), then stops the old slot. Clients reconnect within a
 # fraction of a second and resume; nobody leaves the call.
 # If the new slot doesn't take over, the old one keeps serving and the deploy fails.
-# The first run also moves the server off its old systemd user unit (that server can't hand over: one restart).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 compose() { docker compose -f "$root/deploy/docker-compose.yml" --profile server "$@"; }
 live_file="$root/server/data/run/live"
 
-running() { [ "$(docker inspect -f '{{.State.Running}}' "linkord-server-$1" 2>/dev/null)" = true ]; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "pottira-server-$1" 2>/dev/null)" = true ]; }
 live_slot() { sed -n 's/.*"slot":"\([ab]\)".*/\1/p' "$live_file" 2>/dev/null || true; }
 
 # Our own builder keeps the cargo caches (deploy/buildkitd.toml); --load hands the image to Docker.
-docker buildx build --builder "$("$root/deploy/builder.sh")" --load -f "$root/deploy/server.Dockerfile" -t linkord-server:latest "$root"
+docker buildx build --builder "$("$root/deploy/builder.sh")" --load -f "$root/deploy/server.Dockerfile" -t pottira-server:latest "$root"
 
 old=$(live_slot)
 if [ -n "$old" ] && ! running "$old"; then old=""; fi
@@ -26,13 +25,6 @@ if [ "$old" = a ]; then new=b; fi
 # Nothing running: an old marker must not pass for the new slot.
 if [ -z "$old" ]; then rm -f "$live_file"; fi
 
-if systemctl --user is-active --quiet linkord.service 2>/dev/null; then
-  echo "Stopping the systemd service (it can't hand over: this one restart reconnects everyone)."
-  systemctl --user disable --now linkord.service
-  rm -f "$HOME/.config/systemd/user/linkord.service"
-  systemctl --user daemon-reload
-fi
-
 compose up -d --no-deps --force-recreate "server-$new"
 echo "Waiting for slot $new to take over${old:+ from slot $old}..."
 for _ in $(seq 1 240); do
@@ -41,7 +33,7 @@ for _ in $(seq 1 240); do
 done
 if [ "$(live_slot)" != "$new" ]; then
   echo "Slot $new didn't take over${old:+; slot $old keeps serving}. Its log:"
-  docker logs --tail 60 "linkord-server-$new" 2>&1 || true
+  docker logs --tail 60 "pottira-server-$new" 2>&1 || true
   compose stop -t 10 "server-$new"
   exit 1
 fi
@@ -51,4 +43,4 @@ if [ -n "$old" ]; then
 fi
 docker image prune -f >/dev/null || true
 echo "Serving from slot $new: $(cat "$live_file")"
-echo "Logs: docker logs -f linkord-server-$new"
+echo "Logs: docker logs -f pottira-server-$new"

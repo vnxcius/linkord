@@ -11,7 +11,7 @@ import { prefs } from './prefs';
 import { recCall, recStatus } from './rec';
 
 const POLL_MS = 2000;
-const CLAIMS_KEY = 'linkord.pentakills';
+const CLAIMS_KEY = 'pottira.pentakills';
 
 interface Events {
   active: string;

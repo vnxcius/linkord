@@ -247,8 +247,8 @@ export function RecordingBar(p: { v: VoiceRecording }) {
 
 // ---------- playback ----------
 
-const PLAYED_KEY = 'linkord.playedVoice';
-const SPEED_KEY = 'linkord.voiceSpeed';
+const PLAYED_KEY = 'pottira.playedVoice';
+const SPEED_KEY = 'pottira.voiceSpeed';
 const SPEEDS = [1, 1.5, 2];
 
 function loadPlayed(): string[] {

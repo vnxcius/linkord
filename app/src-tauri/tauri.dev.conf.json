@@ -1,5 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pottira Dev",
-  "identifier": "dev.linkord.app.dev"
+  "identifier": "com.pottira.app.dev"
 }

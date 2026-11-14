@@ -1,3 +1,4 @@
+import './lib/storage-migrate';
 import { render } from 'solid-js/web';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';

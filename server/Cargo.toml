@@ -1,11 +1,11 @@
 [package]
-name = "linkord-server"
+name = "pottira-server"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [[bin]]
-name = "linkord-server"
+name = "pottira-server"
 path = "src/main.rs"
 
 [dependencies]

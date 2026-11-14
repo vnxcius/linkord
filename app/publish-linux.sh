@@ -5,8 +5,8 @@
 #   ./publish-linux.sh ["What changed"]   (defaults to the Windows release notes of the same version)
 set -euo pipefail
 cd "$(dirname "$0")"
-updates="${LINKORD_UPDATES_DIR:-../server/data/updates}"
-key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
+updates="${POTTIRA_UPDATES_DIR:-../server/data/updates}"
+key="${POTTIRA_UPDATER_KEY:-$HOME/.config/pottira/updater.key}"
 version=$(node -p "require('./src-tauri/tauri.conf.json').version")
 notes="${1:-$(node -p "try { const l = JSON.parse(require('fs').readFileSync('$updates/latest.json')); l.version === '$version' ? l.notes : '' } catch { '' }")}"
 

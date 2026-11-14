@@ -978,8 +978,6 @@ label.btn.disabled { opacity: 0.5; cursor: default; pointer-events: none; }
 .upload-circle:hover .upload-hint { opacity: 1; }
 .upload-empty { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-3); border: 2px dashed var(--line-strong); border-radius: inherit; box-sizing: border-box; }
 .upload-empty small { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.template-preview { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-1); border: 1px solid var(--line); font-size: 13px; margin: 0; }
-.template-preview .small { font-size: 12px; }
 
 .settings-grid { display: grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start; }
 

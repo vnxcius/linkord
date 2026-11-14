@@ -207,7 +207,7 @@ mod tests {
     use super::*;
 
     fn temp() -> Store {
-        let dir = std::env::temp_dir().join(format!("linkord-monitor-test-{}", rand::random::<u64>()));
+        let dir = std::env::temp_dir().join(format!("pottira-monitor-test-{}", rand::random::<u64>()));
         Store::open(&dir).unwrap()
     }
 

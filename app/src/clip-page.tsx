@@ -2,6 +2,7 @@
 // browser's. The server's page already has a plain <video> inside #clip-player, so it plays without this script (link
 // previews, JavaScript off, an older build); this swaps it for VideoPlayer once it loads.
 
+import './lib/storage-migrate';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import '@fontsource/instrument-serif/400.css';

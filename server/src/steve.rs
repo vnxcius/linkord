@@ -395,7 +395,7 @@ pub fn routes() -> Router<AppState> {
         .route("/bots/steve/avatar", post(set_avatar).delete(reset_avatar))
 }
 
-/// An admin (LINKORD_ADMINS) gives Steve a new picture (png, jpeg, gif or webp), like Kass's.
+/// An admin (POTTIRA_ADMINS) gives Steve a new picture (png, jpeg, gif or webp), like Kass's.
 async fn set_avatar(State(st): State<AppState>, AdminUser(_): AdminUser, mut mp: Multipart) -> ApiResult<Json<User>> {
     let field = mp.next_field().await.map_err(|e| bad(e.body_text()))?.ok_or_else(|| bad("missing file"))?;
     if !uploads::is_image(field.content_type().unwrap_or_default()) {

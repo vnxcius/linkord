@@ -28,5 +28,4 @@ pub fn routes() -> Router<AppState> {
         .merge(relationships::routes())
         .merge(settings::routes())
         .merge(updates::routes())
-        .merge(templates::routes())
 }

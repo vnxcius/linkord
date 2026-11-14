@@ -1,5 +1,5 @@
 //! Profile badges (Settings -> Badges, owner 2026-11-12). Stored in `user_badges` (migration 0026): once earned a
-//! badge stays, except Pottira Admin, which follows LINKORD_ADMINS.
+//! badge stays, except Pottira Admin, which follows POTTIRA_ADMINS.
 //!
 //! - Milestones have 5 tiers (0 Bronze .. 4 Diamond) and keep the highest one reached: account age, games, time
 //!   played, streaming, calls, watch together, soundboard, snowballs. Thresholds: [`LADDERS`] (the client's

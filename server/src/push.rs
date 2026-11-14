@@ -112,10 +112,10 @@ fn login_of(headers: &HeaderMap) -> ApiResult<Vec<u8>> {
     Ok(crate::auth::hash_token(token))
 }
 
-/// Extra hosts (with port) allowed as endpoints, over plain HTTP too: LINKORD_PUSH_HOSTS, for tests.
+/// Extra hosts (with port) allowed as endpoints, over plain HTTP too: POTTIRA_PUSH_HOSTS, for tests.
 fn extra_hosts() -> &'static Vec<String> {
     static H: OnceLock<Vec<String>> = OnceLock::new();
-    H.get_or_init(|| std::env::var("LINKORD_PUSH_HOSTS").unwrap_or_default().split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
+    H.get_or_init(|| std::env::var("POTTIRA_PUSH_HOSTS").unwrap_or_default().split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
 }
 
 fn allowed_endpoint(endpoint: &str) -> bool {

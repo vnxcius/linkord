@@ -7,8 +7,8 @@
 //! Kass is one user, and a user can only be in one voice channel, so he plays in one channel at a time.
 //! He leaves when the queue has been empty for a minute, when everyone else leaves, or on /stop.
 //!
-//! LINKORD_YTDLP points at yt-dlp (default: data/bin/yt-dlp if present, else `yt-dlp` on the PATH); it is
-//! updated daily with `yt-dlp -U`. LINKORD_YTDLP_ARGS adds arguments to every call (e.g. `--js-runtimes node`).
+//! POTTIRA_YTDLP points at yt-dlp (default: data/bin/yt-dlp if present, else `yt-dlp` on the PATH); it is
+//! updated daily with `yt-dlp -U`. POTTIRA_YTDLP_ARGS adds arguments to every call (e.g. `--js-runtimes node`).
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -249,7 +249,7 @@ async fn save_avatar(st: &AppState, url: &str) -> ApiResult<Json<User>> {
 }
 
 fn ytdlp(st: &AppState) -> PathBuf {
-    if let Some(p) = std::env::var_os("LINKORD_YTDLP").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os("POTTIRA_YTDLP").filter(|p| !p.is_empty()) {
         return p.into();
     }
     let local = st.cfg.data_dir.join(if cfg!(windows) { "bin/yt-dlp.exe" } else { "bin/yt-dlp" });
@@ -262,7 +262,7 @@ fn ytdlp(st: &AppState) -> PathBuf {
 
 fn ytdlp_cmd(st: &AppState) -> Command {
     let mut cmd = Command::new(ytdlp(st));
-    if let Ok(extra) = std::env::var("LINKORD_YTDLP_ARGS") {
+    if let Ok(extra) = std::env::var("POTTIRA_YTDLP_ARGS") {
         cmd.args(extra.split_whitespace());
     }
     cmd.kill_on_drop(true).stdin(Stdio::null());

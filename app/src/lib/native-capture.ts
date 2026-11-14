@@ -17,8 +17,8 @@ export interface CaptureSource {
 
 export interface CaptureInfo {
   encoder: 'hardware' | 'software';
-  /** app: only the shared app · all_but_linkord · system: everything incl. voice chat (Windows 10) · none */
-  audio: 'app' | 'all_but_linkord' | 'system' | 'none';
+  /** app: only the shared app · all_but_pottira · system: everything incl. voice chat (Windows 10) · none */
+  audio: 'app' | 'all_but_pottira' | 'system' | 'none';
 }
 
 /** Per-app audio (and leaving Pottira's own sound out) needs Windows 11. */

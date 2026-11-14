@@ -27,7 +27,7 @@ from fontTools.ttLib.tables.otTables import Ligature
 APP = Path(__file__).resolve().parent.parent
 SRC = APP / "node_modules/twemoji-colr-font/twemoji.woff2"
 OUT = APP / "src/assets/fonts/twemoji.woff2"
-FAMILY = "Linkord Twemoji"
+FAMILY = "Pottira Twemoji"
 
 # Colour glyphs whose layers ended up in the wrong order: glyph -> [(layer, contour, before layer)], indexes into
 # the glyph's COLR layer list. The contour moves into a new layer of the same colour, drawn before the given layer.

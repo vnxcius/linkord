@@ -1,5 +1,5 @@
 //! Server and channel permissions, computed the way Discord does it. Bit values follow Discord's so they're
-//! familiar; only the ones linkord uses exist.
+//! familiar; only the ones pottira uses exist.
 //!
 //! A member's server permissions are @everyone's plus those of all their roles (Administrator or owning the
 //! server = everything). In a channel, its overwrites then apply in order: @everyone's, all of the member's

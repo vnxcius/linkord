@@ -151,19 +151,13 @@ fn guild_name(name: &str) -> ApiResult<String> {
 #[derive(Deserialize)]
 struct NewGuild {
     name: String,
-    /// A Discord template link or code to copy channels and roles from.
-    #[serde(default)]
-    template: Option<String>,
 }
 
 async fn create(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<NewGuild>) -> ApiResult<Json<Guild>> {
     st.limits.check(format!("guild-create:{me}"), 3.0, 1.0 / 60.0)?;
     tracing::info!(user = %me, "server created");
     let name = guild_name(&body.name)?;
-    let template = match body.template.as_deref().filter(|t| !t.trim().is_empty()) {
-        Some(t) => super::templates::fetch(&st, me, t).await?,
-        None => super::templates::default_template(&name),
-    };
+    let template = super::templates::default_template();
     let id = Id::new();
     let mut tx = st.db.begin().await?;
     sqlx::query("INSERT INTO guilds (id, name, owner_id) VALUES ($1, $2, $3)").bind(id).bind(&name).bind(me).execute(&mut *tx).await?;

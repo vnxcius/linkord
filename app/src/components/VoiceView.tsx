@@ -588,7 +588,7 @@ function audioDiagLines(): string[] {
   if (!d) return [];
   const modes = {
     app: t('only the shared app'),
-    all_but_linkord: t('everything except Pottira'),
+    all_but_pottira: t('everything except Pottira'),
     system: t('whole PC, voice chat removed by the echo canceller'),
     browser: t('browser capture, no echo canceller'),
     device: t("the capture device's own sound"),

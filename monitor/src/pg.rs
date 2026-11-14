@@ -20,7 +20,7 @@ pub async fn keep_quick(st: AppState) {
             "SELECT pg_database_size(current_database())::bigint AS size,
                 (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database())::bigint AS connections,
                 (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'active'
-                    AND application_name <> 'linkord-monitor' AND now() - query_start > make_interval(secs => $1))::bigint AS slow,
+                    AND application_name <> 'pottira-monitor' AND now() - query_start > make_interval(secs => $1))::bigint AS slow,
                 (SELECT (xact_commit + xact_rollback)::bigint FROM pg_stat_database WHERE datname = current_database()) AS xacts,
                 (SELECT blks_hit::float8 * 100 / NULLIF(blks_hit + blks_read, 0) FROM pg_stat_database WHERE datname = current_database()) AS hit",
         )

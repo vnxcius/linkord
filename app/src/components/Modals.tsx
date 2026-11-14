@@ -260,35 +260,11 @@ function FolderSettings(p: { folderId: string }) {
   );
 }
 
-interface TemplatePreview {
-  name: string;
-  description: string;
-  roles: { name: string; color: number | null }[];
-  channels: { kind: number; name: string }[];
-}
-
-/** The code from a Discord template link (discord.new/…, discord.com/template/…). */
-export function templateCode(input: string): string | null {
-  const s = input.trim().replace(/\/+$/, '');
-  const m = s.match(
-    /^(?:https?:\/\/)?(?:www\.)?(?:discord\.new|(?:ptb\.|canary\.)?discord(?:app)?\.com\/template)\/([A-Za-z0-9]+)$/,
-  );
-  return m ? m[1] : null;
-}
-
 function AddServer() {
   const [name, setName] = createSignal(t("{name}'s server", { name: displayName(state.me) }));
-  const [nameEdited, setNameEdited] = createSignal(false);
   const [icon, setIcon] = createSignal<File | null>(null);
-  const [link, setLink] = createSignal('');
   const [invite, setInvite] = createSignal('');
   const { busy, error, run } = useSubmit();
-  const code = () => templateCode(link());
-  const [template] = createResource(code, async (c) => {
-    const tp = await api<TemplatePreview>('GET', `/guild-templates/${c}`);
-    if (!nameEdited()) setName(tp.name);
-    return tp;
-  });
   const iconUrl = createMemo(() => {
     const f = icon();
     if (!f) return null;
@@ -299,7 +275,7 @@ function AddServer() {
   const create = (e: Event) => {
     e.preventDefault();
     void run(async () => {
-      const g = await api<Guild>('POST', '/guilds', { name: name(), template: code() ?? undefined });
+      const g = await api<Guild>('POST', '/guilds', { name: name() });
       addGuild(g);
       const f = icon();
       if (f) {
@@ -349,53 +325,10 @@ function AddServer() {
           </label>
           <label class="field grow">
             <span>{t('Server name')}</span>
-            <input
-              value={name()}
-              onInput={(e) => {
-                setName(e.currentTarget.value);
-                setNameEdited(true);
-              }}
-              maxLength={100}
-              autofocus
-            />
+            <input value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={100} autofocus />
           </label>
         </div>
-        <label class="field">
-          <span>{t('Discord template (optional)')}</span>
-          <input value={link()} onInput={(e) => setLink(e.currentTarget.value)} placeholder="https://discord.new/…" />
-        </label>
-        <Show when={link().trim() && !code()}>
-          <p class="error">{t('That does not look like a Discord template link')}</p>
-        </Show>
-        <Show when={code()}>
-          <Show when={!template.loading} fallback={<p class="muted template-preview">{t('Loading template…')}</p>}>
-            <Show when={!template.error} fallback={<p class="error">{template.error?.message}</p>}>
-              <Show when={template()}>
-                {(tp) => (
-                  <div class="template-preview">
-                    <strong>{tp().name}</strong>
-                    <span class="muted">
-                      {plural(
-                        tp().channels.filter((c) => c.kind === Kind.Text).length,
-                        '{n} text channel',
-                        '{n} text channels',
-                      )}{' '}
-                      ·{' '}
-                      {plural(
-                        tp().channels.filter((c) => c.kind === Kind.Voice).length,
-                        '{n} voice channel',
-                        '{n} voice channels',
-                      )}{' '}
-                      · {plural(tp().roles.length, '{n} role', '{n} roles')}
-                    </span>
-                    <span class="muted small">{t("Per-channel permissions aren't copied.")}</span>
-                  </div>
-                )}
-              </Show>
-            </Show>
-          </Show>
-        </Show>
-        <button class="btn primary" disabled={busy() || !name().trim() || (!!code() && !template())}>
+        <button class="btn primary" disabled={busy() || !name().trim()}>
           {busy() ? t('Creating…') : t('Create server')}
         </button>
       </form>

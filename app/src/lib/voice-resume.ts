@@ -7,7 +7,7 @@ import { isTauri } from './platform';
 import { state } from './store';
 import { joinVoice, leaveVoice, voiceUi } from './voice';
 
-const KEY = 'linkord.voiceSession';
+const KEY = 'pottira.voiceSession';
 /** Don't offer channels from long ago; the update and crash cases come back within minutes. */
 const MAX_AGE = 2 * 60 * 60_000;
 

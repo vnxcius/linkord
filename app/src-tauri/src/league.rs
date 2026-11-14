@@ -89,7 +89,7 @@ pub async fn league_invite(
     }
 }
 
-/// Accepts, in your League client, the lobby invite this summoner just sent (you asked to join through Linkord, so
+/// Accepts, in your League client, the lobby invite this summoner just sent (you asked to join through Pottira, so
 /// joining takes no click in League). Waits a few seconds for it to arrive; false when it never did.
 #[tauri::command]
 pub async fn league_accept(

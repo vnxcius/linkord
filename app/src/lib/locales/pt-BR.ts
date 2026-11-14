@@ -775,8 +775,8 @@ export const UI: Record<string, string> = {
   'Stream volume': 'Volume da transmissão',
   Focus: 'Focar',
   'Exit fullscreen': 'Sair da tela cheia',
-  "That doesn't look like a server address. It should look like https://linkord.example.com":
-    'Isso não parece um endereço de servidor. Deveria ser algo como https://linkord.example.com',
+  "That doesn't look like a server address. It should look like https://pottira.example.com":
+    'Isso não parece um endereço de servidor. Deveria ser algo como https://pottira.example.com',
   '{host} took too long to answer. Check your internet connection and try again.':
     '{host} demorou demais para responder. Confira sua conexão com a internet e tente de novo.',
   'Couldn\'t connect to {host}. Check the address and your internet. Antivirus, a firewall or a network filter can also block it: try opening {url}/api/health in your browser, it should show "ok".':
@@ -1173,16 +1173,8 @@ export const UI: Record<string, string> = {
   "This video's picture can't be shown here (its format), only the sound. Download it to watch.":
     'A imagem deste vídeo não pode ser mostrada aqui (por causa do formato), só o som. Baixe para assistir.',
   Icon: 'Ícone',
-  'Discord template (optional)': 'Modelo do Discord (opcional)',
-  'That does not look like a Discord template link': 'Isso não parece um link de modelo do Discord',
-  'Loading template…': 'Carregando modelo…',
-  '{n} text channel': '{n} canal de texto',
-  '{n} text channels': '{n} canais de texto',
-  '{n} voice channel': '{n} canal de voz',
-  '{n} voice channels': '{n} canais de voz',
   '{n} role': '{n} cargo',
   '{n} roles': '{n} cargos',
-  "Per-channel permissions aren't copied.": 'Permissões por canal não são copiadas.',
   'Creating…': 'Criando…',
   Send: 'Enviar',
   'Record a voice message': 'Gravar mensagem de voz',
@@ -2442,10 +2434,6 @@ export const SERVER: Record<string, string> = {
   'message must be at most {0} characters': 'a mensagem deve ter no máximo {0} caracteres',
   'servers can have up to {0} emoji': 'servidores podem ter até {0} emojis',
   'unknown setting {0}': 'configuração desconhecida: {0}',
-  'that is not a Discord template link': 'isso não é um link de modelo do Discord',
-  'could not reach Discord to load the template': 'não foi possível falar com o Discord para carregar o modelo',
-  'that Discord template does not exist or has expired': 'esse modelo do Discord não existe ou expirou',
-  'could not read that Discord template': 'não foi possível ler esse modelo do Discord',
   'a voice message is a single audio file': 'uma mensagem de voz é um único arquivo de áudio',
   'invalid waveform': 'forma de onda inválida',
   'unknown category': 'categoria desconhecida',

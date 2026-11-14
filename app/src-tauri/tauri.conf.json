@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Linkord",
-  "version": "1.2.7",
-  "identifier": "dev.linkord.app",
+  "productName": "Pottira",
+  "version": "2.0.0",
+  "identifier": "com.pottira.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -47,14 +47,34 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "publisher": "Pottira",
     "category": "SocialNetworking",
     "shortDescription": "Voice, video and text chat for your party",
+    "linux": {
+      "deb": {
+        "conflicts": [
+          "linkord"
+        ],
+        "replaces": [
+          "linkord"
+        ]
+      },
+      "rpm": {
+        "conflicts": [
+          "linkord"
+        ],
+        "obsoletes": [
+          "linkord"
+        ]
+      }
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "createUpdaterArtifacts": true
@@ -63,7 +83,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA4RTVFRDM3NDQ1QUUxMEUKUldRTzRWcEVOKzNsQ0FxczRIamxwb2laeGFVaGRmK1I4TVR1UVV3aERLdmh4TG9jWEV0Z09VU1kK",
       "endpoints": [
-        "https://old.example.com/api/updates/{{target}}/{{arch}}/{{current_version}}",
+        "https://pottira.com/api/updates/{{target}}/{{arch}}/{{current_version}}",
         "https://direct.example.com:8443/api/updates/{{target}}/{{arch}}/{{current_version}}"
       ],
       "windows": {

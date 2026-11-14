@@ -149,7 +149,7 @@ impl VideoRecorder {
         let (jobs, rx) = sync_channel::<Job>(POOL + 1);
         let enc_shared = shared.clone();
         let encoder = std::thread::Builder::new()
-            .name("linkord-rec-encoder".into())
+            .name("pottira-rec-encoder".into())
             .spawn(move || encode_loop(enc_shared, rx, out, (width, height), settings))
             .map_err(|e| e.to_string())?;
         let frames = Frames { shared: shared.clone(), settings, size: (width, height), jobs, next: None, gpu: None };
