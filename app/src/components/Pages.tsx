@@ -22,7 +22,8 @@ import { closePage, openPage, page } from '../lib/route';
 import { isMobile } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
-import { AppPreview } from './Login';
+import { DesktopMock } from './DownloadArt';
+import { OverlayArt, RecArt, StudioArt } from './ReleaseArt';
 
 interface Download {
   version: string;
@@ -135,58 +136,82 @@ function PageShell(p: { children: JSX.Element }) {
   );
 }
 
-const FEATURES = [
+/** What the desktop app adds over the browser. `windows`: only the Windows app does it (tagged for everyone else). */
+const DESKTOP: { title: string; text: string; windows?: boolean }[] = [
   {
-    icon: I.Keyboard,
-    title: msg('Push to talk in games'),
-    text: msg('Keybinds work while a game has focus, minimized or from the tray.'),
+    title: msg('Push to talk inside games'),
+    text: msg('Keybinds keep working while a game has focus, with Pottira minimized or in the tray.'),
+    windows: true,
   },
   {
-    icon: I.Screen,
-    title: msg('Stream with sound'),
-    text: msg("Native screen capture with the app's audio, hardware encoded."),
+    title: msg('Streams with sound'),
+    text: msg(
+      "Native screen capture, hardware encoded. On Windows 11 it sends only the shared app's sound, never your calls.",
+    ),
   },
   {
-    icon: I.Gamepad,
+    title: msg('Voice overlay'),
+    text: msg('See who is talking over a borderless game. It never shows up in your stream or your recordings.'),
+    windows: true,
+  },
+  {
     title: msg("Shows what you're playing"),
-    text: msg('Friends see your game, and one click goes live with it.'),
+    text: msg('Friends see your game and how long you have been at it. One click goes live with its window.'),
+    windows: true,
   },
   {
-    icon: I.Bell,
-    title: msg('Always in reach'),
-    text: msg('Lives in the tray, starts with your computer, badges unread mentions.'),
+    title: msg('League of Legends, built in'),
+    text: msg('Your lobby, queue and champion on your card, and friends join your lobby from Pottira.'),
+    windows: true,
   },
   {
-    icon: I.Rejoin,
-    title: msg('Updates itself'),
-    text: msg('New versions install in the background. Nothing to download again.'),
+    title: msg('Small, and always there'),
+    text: msg(
+      'A few megabytes on Tauri, not a whole browser. Starts with your computer, waits in the tray and updates itself.',
+    ),
   },
+];
+
+/** The REC points beside its scene. */
+const REC_POINTS = [
+  { icon: I.Rec, text: msg('Every game you play, recorded in the background, with nothing on your screen.') },
   {
-    icon: I.Download,
-    title: msg('Light as a feather'),
-    text: msg('A small installer built on Tauri, not a whole browser like Electron.'),
+    icon: I.Scissors,
+    text: msg('One key saves the last seconds as a clip; others take a screenshot or mark the moment.'),
   },
-] as const;
+  { icon: I.Film, text: msg('A studio for hours-long sessions: skim, jump between moments, cut a clip instantly.') },
+  { icon: I.Link, text: msg('Share a clip with a link that anyone can watch, even without an account.') },
+];
+
+/** A file's name from its download URL: what the terminal commands install. */
+const fileName = (d?: Download) => (d ? decodeURIComponent(d.url.split('/').pop() ?? '') : '');
+const meta = (f: Download, platform?: string) =>
+  [platform, t('Version {version}', { version: f.version }), megabytes(f.size)].filter(Boolean).join(' · ');
 
 function DownloadPage() {
   onMount(loadDownloads);
   const win = () => downloads()?.windows;
-  const linux = () => downloads()?.rpm ?? downloads()?.deb;
+  const deb = () => downloads()?.deb;
+  const rpm = () => downloads()?.rpm;
+  const linux = () => rpm() ?? deb();
   const latest = () => win() ?? linux();
   const none = () => downloads() && !win() && !linux();
+  const onLinux = os === 'linux';
 
   return (
-    <>
+    <div class="dl">
       <section class="dl-hero">
         <div class="dl-hero-text">
           <p class="showcase-kicker">{t('Pottira for desktop')}</p>
-          <h1>{t('Your party, one click away.')}</h1>
+          <h1>{t('Talk, stream, play. And now, record.')}</h1>
           <p class="dl-lead">
-            {t('Push to talk that works in games, native screen sharing with sound, and it starts with your computer.')}
+            {t(
+              'Voice with zero setup, push to talk inside games and streams with sound. New in 2.0: REC records your games, and the best moments are one key away.',
+            )}
           </p>
           <Show when={downloads()} fallback={<div class="spinner" />}>
             <Show when={!none()} fallback={<p class="muted">{t('No downloads are available yet.')}</p>}>
-              <PrimaryDownload win={win()} deb={downloads()!.deb} rpm={downloads()!.rpm} />
+              <PrimaryDownload win={win()} deb={deb()} rpm={rpm()} />
             </Show>
           </Show>
           <Show when={latest()}>
@@ -199,39 +224,90 @@ function DownloadPage() {
             )}
           </Show>
         </div>
-        <div class="dl-window" aria-hidden="true">
-          <div class="dl-window-bar">
-            <Emblem size={12} />
-            <span>Pottira</span>
-            <span class="dl-window-controls">
-              <I.Minimize size={12} />
-              <I.Maximize size={12} />
-              <I.Close size={12} />
+        <div class="dl-window">
+          <DesktopMock />
+        </div>
+      </section>
+
+      <section class="dl-rec">
+        <div class="dl-rec-text">
+          <p class="dl-rec-kicker">
+            <span class="release-rec-tag">
+              <i /> REC
             </span>
-          </div>
-          <AppPreview />
+            {t('New in 2.0')}
+          </p>
+          <h2>{t('Your games, recorded while you play')}</h2>
+          <ul class="dl-rec-points">
+            <For each={REC_POINTS}>
+              {(p) => (
+                <li>
+                  <p.icon size={18} />
+                  <span>{t(p.text)}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+          <p class="dl-fine">
+            {t(
+              'Windows app. Nothing records until you turn REC on, recordings stay on your PC, and friends can keep their voice out of yours.',
+            )}
+          </p>
+        </div>
+        <div class="release-shot release-art dl-scene dl-scene-main">
+          <RecArt />
+        </div>
+        <div class="dl-rec-row">
+          <figure class="dl-rec-more">
+            <div class="release-shot release-art dl-scene">
+              <StudioArt />
+            </div>
+            <figcaption>
+              <strong>{t('The studio')}</strong>
+              <span>{t('Thumbnails, moments and a cut that takes no time, even on a three-hour session.')}</span>
+            </figcaption>
+          </figure>
+          <figure class="dl-rec-more">
+            <div class="release-shot release-art dl-scene">
+              <OverlayArt />
+            </div>
+            <figcaption>
+              <strong>{t('Over your game')}</strong>
+              <span>{t('Clip, screenshot and your latest clips without leaving the match.')}</span>
+            </figcaption>
+          </figure>
         </div>
       </section>
 
       <section class="dl-section">
-        <h2>{t('Better on the desktop')}</h2>
-        <div class="dl-features">
-          <For each={FEATURES}>
-            {(f) => (
-              <div class="dl-feature">
-                <span class="showcase-feature-icon">
-                  <f.icon size={20} />
-                </span>
-                <strong>{t(f.title)}</strong>
-                <p>{t(f.text)}</p>
-              </div>
+        <div class="dl-section-head">
+          <h2>{t('Made for the desktop')}</h2>
+          <p class="dl-lead">{t('Everything in the browser, plus what only an app on your computer can do.')}</p>
+        </div>
+        <ol class="dl-toc">
+          <For each={DESKTOP}>
+            {(f, i) => (
+              <li>
+                <span class="dl-toc-num">{String(i() + 1).padStart(2, '0')}</span>
+                <div>
+                  <strong>
+                    {t(f.title)}
+                    <Show when={f.windows && os !== 'windows'}>
+                      <span class="release-tag">{t('Windows app')}</span>
+                    </Show>
+                  </strong>
+                  <p>{t(f.text)}</p>
+                </div>
+              </li>
             )}
           </For>
-        </div>
+        </ol>
       </section>
 
       <section class="dl-section" id="platforms">
-        <h2>{t('All platforms')}</h2>
+        <div class="dl-section-head">
+          <h2>{t('Every platform')}</h2>
+        </div>
         <div class="dl-platforms">
           <div class="dl-platform" classList={{ mine: os === 'windows' }}>
             <div class="dl-platform-head">
@@ -241,47 +317,47 @@ function DownloadPage() {
                 <span class="tag">{t('Your computer')}</span>
               </Show>
             </div>
-            <p class="muted">{t("Windows 10 and 11, 64-bit. Streaming only one app's audio needs Windows 11.")}</p>
+            <p class="muted">
+              {t(
+                'Windows 10 and 11, 64-bit. Everything Pottira does, REC included. App-only stream sound needs Windows 11.',
+              )}
+            </p>
             <Show when={win()} fallback={<p class="muted small">{t('Not available yet.')}</p>}>
               {(f) => (
                 <>
                   <a class="btn primary" href={f().url} download="">
                     <I.Download size={16} /> {t('Download')}
                   </a>
-                  <span class="dl-meta">
-                    {[t('Version {version}', { version: f().version }), megabytes(f().size)]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
+                  <span class="dl-meta">{meta(f())}</span>
                 </>
               )}
             </Show>
           </div>
-          <div class="dl-platform" classList={{ mine: os === 'linux' }}>
+          <div class="dl-platform" classList={{ mine: onLinux }}>
             <div class="dl-platform-head">
               <LinuxMark />
               <strong>Linux</strong>
-              <Show when={os === 'linux'}>
+              <Show when={onLinux}>
                 <span class="tag">{t('Your computer')}</span>
               </Show>
             </div>
             <p class="muted">
               {t(
-                '64-bit .deb (Debian, Ubuntu, Mint) or .rpm (Fedora, openSUSE). No global keybinds or app-only stream audio yet.',
+                '64-bit .deb (Debian, Ubuntu, Mint) or .rpm (Fedora, openSUSE). Voice, video and streaming; no REC, overlay or global keybinds yet.',
               )}
             </p>
             <Show when={linux()} fallback={<p class="muted small">{t('Not available yet.')}</p>}>
               {(f) => (
                 <>
                   <div class="row">
-                    <Show when={downloads()!.deb}>
+                    <Show when={deb()}>
                       {(d) => (
                         <a class="btn primary" href={d().url} download="">
                           <I.Download size={16} /> .deb
                         </a>
                       )}
                     </Show>
-                    <Show when={downloads()!.rpm}>
+                    <Show when={rpm()}>
                       {(r) => (
                         <a class="btn" href={r().url} download="">
                           <I.Download size={16} /> .rpm
@@ -289,23 +365,19 @@ function DownloadPage() {
                       )}
                     </Show>
                   </div>
-                  <span class="dl-meta">
-                    {[t('Version {version}', { version: f().version }), megabytes(f().size)]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
+                  <span class="dl-meta">{meta(f())}</span>
                 </>
               )}
             </Show>
           </div>
           <div class="dl-platform" classList={{ mine: os === 'mac' || os === 'mobile' }}>
             <div class="dl-platform-head">
-              <I.Compass size={22} />
-              <strong>{t('Browser')}</strong>
+              <I.MobileDevice size={20} />
+              <strong>{t('Browser and phone')}</strong>
             </div>
             <p class="muted">
               {t(
-                'On a Mac, a phone or anywhere else, Pottira runs in your browser with voice, video and screen sharing.',
+                'On a Mac, a phone or anywhere else, Pottira runs in the browser with voice, video and screen sharing. Add it to your home screen for notifications.',
               )}
             </p>
             <button class="btn" onClick={closePage}>
@@ -316,10 +388,12 @@ function DownloadPage() {
       </section>
 
       <section class="dl-section">
-        <h2>{os === 'linux' ? t('Installing on Linux') : t('Installing on Windows')}</h2>
+        <div class="dl-section-head">
+          <h2>{onLinux ? t('Installing on Linux') : t('Installing on Windows')}</h2>
+        </div>
         <ol class="dl-steps">
           <Show
-            when={os === 'linux'}
+            when={onLinux}
             fallback={
               <>
                 <li>
@@ -340,8 +414,12 @@ function DownloadPage() {
             <li>
               <strong>{t('Install the package')}</strong>
               <p>{t('Open it with your software center, or in a terminal:')}</p>
-              <code class="dl-code">sudo apt install ./Pottira_*_amd64.deb</code>
-              <code class="dl-code">sudo dnf install ./Linkord-*.x86_64.rpm</code>
+              <Show when={deb()}>
+                <code class="dl-code">sudo apt install ./{fileName(deb())}</code>
+              </Show>
+              <Show when={rpm()}>
+                <code class="dl-code">sudo dnf install ./{fileName(rpm())}</code>
+              </Show>
             </li>
             <li>
               <strong>{t('Updates')}</strong>
@@ -354,14 +432,24 @@ function DownloadPage() {
           </li>
         </ol>
       </section>
-    </>
+
+      <footer class="dl-foot">
+        <Emblem size={36} />
+        <strong>Pottira</strong>
+        <span class="grow" />
+        <button class="btn ghost" onClick={() => openPage('changelog')}>
+          {t('Patch notes')}
+        </button>
+        <button class="btn" onClick={closePage}>
+          {t('Open Pottira')}
+        </button>
+      </footer>
+    </div>
   );
 }
 
-/** The big button for this computer (or both, elsewhere). */
+/** The big button for this computer (both Linux packages on Linux; Windows anywhere else). */
 function PrimaryDownload(p: { win?: Download; deb?: Download; rpm?: Download }) {
-  const meta = (f: Download, platform: string) =>
-    [platform, t('Version {version}', { version: f.version }), megabytes(f.size)].filter(Boolean).join(' · ');
   return (
     <div class="dl-primary">
       <Show
@@ -466,7 +554,10 @@ export function DownloadBanner() {
         <Emblem size={16} />
         <span>
           <strong>{t('Get the desktop app')}</strong>
-          <span class="download-banner-pitch"> — {t('push to talk in games and screen sharing with sound.')}</span>
+          <span class="download-banner-pitch">
+            {' '}
+            — {t('record your games, push to talk inside them and stream with sound.')}
+          </span>
         </span>
         <button class="download-banner-btn" onClick={() => openPage('download')}>
           {t('Download')}

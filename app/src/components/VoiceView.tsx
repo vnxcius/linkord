@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, Show } from 'solid-js';
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js';
 import { msg, t } from '../lib/i18n';
 import { prefs, setPrefs } from '../lib/prefs';
 import { nameOf, state, voiceMembers } from '../lib/store';
@@ -72,6 +72,14 @@ export function VoiceView(p: { channel: Channel }) {
   };
   // Keyed on the plain key string so the view tears down cleanly when the stream ends.
   const focusKey = () => (connected() ? videos().find((v) => v.key === voiceUi.focus)?.key : undefined);
+  /**
+   * What the grid shows. "Streams" with nothing left to stream would be an empty stage with no switch to leave it (the
+   * switch only shows while there are videos), so the grid goes back to everyone once the last stream or camera ends.
+   */
+  const gridShow = () => (videos().length ? voiceUi.gridShow : 'all');
+  createEffect(() => {
+    if (!videos().length && voiceUi.gridShow === 'video') setVoiceUi('gridShow', 'all');
+  });
   const parseKey = (key: string): VideoItem => {
     if (key === WATCH_KEY) return { key, userId: watches[p.channel.id]?.started_by ?? '', source: 'watch' };
     const i = key.lastIndexOf('-');
@@ -123,7 +131,7 @@ export function VoiceView(p: { channel: Channel }) {
               <div class="grid-show seg" role="tablist">
                 <For each={GRID_SHOW}>
                   {([id, label]) => (
-                    <button classList={{ active: voiceUi.gridShow === id }} onClick={() => setVoiceUi('gridShow', id)}>
+                    <button classList={{ active: gridShow() === id }} onClick={() => setVoiceUi('gridShow', id)}>
                       {t(label)}
                     </button>
                   )}
@@ -131,13 +139,13 @@ export function VoiceView(p: { channel: Channel }) {
               </div>
             </Show>
             <Show
-              when={voiceUi.gridShow === 'video' && videos().length}
+              when={gridShow() === 'video'}
               fallback={
                 <div class="voice-grid">
-                  <Show when={voiceUi.gridShow !== 'people'}>
+                  <Show when={gridShow() !== 'people'}>
                     <For each={videos()}>{(item) => <Tile channelId={p.channel.id} item={item} guildId={gid()} />}</For>
                   </Show>
-                  <Show when={voiceUi.gridShow !== 'video'}>
+                  <Show when={gridShow() !== 'video'}>
                     <For each={members()} fallback={<p class="muted">{t('No one is here yet.')}</p>}>
                       {(v) => ParticipantTile(v)}
                     </For>

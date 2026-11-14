@@ -1,8 +1,8 @@
-// Onboarding (1.0). New accounts get a guided tour of the app: a spotlight on each part of the window with a card
-// beside it, plus cards with screenshots for what has no fixed place (calls, Kass, watch together, soundboard).
-// Accounts that existed before 1.0 (migration 0017 marked them tour_done) get the "Version 1.0 is here!" dialog
-// instead, with confetti, a fanfare and the highlights. Both are remembered per account in the synced settings
-// (tour_done, release_seen); Settings has links to see either again.
+// Onboarding. New accounts get a guided tour of the app: a spotlight on each part of the window with a card beside it,
+// plus cards with screenshots for what has no fixed place (calls, Kass, watch together, soundboard). Accounts that have
+// had the tour get the release dialog once per big release instead (2.0: REC first, then Linkord becoming Pottira),
+// with confetti, a fanfare and the highlights. Both are remembered per account in the synced settings (tour_done,
+// release_seen); Settings has links to see either again.
 import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from 'solid-js';
 import { patchSettings, selectView } from '../lib/actions';
 import { msg, t } from '../lib/i18n';
@@ -13,17 +13,27 @@ import { page } from '../lib/route';
 import { sounds } from '../lib/sounds';
 import { displayName } from '../lib/types';
 import { state } from '../lib/store';
-import { isMobile, ui } from '../lib/ui';
+import { isTauri } from '../lib/platform';
+import { recAvailable } from '../lib/rec';
+import { openPage } from '../lib/route';
+import { isMobile, setUi, ui } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
 import { Snow } from './Christmas';
-import shotLook from '../assets/whats-new/look.webp';
-import shotCall from '../assets/whats-new/call.webp';
-import shotWatch from '../assets/whats-new/watch.webp';
-import shotKass from '../assets/whats-new/kass.webp';
-import shotSoundboard from '../assets/whats-new/soundboard.webp';
-import shotDmCall from '../assets/whats-new/dm-call.webp';
-import shotStats from '../assets/whats-new/stats.webp';
+import {
+  CallArt,
+  KassArt,
+  KeysArt,
+  LeagueArt,
+  LookArt,
+  NameArt,
+  OverlayArt,
+  RecArt,
+  ShareArt,
+  SoundboardArt,
+  StudioArt,
+  WatchArt,
+} from './ReleaseArt';
 import shotXmasLook from '../assets/whats-new/christmas-look.webp';
 import shotXmasSnowball from '../assets/whats-new/christmas-snowball.webp';
 import shotXmasSanta from '../assets/whats-new/christmas-santa.webp';
@@ -32,10 +42,12 @@ import shotXmasCountdown from '../assets/whats-new/christmas-countdown.webp';
 import shotXmasMusic from '../assets/whats-new/christmas-music.webp';
 
 /** The release whose "what's new" dialog existing accounts see once. */
-export const RELEASE = '1.0.0';
+export const RELEASE = '2.0.0';
+/** "2.0", as the dialog, the tour and Settings name it. */
+export const RELEASE_NAME = RELEASE.split('.').slice(0, 2).join('.');
 
 const [mode, setMode] = createSignal<'tour' | 'release' | 'christmas' | null>(null);
-/** Settings → "Take the tour" / "What's new in 1.0". */
+/** Settings → "Take the tour" / "What's new in 2.0". */
 export const startTour = () => setMode('tour');
 export const showRelease = () => setMode('release');
 export const showChristmas = () => setMode('christmas');
@@ -80,80 +92,100 @@ export function Onboarding() {
   );
 }
 
-// ---------- the highlights (dialog slides and tour cards share them) ----------
+// ---------- the highlights ----------
 
 interface Feature {
   id: string;
   title: string;
   text: string;
-  shot: string;
+  /** A screenshot, or a scene drawn in the app's own colours (ReleaseArt.tsx). */
+  shot?: string;
+  art?: () => JSX.Element;
+  /** Only the Windows app does this: anywhere else the slide gets a "Windows app" tag. */
+  windows?: boolean;
 }
 
+/** 2.0: REC first (most of the release), then the new name and look. */
 const FEATURES: Feature[] = [
   {
+    id: 'rec',
+    title: msg('Your games, recorded'),
+    text: msg(
+      'Turn on REC and Pottira records every game you play, quietly, in the background. Nothing shows on your screen while it does, and the recordings stay on your PC.',
+    ),
+    art: RecArt,
+    windows: true,
+  },
+  {
+    id: 'rec-keys',
+    title: msg('Clips with one key'),
+    text: msg(
+      'Something great just happened? A key keeps the last seconds as a clip, another takes a screenshot or marks the moment for later. A soft chime confirms it, even in fullscreen.',
+    ),
+    art: KeysArt,
+    windows: true,
+  },
+  {
+    id: 'rec-studio',
+    title: msg('The studio'),
+    text: msg(
+      'Every session waits in your library, hours long if you like. Skim it by its thumbnails, jump from moment to moment and cut a clip from any part of it, instantly.',
+    ),
+    art: StudioArt,
+    windows: true,
+  },
+  {
+    id: 'rec-overlay',
+    title: msg('Over your game'),
+    text: msg(
+      'Shift and the key left of 1 open REC on top of the game: save a clip, take a screenshot, see your latest clips. Close it and the game gets its focus back. It never shows up in the recording.',
+    ),
+    art: OverlayArt,
+    windows: true,
+  },
+  {
+    id: 'rec-share',
+    title: msg('Share with a link'),
+    text: msg(
+      'Share a clip in a chat and it plays right there. Its link opens in any browser, no account needed, and in a call you can watch it together.',
+    ),
+    art: ShareArt,
+  },
+  {
+    id: 'rec-league',
+    title: msg('League and badges'),
+    text: msg(
+      'In League, kills, multikills and objectives land on the timeline by themselves, and REC can clip them for you. New badges for clips, views, hours recorded and a real pentakill.',
+    ),
+    art: LeagueArt,
+    windows: true,
+  },
+  {
+    id: 'name',
+    title: msg('Linkord is now Pottira'),
+    text: msg(
+      'A name of our own: potira means “flower” in Tupi. Same app, same friends, same servers, nothing to do on your side. The swirl is our new icon.',
+    ),
+    art: NameArt,
+  },
+  {
     id: 'look',
-    title: msg('A look of its own'),
+    title: msg('Cotton on steel'),
     text: msg(
-      'Three panels on a darker desk: channels numbered like a table of contents, the chat as a page, and people, pins and search in the margin beside it.',
+      'Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme. And every sound is new, made for Pottira, from messages to ringtones.',
     ),
-    shot: shotLook,
-  },
-  {
-    id: 'watch',
-    title: msg('Watch together'),
-    text: msg(
-      'Share a YouTube, Twitch or Kick link in a call and everyone watches in sync. People join when they want, with theater mode, fullscreen and a pop-out player.',
-    ),
-    shot: shotWatch,
-  },
-  {
-    id: 'kass',
-    title: msg('Kass, the music bot'),
-    text: msg(
-      'Type /play with a YouTube or Spotify link, or just the name of a song, and Kass joins your call. /skip, /pause, /queue and /stop do the rest.',
-    ),
-    shot: shotKass,
-  },
-  {
-    id: 'soundboard',
-    title: msg('Soundboard'),
-    text: msg(
-      'Quick sounds for the call. Upload your own, trim them on the waveform and give each one an emoji. Everyone hears it at once.',
-    ),
-    shot: shotSoundboard,
-  },
-  {
-    id: 'calls',
-    title: msg('Calls in DMs'),
-    text: msg(
-      'Call a friend or a whole group from their DM. It rings on their side, and camera and screen sharing work there too.',
-    ),
-    shot: shotDmCall,
-  },
-  {
-    id: 'stats',
-    title: msg('Your stats'),
-    text: msg(
-      "Messages, words, favorite emoji, hours in voice, streams and the hours you're most active. In Settings, under Stats.",
-    ),
-    shot: shotStats,
+    art: LookArt,
   },
 ];
 
 const MORE = [
-  msg('Ctrl+K quick switcher'),
-  msg('Voice messages'),
-  msg('Spellcheck'),
-  msg('Custom status'),
-  msg('Stream previews'),
-  msg('Animated avatars'),
-  msg('Nameplates'),
-  msg('Pick your username'),
+  msg('Record your desktop too'),
+  msg('Recent clips on profiles'),
+  msg('Keep your voice out of recordings'),
+  msg('Search every server'),
 ];
 
-const feature = (id: string) => FEATURES.find((f) => f.id === id)!;
-
-// ---------- "Version 1.0 is here!" ----------
+// ---------- the release dialog ----------
 
 const SLIDE_MS = 7000;
 
@@ -185,7 +217,7 @@ function Showcase(p: {
   let stopFanfare: (() => void) | undefined;
   onMount(() => {
     // Preload every screenshot so switching slides never shows an empty frame.
-    for (const f of p.features) new Image().src = f.shot;
+    for (const f of p.features) if (f.shot) new Image().src = f.shot;
     stopFanfare = sounds.fanfare();
     stopConfetti = confetti();
   });
@@ -269,11 +301,18 @@ function Showcase(p: {
           <Show when={current()} keyed>
             {(f) => (
               <figure class="release-slide" role="tabpanel">
-                <div class="release-shot">
-                  <img src={f.shot} alt={t(f.title)} draggable={false} />
+                <div class="release-shot" classList={{ 'release-art': !f.shot }}>
+                  <Show when={f.shot} fallback={f.art?.()}>
+                    {(src) => <img src={src()} alt={t(f.title)} draggable={false} />}
+                  </Show>
                 </div>
                 <figcaption>
-                  <h3>{t(f.title)}</h3>
+                  <h3>
+                    {t(f.title)}
+                    <Show when={f.windows && !recAvailable}>
+                      <span class="release-tag">{t('Windows app')}</span>
+                    </Show>
+                  </h3>
                   <p>{t(f.text)}</p>
                 </figcaption>
               </figure>
@@ -292,30 +331,53 @@ function Showcase(p: {
 }
 
 function Release() {
-  const close = (tour = false) => {
+  const close = (then?: () => void) => {
     void patchSettings({ release_seen: RELEASE }).catch(() => {});
-    setMode(tour ? 'tour' : null);
+    setMode(null);
+    then?.();
   };
   return (
     <Showcase
       features={FEATURES}
       more={MORE}
-      kicker={t('Pottira {version}', { version: '1.0' })}
-      title={t('Version 1.0 is here!')}
-      intro={t('Thanks for being here since the early days, {name}. This is what came with it.', {
-        name: displayName(state.me),
-      })}
-      emblem={<Emblem size={52} />}
+      kicker={t('Pottira {version}', { version: RELEASE_NAME })}
+      title={t('Meet REC')}
+      intro={t(
+        '{name}, Pottira now records your games and turns your best moments into clips. And yes, Linkord has a new name: that comes right after.',
+        { name: displayName(state.me) },
+      )}
+      emblem={
+        <>
+          <Emblem size={52} />
+          <span class="release-rec-tag">
+            <i /> REC
+          </span>
+        </>
+      }
       onClose={() => close()}
       footer={
         <>
-          <button class="btn ghost" onClick={() => close(true)}>
-            <I.Compass size={16} /> {t('Take the tour')}
-          </button>
+          <Show when={!isTauri}>
+            <button class="btn ghost" onClick={() => close(() => openPage('download'))}>
+              <I.Download size={16} /> {t('Download the app')}
+            </button>
+          </Show>
           <span class="grow" />
-          <button class="btn primary" onClick={() => close()}>
-            {t("Let's go")}
-          </button>
+          <Show
+            when={recAvailable}
+            fallback={
+              <button class="btn primary" onClick={() => close()}>
+                {t("Let's go")}
+              </button>
+            }
+          >
+            <button class="btn ghost" onClick={() => close()}>
+              {t('Maybe later')}
+            </button>
+            <button class="btn primary" onClick={() => close(() => setUi('modal', { type: 'rec' }))}>
+              <I.Rec size={16} /> {prefs.rec.enabled ? t('Open REC') : t('Try REC')}
+            </button>
+          </Show>
         </>
       }
     />
@@ -373,12 +435,7 @@ const CHRISTMAS: Feature[] = [
   },
 ];
 
-const CHRISTMAS_MORE = [
-  msg('Festive app icon'),
-  msg('Winter call sounds'),
-  msg('Bells on the soundboard'),
-  msg('Works for New Year too'),
-];
+const CHRISTMAS_MORE = [msg('Festive app icon'), msg('Bells on the soundboard'), msg('Works for New Year too')];
 
 function ChristmasGreeting() {
   const close = () => {
@@ -438,7 +495,8 @@ interface Step {
   text: string;
   /** The part of the window to point at; without one (or when it isn't on screen) the card sits in the middle. */
   target?: string;
-  shot?: string;
+  /** A drawn scene (ReleaseArt.tsx), for the cards in the middle. */
+  art?: () => JSX.Element;
   /** Keys to show as keycaps under the text. */
   keys?: string[];
   hero?: boolean;
@@ -465,7 +523,7 @@ const STEPS: Step[] = [
     ),
   },
   {
-    shot: shotCall,
+    art: CallArt,
     title: msg('Voice, video and your screen'),
     text: msg(
       "Calls need no setup. Turn on your camera, go live with a window or a game (sound included) and click Watch on a friend's stream.",
@@ -475,6 +533,14 @@ const STEPS: Step[] = [
     target: '.dock .user-panel',
     title: msg("That's you"),
     text: msg('Mute, deafen and your settings. Click your name to set a status or edit your profile.'),
+  },
+  {
+    target: '.dock .rec-btn',
+    title: msg('REC is here'),
+    // Just that it exists: the REC page introduces itself the first time it's opened.
+    text: recAvailable
+      ? msg('Record your games and keep the best moments as clips. Turn it on from this button whenever you like.')
+      : msg('The Windows app records your games and keeps the best moments as clips. Your shared clips live here.'),
   },
   {
     target: '.composer',
@@ -488,9 +554,27 @@ const STEPS: Step[] = [
     title: msg('The margin'),
     text: msg('People, pinned messages and search sit beside the chat. Right-click almost anything for more options.'),
   },
-  { shot: shotKass, title: feature('kass').title, text: feature('kass').text },
-  { shot: shotWatch, title: feature('watch').title, text: feature('watch').text },
-  { shot: shotSoundboard, title: feature('soundboard').title, text: feature('soundboard').text },
+  {
+    art: KassArt,
+    title: msg('Kass, the music bot'),
+    text: msg(
+      'Type /play with a YouTube or Spotify link, or just the name of a song, and Kass joins your call. /skip, /pause, /queue and /stop do the rest.',
+    ),
+  },
+  {
+    art: WatchArt,
+    title: msg('Watch together'),
+    text: msg(
+      'Share a YouTube, Twitch or Kick link in a call and everyone watches in sync. People join when they want, with theater mode, fullscreen and a pop-out player.',
+    ),
+  },
+  {
+    art: SoundboardArt,
+    title: msg('Soundboard'),
+    text: msg(
+      'Quick sounds for the call. Upload your own, trim them on the waveform and give each one an emoji. Everyone hears it at once.',
+    ),
+  },
   {
     keys: ['Ctrl', 'K'],
     title: msg('Jump anywhere'),
@@ -639,7 +723,7 @@ function Tour() {
       </Show>
       <div
         class="tour-card"
-        classList={{ hero: !!step().hero, 'with-shot': !anchored() && !!step().shot }}
+        classList={{ hero: !!step().hero, 'with-shot': !anchored() && !!step().art }}
         style={anchored() ? cardStyle() : undefined}
         ref={(el) => {
           card = el;
@@ -657,17 +741,11 @@ function Tour() {
                   <Emblem size={56} />
                 </div>
               </Show>
-              <Show when={!anchored() && step().shot}>
-                {(src) => (
-                  <div class="tour-shot">
-                    <img src={src()} alt="" draggable={false} />
-                  </div>
-                )}
-              </Show>
+              <Show when={!anchored() && step().art}>{(art) => <div class="tour-shot">{art()()}</div>}</Show>
               <p class="tour-kicker">
                 <Show
                   when={!step().hero}
-                  fallback={index() === 0 ? t('Pottira {version}', { version: '1.0' }) : t('Tour complete')}
+                  fallback={index() === 0 ? t('Pottira {version}', { version: RELEASE_NAME }) : t('Tour complete')}
                 >
                   {t('Step {n} of {total}', {
                     n: String(index()).padStart(2, '0'),

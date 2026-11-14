@@ -73,7 +73,7 @@ import { BadgesPage } from './Badges';
 import { KassPage } from './KassPage';
 import { LeagueSettings } from './League';
 import { StevePage } from './StevePage';
-import { showChristmas, showRelease, startTour } from './Onboarding';
+import { RELEASE_NAME, showChristmas, showRelease, startTour } from './Onboarding';
 import { parseBirthday } from './Birthday';
 import { brandOf } from '../lib/brand-icons';
 import { linkHost, type ProfileLink, type ProfileSong, SongPlayer } from './ProfileWidgets';
@@ -228,7 +228,9 @@ export function Settings(p: { tab?: string }) {
           {/* One link per line: side by side they wrapped mid-row in this narrow column. */}
           <nav class="settings-links">
             <button onClick={() => (close(), openPage('changelog'))}>{t('Patch notes')}</button>
-            <button onClick={() => (close(), showRelease())}>{t("What's new in 1.0")}</button>
+            <button onClick={() => (close(), showRelease())}>
+              {t("What's new in {version}", { version: RELEASE_NAME })}
+            </button>
             <button onClick={() => (close(), showChristmas())}>{t('Christmas greeting')}</button>
             <button onClick={() => (close(), startTour())}>{t('Take the tour')}</button>
           </nav>

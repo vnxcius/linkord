@@ -131,68 +131,92 @@ export const UI: Record<string, string> = {
   'next to Direct Messages.': 'ao lado de Mensagens diretas.',
   'Loading…': 'Carregando…',
   'Gather your party.': 'Reúna seu grupo.',
-  '64-bit .deb (Debian, Ubuntu, Mint) or .rpm (Fedora, openSUSE). No global keybinds or app-only stream audio yet.':
-    '64 bits, .deb (Debian, Ubuntu, Mint) ou .rpm (Fedora, openSUSE). Ainda sem atalhos globais nem áudio só do app na transmissão.',
-  'All platforms': 'Todas as plataformas',
-  'Always in reach': 'Sempre à mão',
-  'A small installer built on Tauri, not a whole browser like Electron.':
-    'Um instalador pequeno feito com Tauri, não um navegador inteiro como o Electron.',
   'Back to Pottira': 'Voltar ao Pottira',
-  'Better on the desktop': 'Melhor no computador',
-  Browser: 'Navegador',
   Changelog: 'Histórico de mudanças',
   'Download .deb': 'Baixar .deb',
   'Download for Windows': 'Baixar para Windows',
   'Download .rpm': 'Baixar .rpm',
-  'Friends see your game, and one click goes live with it.':
-    'Seus amigos veem seu jogo, e com um clique você transmite ele.',
   'If Windows warns you': 'Se o Windows reclamar',
   'Installing on Linux': 'Instalando no Linux',
   'Installing on Windows': 'Instalando no Windows',
   'Install the package': 'Instale o pacote',
-  'Keybinds work while a game has focus, minimized or from the tray.':
-    'Os atalhos funcionam com o jogo em foco, minimizado ou na bandeja.',
   Latest: 'Mais recente',
-  'Light as a feather': 'Leve como uma pena',
   'Pottira asks for your password when an update is ready, then installs it.':
     'O Pottira pede sua senha quando há uma atualização e instala ela.',
   'Pottira for desktop': 'Pottira para computador',
+  // The download page (2.0).
+  'Push to talk inside games': 'Aperte para falar dentro dos jogos',
+  'Keybinds keep working while a game has focus, with Pottira minimized or in the tray.':
+    'Os atalhos continuam funcionando com o jogo em foco e o Pottira minimizado ou na bandeja.',
+  'Streams with sound': 'Transmissões com som',
+  "Native screen capture, hardware encoded. On Windows 11 it sends only the shared app's sound, never your calls.":
+    'Captura de tela nativa, codificada pela placa de vídeo. No Windows 11 vai só o som do app compartilhado, nunca suas chamadas.',
+  'Voice overlay': 'Overlay de voz',
+  'See who is talking over a borderless game. It never shows up in your stream or your recordings.':
+    'Veja quem está falando por cima de um jogo em janela sem bordas. Ele nunca aparece na sua transmissão nem nas suas gravações.',
+  'Friends see your game and how long you have been at it. One click goes live with its window.':
+    'Seus amigos veem seu jogo e há quanto tempo você está nele. Um clique transmite a janela dele.',
+  'League of Legends, built in': 'League of Legends integrado',
+  'Your lobby, queue and champion on your card, and friends join your lobby from Pottira.':
+    'Seu lobby, fila e campeão no seu cartão, e os amigos entram no seu lobby pelo Pottira.',
+  'Small, and always there': 'Leve, e sempre por perto',
+  'A few megabytes on Tauri, not a whole browser. Starts with your computer, waits in the tray and updates itself.':
+    'Poucos megabytes em Tauri, não um navegador inteiro. Abre com o computador, fica na bandeja e se atualiza sozinho.',
+  'Every game you play, recorded in the background, with nothing on your screen.':
+    'Cada jogo que você joga, gravado em segundo plano, sem nada na sua tela.',
+  'One key saves the last seconds as a clip; others take a screenshot or mark the moment.':
+    'Uma tecla salva os últimos segundos como clipe; outras tiram uma captura de tela ou marcam o momento.',
+  'A studio for hours-long sessions: skim, jump between moments, cut a clip instantly.':
+    'Um estúdio para sessões de horas: passe pelas miniaturas, pule entre lances e corte um clipe na hora.',
+  'Share a clip with a link that anyone can watch, even without an account.':
+    'Compartilhe um clipe com um link que qualquer um assiste, mesmo sem conta.',
+  'Talk, stream, play. And now, record.': 'Converse, transmita, jogue. E agora, grave.',
+  'Voice with zero setup, push to talk inside games and streams with sound. New in 2.0: REC records your games, and the best moments are one key away.':
+    'Voz sem nenhuma configuração, aperte para falar dentro dos jogos e transmissões com som. Novo na 2.0: o REC grava seus jogos, e os melhores lances ficam a uma tecla de distância.',
+  'New in 2.0': 'Novo na 2.0',
+  'Windows app. Nothing records until you turn REC on, recordings stay on your PC, and friends can keep their voice out of yours.':
+    'App para Windows. Nada é gravado até você ativar o REC, as gravações ficam no seu PC, e os amigos podem deixar a voz deles fora das suas.',
+  'Thumbnails, moments and a cut that takes no time, even on a three-hour session.':
+    'Miniaturas, lances e um corte que não demora nada, mesmo numa sessão de três horas.',
+  'Clip, screenshot and your latest clips without leaving the match.':
+    'Clipe, captura de tela e seus últimos clipes sem sair da partida.',
+  'Made for the desktop': 'Feito para o computador',
+  'Everything in the browser, plus what only an app on your computer can do.':
+    'Tudo o que tem no navegador, mais o que só um app no seu computador consegue fazer.',
+  'Every platform': 'Todas as plataformas',
+  'Windows 10 and 11, 64-bit. Everything Pottira does, REC included. App-only stream sound needs Windows 11.':
+    'Windows 10 e 11, 64 bits. Tudo o que o Pottira faz, REC incluído. Transmitir só o som do app pede Windows 11.',
+  '64-bit .deb (Debian, Ubuntu, Mint) or .rpm (Fedora, openSUSE). Voice, video and streaming; no REC, overlay or global keybinds yet.':
+    '.deb (Debian, Ubuntu, Mint) ou .rpm (Fedora, openSUSE) de 64 bits. Voz, vídeo e transmissões; ainda sem REC, overlay ou atalhos globais.',
+  'Browser and phone': 'Navegador e celular',
+  'On a Mac, a phone or anywhere else, Pottira runs in the browser with voice, video and screen sharing. Add it to your home screen for notifications.':
+    'Num Mac, no celular ou em qualquer outro lugar, o Pottira roda no navegador com voz, vídeo e compartilhamento de tela. Adicione à tela inicial para receber notificações.',
+  'record your games, push to talk inside them and stream with sound.':
+    'grave seus jogos, aperte para falar dentro deles e transmita com som.',
+  'Text channels': 'Canais de texto',
+  'Voice channels': 'Canais de voz',
+  games: 'jogos',
   'Pottira was updated to {version}.': 'O Pottira foi atualizado para a {version}.',
-  'Lives in the tray, starts with your computer, badges unread mentions.':
-    'Fica na bandeja, abre com o computador e mostra menções não lidas.',
   New: 'Novo',
-  'New versions install in the background. Nothing to download again.':
-    'Versões novas são instaladas em segundo plano. Nada para baixar de novo.',
   'No patch notes yet.': 'Ainda não há notas de atualização.',
   'Not available yet.': 'Ainda não disponível.',
-  'On a Mac, a phone or anywhere else, Pottira runs in your browser with voice, video and screen sharing.':
-    'No Mac, no celular ou em qualquer lugar, o Pottira roda no navegador com voz, vídeo e compartilhamento de tela.',
   'Open it with your software center, or in a terminal:': 'Abra com a central de programas, ou no terminal:',
   'Open the file you downloaded. It installs for your user only, no administrator needed.':
     'Abra o arquivo baixado. Ele instala só para o seu usuário, sem precisar de administrador.',
-  'Push to talk in games': 'Aperte para falar nos jogos',
-  'push to talk in games and screen sharing with sound.': 'aperte para falar nos jogos e compartilhe a tela com som.',
   'Run the installer': 'Rode o instalador',
   'Sign in with Discord': 'Entre com o Discord',
   'SmartScreen may say it protected your PC because the installer is new. Click More info, then Run anyway.':
     'O SmartScreen pode dizer que protegeu seu PC porque o instalador é novo. Clique em Mais informações e depois em Executar assim mesmo.',
-  'Stream with sound': 'Transmita com som',
   'The app opens your browser to sign in, then picks up where you left off.':
     'O app abre o navegador para você entrar e depois continua de onde você parou.',
   'The desktop app is for Windows and Linux. On this device, Pottira works right in the browser.':
     'O app para computador é para Windows e Linux. Neste aparelho, o Pottira funciona direto no navegador.',
-  'Updates itself': 'Se atualiza sozinho',
   'Version {version}': 'Versão {version}',
   'What changed in Pottira, newest first. The desktop app updates itself; the web app is always on the latest version.':
     'O que mudou no Pottira, do mais novo para o mais antigo. O app para computador se atualiza sozinho; o app web está sempre na versão mais recente.',
-  "Windows 10 and 11, 64-bit. Streaming only one app's audio needs Windows 11.":
-    'Windows 10 e 11, 64 bits. Transmitir o áudio de um app só precisa do Windows 11.',
   'Your computer': 'Seu computador',
-  'Your party, one click away.': 'Seu grupo a um clique de distância.',
   'Your version': 'Sua versão',
   'Patch notes': 'Notas de atualização',
-  "Native screen capture with the app's audio, hardware encoded.":
-    'Captura de tela nativa com o áudio do app, codificada pelo hardware.',
   "Shows what you're playing": 'Mostra o que você está jogando',
   "What's new in {version}": 'Novidades da {version}',
   "See what's new": 'Ver novidades',
@@ -387,11 +411,12 @@ export const UI: Record<string, string> = {
   Keybinds: 'Atalhos de teclado',
   Notifications: 'Notificações',
   Language: 'Idioma',
-  'Desktop App': 'Aplicativo para desktop',
+  'Desktop App': 'Aplicativo desktop',
   Settings: 'Configurações',
   'Log Out': 'Sair',
   'Log out of Pottira?': 'Sair do Pottira?',
-  "You'll need to sign in with Discord again on this device.": 'Você vai precisar entrar com o Discord de novo neste dispositivo.',
+  "You'll need to sign in with Discord again on this device.":
+    'Você vai precisar entrar com o Discord de novo neste dispositivo.',
   Desktop: 'Desktop',
   'All settings': 'Todas as configurações',
   'Close settings': 'Fechar configurações',
@@ -1141,8 +1166,6 @@ export const UI: Record<string, string> = {
   "Time in voice is counted from Pottira 0.1.14 on. Deleted messages don't count.":
     'O tempo em chamadas é contado a partir do Pottira 0.1.14. Mensagens excluídas não entram na conta.',
   'Get the desktop app': 'Baixe o app para computador',
-  'Push to talk that works in games, native screen sharing with sound, and it starts with your computer.':
-    'Aperte para falar que funciona nos jogos, compartilhamento de tela nativo com som, e ele abre junto com o computador.',
   'No downloads are available yet.': 'Nenhum download disponível ainda.',
   'Download the app': 'Baixar o app',
   "This video's format doesn't show here. Pottira is making a copy that does; it appears by itself.":
@@ -1713,19 +1736,51 @@ export const UI: Record<string, string> = {
   'Emoji uploaded': 'Emojis enviados',
   'Sounds uploaded': 'Sons enviados',
   'Profile pictures': 'Fotos de perfil',
-  // Onboarding (1.0): the "what's new" dialog and the tour.
-  'Version 1.0 is here!': 'Chegou a versão 1.0!',
+  // Onboarding: the release dialog (2.0: REC, then the rebrand) and the tour.
   'Pottira {version}': 'Pottira {version}',
-  'Thanks for being here since the early days, {name}. This is what came with it.':
-    'Valeu por estar aqui desde o começo, {name}. Olha só o que veio junto.',
+  'Meet REC': 'Conheça o REC',
+  '{name}, Pottira now records your games and turns your best moments into clips. And yes, Linkord has a new name: that comes right after.':
+    '{name}, agora o Pottira grava seus jogos e transforma seus melhores lances em clipes. E sim, o Linkord mudou de nome: isso vem logo depois.',
   "What's new": 'Novidades',
   'And also': 'E também',
   "Let's go": 'Bora',
   'Take the tour': 'Fazer o tour',
-  "What's new in 1.0": 'Novidades da 1.0',
-  'A look of its own': 'Uma cara própria',
-  'Three panels on a darker desk: channels numbered like a table of contents, the chat as a page, and people, pins and search in the margin beside it.':
-    'Três painéis sobre uma mesa mais escura: canais numerados como um sumário, o chat como uma página e pessoas, fixados e busca na margem ao lado.',
+  'Open REC': 'Abrir o REC',
+  'Try REC': 'Experimentar o REC',
+  'Windows app': 'App para Windows',
+  'Your games, recorded': 'Seus jogos, gravados',
+  'Turn on REC and Pottira records every game you play, quietly, in the background. Nothing shows on your screen while it does, and the recordings stay on your PC.':
+    'Ative o REC e o Pottira grava cada jogo que você joga, em silêncio, em segundo plano. Nada aparece na sua tela enquanto isso, e as gravações ficam no seu PC.',
+  'Clips with one key': 'Clipes com uma tecla',
+  'Something great just happened? A key keeps the last seconds as a clip, another takes a screenshot or marks the moment for later. A soft chime confirms it, even in fullscreen.':
+    'Rolou algo incrível? Uma tecla guarda os últimos segundos como clipe, outra tira uma captura de tela ou marca o momento para depois. Um toque suave confirma, até em tela cheia.',
+  'The studio': 'O estúdio',
+  'Every session waits in your library, hours long if you like. Skim it by its thumbnails, jump from moment to moment and cut a clip from any part of it, instantly.':
+    'Cada sessão fica na sua biblioteca, mesmo as de horas. Passe pelas miniaturas, pule de lance em lance e corte um clipe de qualquer parte, na hora.',
+  'Over your game': 'Por cima do jogo',
+  'Shift and the key left of 1 open REC on top of the game: save a clip, take a screenshot, see your latest clips. Close it and the game gets its focus back. It never shows up in the recording.':
+    'Shift e a tecla à esquerda do 1 abrem o REC por cima do jogo: salve um clipe, tire uma captura, veja seus últimos clipes. Fechou, o jogo volta a ter o foco. Ele nunca aparece na gravação.',
+  'Share a clip in a chat and it plays right there. Its link opens in any browser, no account needed, and in a call you can watch it together.':
+    'Compartilhe um clipe num chat e ele toca ali mesmo. O link abre em qualquer navegador, sem precisar de conta, e numa chamada dá para assistir junto.',
+  'League and badges': 'League e insígnias',
+  'In League, kills, multikills and objectives land on the timeline by themselves, and REC can clip them for you. New badges for clips, views, hours recorded and a real pentakill.':
+    'No League, abates, multiabates e objetivos aparecem sozinhos na linha do tempo, e o REC pode virar eles em clipes para você. Novas insígnias por clipes, visualizações, horas gravadas e um pentakill de verdade.',
+  'Linkord is now Pottira': 'O Linkord agora é Pottira',
+  'A name of our own: potira means “flower” in Tupi. Same app, same friends, same servers, nothing to do on your side. The swirl is our new icon.':
+    'Um nome só nosso: potira quer dizer “flor” em tupi. Mesmo app, mesmos amigos, mesmos servidores, nada para fazer do seu lado. O redemoinho é o nosso novo ícone.',
+  'Cotton on steel': 'Algodão sobre aço',
+  'Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme. And every sound is new, made for Pottira, from messages to ringtones.':
+    'O dourado deu lugar ao Algodão: branco algodão sobre cinzas com um toque de aço, ou tinta sobre papel no tema claro. E todos os sons são novos, feitos para o Pottira, das mensagens aos toques de chamada.',
+  'Record your desktop too': 'Grave a área de trabalho também',
+  'Recent clips on profiles': 'Clipes recentes nos perfis',
+  'Keep your voice out of recordings': 'Sua voz fora das gravações',
+  'Search every server': 'Busca em todos os servidores',
+  'Instant, no re-encoding': 'Na hora, sem recodificar',
+  'No account needed': 'Sem precisar de conta',
+  '“flower” in Tupi': '“flor” em tupi',
+  'cotton, the accent': 'algodão, o destaque',
+  'steel, the grays': 'aço, os cinzas',
+  'New sounds': 'Sons novos',
   'Share a YouTube, Twitch or Kick link in a call and everyone watches in sync. People join when they want, with theater mode, fullscreen and a pop-out player.':
     'Compartilhe um link do YouTube, da Twitch ou da Kick numa chamada e todo mundo assiste junto, sincronizado. Cada um entra quando quiser, com modo teatro, tela cheia e player destacável.',
   'Kass, the music bot': 'Kass, o bot de música',
@@ -1733,18 +1788,6 @@ export const UI: Record<string, string> = {
     'Digite /play com um link do YouTube ou do Spotify, ou só o nome da música, e o Kass entra na sua chamada. /skip, /pause, /queue e /stop fazem o resto.',
   'Quick sounds for the call. Upload your own, trim them on the waveform and give each one an emoji. Everyone hears it at once.':
     'Sons rápidos para a chamada. Envie os seus, corte na forma de onda e dê um emoji para cada um. Todo mundo ouve na hora.',
-  'Calls in DMs': 'Chamadas nas DMs',
-  'Call a friend or a whole group from their DM. It rings on their side, and camera and screen sharing work there too.':
-    'Ligue para um amigo ou um grupo inteiro direto da DM. Toca do lado de lá, e câmera e compartilhamento de tela funcionam lá também.',
-  'Your stats': 'Suas estatísticas',
-  "Messages, words, favorite emoji, hours in voice, streams and the hours you're most active. In Settings, under Stats.":
-    'Mensagens, palavras, emojis favoritos, horas em voz, transmissões e os horários em que você mais aparece. Em Configurações, na aba Estatísticas.',
-  'Ctrl+K quick switcher': 'Troca rápida com Ctrl+K',
-  'Custom status': 'Status personalizado',
-  'Stream previews': 'Prévia das transmissões',
-  'Animated avatars': 'Avatares animados',
-  Nameplates: 'Placas de nome',
-  'Pick your username': 'Escolha seu nome de usuário',
   'Welcome to Pottira': 'Boas-vindas ao Pottira',
   'Welcome to Pottira, {name}': 'Boas-vindas ao Pottira, {name}',
   "Here's a quick look at where everything is. It takes a minute, and you can leave whenever you like.":
@@ -1760,6 +1803,12 @@ export const UI: Record<string, string> = {
   "That's you": 'Esse é você',
   'Mute, deafen and your settings. Click your name to set a status or edit your profile.':
     'Silenciar, desativar áudio e suas configurações. Clique no seu nome para definir um status ou editar o perfil.',
+  'REC is here': 'Chegou o REC',
+  'Record your games and keep the best moments as clips. Turn it on from this button whenever you like.':
+    'Grave seus jogos e guarde os melhores lances como clipes. Ative por este botão quando quiser.',
+  'The Windows app records your games and keeps the best moments as clips. Your shared clips live here.':
+    'O app para Windows grava seus jogos e guarda os melhores lances como clipes. Seus clipes compartilhados ficam aqui.',
+  'Now playing': 'Tocando agora',
   'Say something': 'Fala aí',
   'Send files, emoji and voice messages (the mic button). Type / for commands, @ to mention someone and : for emoji.':
     'Envie arquivos, emojis e mensagens de voz (o botão do microfone). Digite / para comandos, @ para mencionar alguém e : para emojis.',
@@ -1845,7 +1894,6 @@ export const UI: Record<string, string> = {
   'Christmas songs play softly and pause for calls, videos and other windows. Skip one from above the tree, or change the volume or turn them off in Appearance.':
     'Músicas de Natal tocam baixinho e pausam em chamadas, vídeos e outras janelas. Pule uma acima da árvore, ou mude o volume ou desative em Aparência.',
   'Festive app icon': 'Ícone festivo',
-  'Winter call sounds': 'Sons de inverno nas chamadas',
   'Bells on the soundboard': 'Sinos na mesa de sons',
   'Works for New Year too': 'Vale para o Ano-Novo também',
   'Santa hats': 'Gorros de Papai Noel',
@@ -2241,7 +2289,8 @@ export const UI: Record<string, string> = {
   // REC: shared clips, menu and multi-select
   'of {quota} used': 'de {quota} usados',
   '{free} left': '{free} livres',
-  'Almost full: stop sharing some clips to make room.': 'Quase cheio: pare de compartilhar alguns clipes para liberar espaço.',
+  'Almost full: stop sharing some clips to make room.':
+    'Quase cheio: pare de compartilhar alguns clipes para liberar espaço.',
   'Open the public page': 'Abrir a página pública',
   'Hide from your profile': 'Esconder do seu perfil',
   'Show on your profile': 'Mostrar no seu perfil',

@@ -14,7 +14,7 @@ import { clock } from './RecPlayer';
 import { fmt1, gbPerHour, PRESETS, Toggle, VoiceConsent } from './Rec';
 
 /** A made-up game frame for the scene: ground of three heights and sometimes a player (index-driven, so stable). */
-function Frame(p: { i: number }) {
+export function Frame(p: { i: number }) {
   const h = (k: number) => 18 + ((p.i * 7 + k * 11) % 5) * 7;
   return (
     <span class="rx-frame" classList={{ moment: p.i % 6 === 4 }}>
@@ -31,7 +31,7 @@ function Frame(p: { i: number }) {
 const FRAMES = Array.from({ length: 14 }, (_, i) => i);
 
 /** The one moving part: the tape rolls (it's recording), the bracket closes over its last seconds, the clip lifts out. */
-function Scene() {
+export function Scene() {
   // The recording clock runs from a made-up 42 minutes in.
   const start = Date.now() - (42 * 60 + 10) * 1000;
   const [now, setNow] = createSignal(Date.now());
