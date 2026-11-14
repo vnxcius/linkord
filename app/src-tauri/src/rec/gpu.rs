@@ -11,8 +11,9 @@
 //! encoder is behind), the frame is dropped rather than waited for. The stream path reads every frame back to the CPU
 //! instead; recording all the time while gaming can't afford that.
 //!
-//! The size is fixed for the whole recording (picked from the window/monitor at the start), so a recording is one
-//! picture size whatever the game's window does. Variable frame rate: Duplication only gives changed frames.
+//! The size is fixed for the whole recording: the quality the user picked, within the monitor's size (never the
+//! window's: League's client would keep its game at 1600x900), so a recording is one picture size whatever the game's
+//! window does, and a smaller window is scaled up into it. Variable frame rate: Duplication only gives changed frames.
 
 use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -141,7 +142,8 @@ const MAX_WIDTH: u32 = 4096;
 impl VideoRecorder {
     /// `origin`: the recording's time zero, shared with its audio.
     pub fn start(target: Target, settings: VideoSettings, origin: Instant, out: impl VideoOut) -> Result<VideoRecorder, String> {
-        let (w, h) = duplication::capture_size(target).ok_or("nothing to record")?;
+        // The user's quality within the monitor's size; a smaller window is scaled up into it.
+        let (w, h) = duplication::monitor_size(target).ok_or("nothing to record")?;
         let (width, height) = recording_size(w, h, settings.max_height);
         let shared = Arc::new(Shared { stop: AtomicBool::new(false), paused: AtomicBool::new(false), error: Mutex::new(None), stats: Stats::default(), started: origin, keyframe_now: AtomicBool::new(false), grabs: Mutex::new(Vec::new()) });
         let (jobs, rx) = sync_channel::<Job>(POOL + 1);

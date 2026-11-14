@@ -581,8 +581,10 @@ fn hwnd(window: usize) -> HWND {
     HWND(window as *mut std::ffi::c_void)
 }
 
-/// The size of what `target` captures right now: a window's visible part on its monitor, or the whole monitor.
-pub fn capture_size(target: Target) -> Option<(u32, u32)> {
+/// The size of the monitor `target` is on, or None when nothing of it is on screen. A recording is sized from this,
+/// never from the window: a small window (League's 1600x900 client) would otherwise hold the whole recording at its
+/// size once the game takes the screen.
+pub fn monitor_size(target: Target) -> Option<(u32, u32)> {
     unsafe {
         let monitor = HMONITOR(monitor_of(target) as *mut std::ffi::c_void);
         let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -594,7 +596,7 @@ pub fn capture_size(target: Target) -> Option<(u32, u32)> {
             Target::Screen(_) => screen,
             Target::Window(w) => bounds(hwnd(w)).intersect(screen),
         };
-        (!area.is_empty()).then_some((area.w as u32, area.h as u32))
+        (!area.is_empty()).then_some((screen.w as u32, screen.h as u32))
     }
 }
 
