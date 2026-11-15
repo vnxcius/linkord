@@ -1,11 +1,12 @@
-// Pottira used to be called Linkord, and this device's saved data (sign-in, prefs, last place, open folders, ...)
-// is still under the old name's keys. This moves every one of them to `pottira.*` before anything reads storage,
-// so it is the first import of each entry point (index.tsx, clip-page.tsx). A key already saved under the new name
-// wins. The old public address is gone too: a server saved as that address becomes the default again.
-// Safe to delete once every installed app has started a 2.0 build at least once.
-const OLD = 'linkord.';
-const NEW = 'pottira.';
-const OLD_ADDRESS = /^https:\/\/old\.example\.com\/?$/;
+// Linkord was briefly called Pottira (2.0.0), and devices that ran it keep their saved data (sign-in, prefs, last
+// place, open folders, ...) under `pottira.*` keys. This moves every one of them back to `linkord.*` before anything
+// reads storage, so it is the first import of each entry point (index.tsx, clip-page.tsx). A key already saved under
+// the current name wins. Apps older than 2.0 never renamed anything, so they need nothing here.
+// The old public addresses are gone too: a server saved as one of them becomes the default again.
+// Safe to delete once every installed app has started a build with this file at least once.
+const OLD = 'pottira.';
+const NEW = 'linkord.';
+const OLD_ADDRESS = /^https:\/\/(pottira\.com|old\.example\.com)\/?$/;
 
 for (const get of [() => localStorage, () => sessionStorage]) {
   try {

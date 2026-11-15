@@ -1,4 +1,4 @@
-// Builds the Christmas app icon from assets/icon.png: the same tile and swirl, the tile in evergreen, wearing a Santa hat.
+// Builds the Christmas app icon from assets/icon.png: the same tile and mark, the tile in evergreen, wearing a Santa hat.
 //   CHROMIUM=/path/to/chrome node app/src-tauri/icons/christmas/generate.mjs
 //   cd app && bun tauri icon ../assets/icon-christmas-square.png -o src-tauri/icons/christmas/tmp
 //   (keep tmp/icon.ico as icons/christmas/icon.ico, delete the rest)
@@ -30,10 +30,11 @@ async function render(source) {
   t.imageSmoothingQuality = 'high';
   t.drawImage(img, 0, 0, TILE, TILE);
   const data = t.getImageData(0, 0, TILE, TILE);
-  // The graphite tile turns evergreen, in proportion to how dark each edge pixel is; the cotton swirl stays cotton.
+  // The graphite tile turns evergreen, in proportion to how close each pixel is to the tile's colour (#18181c), so
+  // the edges of the white wings and the gold triforce blend; the wings stay white and the triforce gold.
   for (let i = 0; i < data.data.length; i += 4) {
     const [r, g, b] = [data.data[i], data.data[i + 1], data.data[i + 2]];
-    const keep = Math.min(1, Math.max(0, ((r + g + b) / 3 - 50) / 150));
+    const keep = Math.min(1, Math.max(0, (Math.abs(r - 24) + Math.abs(g - 24) + Math.abs(b - 28) - 30) / 150));
     data.data[i] = 18 * (1 - keep) + r * keep;
     data.data[i + 1] = 84 * (1 - keep) + g * keep;
     data.data[i + 2] = 54 * (1 - keep) + b * keep;

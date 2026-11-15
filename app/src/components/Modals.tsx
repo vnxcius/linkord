@@ -1327,10 +1327,10 @@ function GoLive(p: { update: boolean; switchSource: boolean }) {
                       ? t('Sound from the tab or your whole screen. Tick "Share audio" in the picker too.')
                       : caps() && !caps()!.per_app_audio
                         ? t(
-                            'Windows 10 shares all PC sound (Pottira removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
+                            'Windows 10 shares all PC sound (Linkord removes the voice chat from it, so nobody hears themselves). Windows 11 can share just the app.',
                           )
                         : selected()?.kind === 'screen'
-                          ? t('Everything you hear except Pottira, so nobody hears the voice chat echoed.')
+                          ? t('Everything you hear except Linkord, so nobody hears the voice chat echoed.')
                           : t('Only the sound of the app you share.')}
                 </small>
               </span>

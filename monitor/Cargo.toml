@@ -1,5 +1,5 @@
 [package]
-name = "pottira-monitor"
+name = "linkord-monitor"
 version = "0.1.0"
 edition = "2021"
 publish = false

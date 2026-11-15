@@ -15,7 +15,7 @@
 //! A plain stop (SIGTERM, Ctrl+C) without a successor writes the snapshot to `<data>/run/snapshot.json` instead;
 //! a process starting within two minutes restores it, so a quick restart keeps calls going too.
 //!
-//! Taking over needs POTTIRA_TAKEOVER=1: a stray `cargo run` with the production settings must not replace it.
+//! Taking over needs LINKORD_TAKEOVER=1: a stray `cargo run` with the production settings must not replace it.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -216,7 +216,7 @@ async fn wait_signal() {
 /// Records that this process is the one serving (`<data>/run/live`: slot, pid, version), for deploy scripts: the
 /// deploy stops the old container once the new slot is written here.
 pub fn mark_live(cfg: &Config) {
-    let slot = std::env::var("POTTIRA_SLOT").unwrap_or_default();
+    let slot = std::env::var("LINKORD_SLOT").unwrap_or_default();
     let line = serde_json::json!({ "slot": slot, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "since": now_ms() });
     let dir = run_dir(cfg);
     let _ = std::fs::create_dir_all(&dir);
@@ -226,13 +226,13 @@ pub fn mark_live(cfg: &Config) {
     }
 }
 
-/// After the servers stopped: tells the next process we're done, then (POTTIRA_AFTER_HANDOVER=wait, as in Docker,
+/// After the servers stopped: tells the next process we're done, then (LINKORD_AFTER_HANDOVER=wait, as in Docker,
 /// where an exit would get the old container restarted) waits to be stopped.
 pub async fn finish() {
     drained_tx().send_replace(true);
     // Lets the successor connection send its last events.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let wait = std::env::var("POTTIRA_AFTER_HANDOVER").is_ok_and(|v| v == "wait");
+    let wait = std::env::var("LINKORD_AFTER_HANDOVER").is_ok_and(|v| v == "wait");
     if wait && retired() && !signaled().load(Ordering::Relaxed) {
         tracing::info!("handover: done; waiting to be stopped");
         wait_signal().await;
@@ -333,8 +333,8 @@ pub async fn take_over(cfg: &Config) -> anyhow::Result<Option<Incoming>> {
     use anyhow::Context;
     let path = socket_path(cfg);
     let Ok(mut conn) = tokio::net::UnixStream::connect(&path).await else { return Ok(None) };
-    if !std::env::var("POTTIRA_TAKEOVER").is_ok_and(|v| v == "1") {
-        anyhow::bail!("another pottira server is running on {} (set POTTIRA_TAKEOVER=1 to take over from it)", cfg.data_dir.display());
+    if !std::env::var("LINKORD_TAKEOVER").is_ok_and(|v| v == "1") {
+        anyhow::bail!("another linkord server is running on {} (set LINKORD_TAKEOVER=1 to take over from it)", cfg.data_dir.display());
     }
     tracing::info!("handover: taking over from the running server");
     write_frame(&mut conn, &serde_json::json!({ "op": "hello", "version": env!("CARGO_PKG_VERSION") })).await?;

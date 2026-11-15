@@ -22,7 +22,7 @@ export function Storage() {
                 <div class="disk-head">
                   <strong class="mono">{x.mount}</strong>
                   <Show when={d()?.data_disk?.mount === x.mount}>
-                    <span class="tag">Pottira's data</span>
+                    <span class="tag">Linkord's data</span>
                   </Show>
                   <span class="muted small">
                     {x.kind !== 'Unknown' ? `${x.kind}, ` : ''}
@@ -48,11 +48,11 @@ export function Storage() {
         </dl>
         <div class="chart-grid">
           <TimeChart title="Disk used" series={[{ key: 'disk_used', label: 'Used' }]} range={range} format={(n) => bytes(n, 0)} byteAxis />
-          <TimeChart title="Pottira's data" series={[{ key: 'uploads_bytes', label: 'Uploads', slot: 1 }, { key: 'pg_size', label: 'Database', slot: 2 }]} range={range} format={(n) => bytes(n, 0)} byteAxis />
+          <TimeChart title="Linkord's data" series={[{ key: 'uploads_bytes', label: 'Uploads', slot: 1 }, { key: 'pg_size', label: 'Database', slot: 2 }]} range={range} format={(n) => bytes(n, 0)} byteAxis />
         </div>
       </Section>
 
-      <Section title="Pottira's folders" note={d()?.scan?.scanned ? `Measured ${ago(d().scan.scanned)}; every 10 minutes.` : 'First measurement in progress.'}>
+      <Section title="Linkord's folders" note={d()?.scan?.scanned ? `Measured ${ago(d().scan.scanned)}; every 10 minutes.` : 'First measurement in progress.'}>
         <RankBars
           rows={[
             ...((d()?.scan?.app ?? []) as J[]).map((a) => ({ label: a.name, value: a.bytes, note: `${count(a.files)} files` })),

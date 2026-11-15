@@ -83,7 +83,7 @@ export function createVoiceRecording(send: (clip: VoiceClip) => void) {
       setRec(r);
       navigator.vibrate?.(25);
     } catch {
-      toast(t("Pottira can't use your microphone. Check your browser or system permissions."));
+      toast(t("Linkord can't use your microphone. Check your browser or system permissions."));
       return;
     } finally {
       setStarting(false);
@@ -247,8 +247,8 @@ export function RecordingBar(p: { v: VoiceRecording }) {
 
 // ---------- playback ----------
 
-const PLAYED_KEY = 'pottira.playedVoice';
-const SPEED_KEY = 'pottira.voiceSpeed';
+const PLAYED_KEY = 'linkord.playedVoice';
+const SPEED_KEY = 'linkord.voiceSpeed';
 const SPEEDS = [1, 1.5, 2];
 
 function loadPlayed(): string[] {

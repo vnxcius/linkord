@@ -95,7 +95,7 @@ export function Diagnostics() {
   const n = (status: string) => results().filter((r) => r.status === status).length;
   const copy = async () => {
     const text = [
-      `Pottira diagnostics, ${dateTime(report().ran_at)}`,
+      `Linkord diagnostics, ${dateTime(report().ran_at)}`,
       ...results().map((r) => `[${WORD[r.status]}] ${r.group} / ${r.name}: ${r.detail}${r.fix ? ` (${r.fix})` : ''}`),
     ].join('\n');
     await navigator.clipboard.writeText(text);
@@ -178,7 +178,7 @@ export function Diagnostics() {
               { key: 'port', placeholder: 'Port', value: '443', width: '76px', type: 'number' },
             ]}
           />
-          <Tool title="Fetch an address" hint="What a web address answers from here." path="/tools/http" button="Fetch" fields={[{ key: 'url', placeholder: 'https://pottira.com/api/health' }]} />
+          <Tool title="Fetch an address" hint="What a web address answers from here." path="/tools/http" button="Fetch" fields={[{ key: 'url', placeholder: 'https://linkord.app/api/health' }]} />
           <Tool
             title="Read a certificate"
             hint="Who issued it and when it expires."

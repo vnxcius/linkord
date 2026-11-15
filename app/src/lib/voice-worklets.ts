@@ -202,5 +202,5 @@ class Playback extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('pottira-capture', Capture);
-registerProcessor('pottira-playback', Playback);
+registerProcessor('linkord-capture', Capture);
+registerProcessor('linkord-playback', Playback);

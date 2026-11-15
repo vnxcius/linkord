@@ -22,7 +22,7 @@ export interface FavoriteGame {
   icon?: string | null;
   cover?: string | null;
   poster?: string | null;
-  /** Time Pottira saw them play it (desktop app game detection). */
+  /** Time Linkord saw them play it (desktop app game detection). */
   seconds?: number;
   /** Games found on Wikipedia: its short description ("1998 video game"). */
   description?: string | null;

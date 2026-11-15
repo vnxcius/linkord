@@ -380,7 +380,7 @@ export function LeagueSettings() {
   );
 }
 
-/** Lobby invites through Pottira, as cards in the top right (lib/league.ts): someone asks to join your lobby (Invite
+/** Lobby invites through Linkord, as cards in the top right (lib/league.ts): someone asks to join your lobby (Invite
  *  has your League client invite them), or invites you to theirs (Join asks them back, and their app invites you
  *  without asking again). */
 export function LeaguePrompts() {
@@ -477,7 +477,7 @@ export function LobbyInviteCard(p: { message: Message }) {
     if (!live()) return { label: t('Lobby closed'), can: false };
     if (full()) return { label: t('Lobby full'), can: false };
     if (asked()) return { label: t('Invite on its way'), can: false };
-    if (!isTauri) return { label: t('Join'), tip: t('Join from the Pottira desktop app'), can: false };
+    if (!isTauri) return { label: t('Join'), tip: t('Join from the Linkord desktop app'), can: false };
     if (!leagueMe()) return { label: t('Join'), tip: t('Open League of Legends to join'), can: false };
     return { label: t('Join'), can: true };
   };

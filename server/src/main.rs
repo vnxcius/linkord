@@ -58,10 +58,10 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env()?;
     internal::mark_started();
     // The console (journalctl) as before, plus the redacted daily files the monitor reads.
-    let console = EnvFilter::try_from_default_env().unwrap_or_else(|_| "pottira_server=info,tower_http=warn".into());
+    let console = EnvFilter::try_from_default_env().unwrap_or_else(|_| "linkord_server=info,tower_http=warn".into());
     let files = tracing_subscriber::filter::Targets::new()
         .with_default(tracing::Level::WARN)
-        .with_target("pottira_server", tracing::Level::INFO)
+        .with_target("linkord_server", tracing::Level::INFO)
         .with_target("http", tracing::Level::INFO)
         .with_target("client", tracing::Level::INFO)
         .with_target("moderation", tracing::Level::INFO);
@@ -71,11 +71,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "server starting");
     if cfg.dev_login {
-        tracing::warn!("POTTIRA_DEV_LOGIN is enabled: anyone can sign in as any username. Do not use on a public server.");
+        tracing::warn!("LINKORD_DEV_LOGIN is enabled: anyone can sign in as any username. Do not use on a public server.");
     }
     let names: Vec<&String> = cfg.admins.iter().filter(|a| a.parse::<u64>().is_err()).collect();
     if !names.is_empty() {
-        tracing::warn!("POTTIRA_ADMINS has names in it: a Discord username can be taken by someone else after it's released. Use numeric Discord ids.");
+        tracing::warn!("LINKORD_ADMINS has names in it: a Discord username can be taken by someone else after it's released. Use numeric Discord ids.");
     }
     if !cfg.discord_enabled() {
         tracing::warn!("DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET not set: Discord login disabled");
@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&cfg.nameplates_dir).await?;
 
     let st = AppState(Arc::new(Inner {
-        http: reqwest::Client::builder().user_agent("Pottira (https://pottira.com)").timeout(Duration::from_secs(15)).build()?,
+        http: reqwest::Client::builder().user_agent("Linkord (https://linkord.app)").timeout(Duration::from_secs(15)).build()?,
         hub: Default::default(),
         voice: Default::default(),
         pending_logins: Default::default(),
@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
     let successor_st = st;
 
     if cfg.direct_bind.is_some() && cfg.direct_host.is_empty() {
-        anyhow::bail!("POTTIRA_DIRECT_BIND needs POTTIRA_DIRECT_HOST");
+        anyhow::bail!("LINKORD_DIRECT_BIND needs LINKORD_DIRECT_HOST");
     }
     let direct = app.clone();
     tokio::spawn(async move {
@@ -208,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let listener = handover::listener("main", &cfg.bind).and_then(tokio::net::TcpListener::from_std).with_context(|| format!("binding {}", cfg.bind))?;
-    tracing::info!("pottira listening on {} (public url {})", cfg.bind, cfg.public_url);
+    tracing::info!("linkord listening on {} (public url {})", cfg.bind, cfg.public_url);
     tokio::spawn(handover::on_signal(signal_st));
     if let Some(i) = incoming {
         i.ready(successor_st.clone()).await;

@@ -186,7 +186,7 @@ fn hdlr(b: &mut Boxes, track: &Track) {
     b.u32(0);
     b.bytes(if track.is_video() { b"vide" } else { b"soun" });
     b.zeros(12);
-    b.bytes(if track.is_video() { b"Pottira video\0" } else { b"Pottira audio\0" });
+    b.bytes(if track.is_video() { b"Linkord video\0" } else { b"Linkord audio\0" });
     b.close(at);
 }
 

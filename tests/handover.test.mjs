@@ -8,12 +8,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const BIN = process.env.POTTIRA_SERVER_BIN;
-const DB = process.env.POTTIRA_TEST_DATABASE_URL;
+const BIN = process.env.LINKORD_SERVER_BIN;
+const DB = process.env.LINKORD_TEST_DATABASE_URL;
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BASE = 'http://127.0.0.1:7706';
 const WS = BASE.replace(/^http/, 'ws');
-const data = fs.mkdtempSync(path.join(os.tmpdir(), 'pottira-handover-'));
+const data = fs.mkdtempSync(path.join(os.tmpdir(), 'linkord-handover-'));
 const run = Math.random().toString(36).slice(2, 7);
 
 function start(name, extra = {}) {
@@ -21,20 +21,20 @@ function start(name, extra = {}) {
     PATH: process.env.PATH,
     HOME: process.env.HOME ?? '',
     SYSTEMROOT: process.env.SYSTEMROOT ?? '',
-    RUST_LOG: 'pottira_server=info',
+    RUST_LOG: 'linkord_server=info',
     DATABASE_URL: DB,
-    POTTIRA_BIND: '127.0.0.1:7706',
-    POTTIRA_PUBLIC_URL: BASE,
-    POTTIRA_INTERNAL_BIND: '127.0.0.1:7707',
-    POTTIRA_DATA_DIR: data,
-    POTTIRA_WEB_DIR: path.join(ROOT, 'app/dist'),
-    POTTIRA_SOUNDS_DIR: path.join(ROOT, 'server/soundboard'),
-    POTTIRA_NAMEPLATES_DIR: path.join(data, 'nameplates'),
-    POTTIRA_DEV_LOGIN: 'true',
-    POTTIRA_SIGNUP: 'open',
-    POTTIRA_GAME_INFO: 'off',
-    POTTIRA_DETECTABLE_URL: 'http://localhost:7702/detectable',
-    POTTIRA_YTDLP: process.env.POTTIRA_YTDLP ?? 'true',
+    LINKORD_BIND: '127.0.0.1:7706',
+    LINKORD_PUBLIC_URL: BASE,
+    LINKORD_INTERNAL_BIND: '127.0.0.1:7707',
+    LINKORD_DATA_DIR: data,
+    LINKORD_WEB_DIR: path.join(ROOT, 'app/dist'),
+    LINKORD_SOUNDS_DIR: path.join(ROOT, 'server/soundboard'),
+    LINKORD_NAMEPLATES_DIR: path.join(data, 'nameplates'),
+    LINKORD_DEV_LOGIN: 'true',
+    LINKORD_SIGNUP: 'open',
+    LINKORD_GAME_INFO: 'off',
+    LINKORD_DETECTABLE_URL: 'http://localhost:7702/detectable',
+    LINKORD_YTDLP: process.env.LINKORD_YTDLP ?? 'true',
     ...extra,
   };
   const log = fs.openSync(path.join(data, `${name}.log`), 'a');
@@ -145,13 +145,13 @@ test('a new server takes over without anyone leaving the call; a stop and start 
   const before = await api(a.token, 'POST', `/channels/${text.id}/messages`, { content: 'before' });
   assert.equal(parity(before.id), 0);
 
-  // Without POTTIRA_TAKEOVER=1 a second server refuses to start, and the running one doesn't notice.
+  // Without LINKORD_TAKEOVER=1 a second server refuses to start, and the running one doesn't notice.
   const stray = start('stray');
   assert.notEqual(await stray.exited, 0);
   assert.equal(va.closes.length, 0);
 
   // The deploy: the new server takes over.
-  const a2 = start('b', { POTTIRA_TAKEOVER: '1' });
+  const a2 = start('b', { LINKORD_TAKEOVER: '1' });
   await until(async () => va.closes.includes(4100) && ga.closes.includes(4100), 30000);
   const cut = Date.now();
   assert.equal(await a1.exited, 0, 'the old server finished and stopped');

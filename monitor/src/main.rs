@@ -1,4 +1,4 @@
-//! Pottira's monitor: a dashboard for the server's health and for moderating what's on it.
+//! Linkord's monitor: a dashboard for the server's health and for moderating what's on it.
 //!
 //! A separate service so it can't get in the app's way, and still works when the app doesn't: its own process, port,
 //! login and history. It reads the app's log and upload files from disk and Postgres over a small read-only connection.
@@ -34,7 +34,7 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "pottira_monitor=info".into())).init();
+    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "linkord_monitor=info".into())).init();
     let cfg = config::Config::from_env()?;
     let bind = cfg.bind.clone();
     let web_dir = cfg.web_dir.clone();
@@ -143,7 +143,7 @@ async fn what_needs_attention(st: &AppState, live: &Value) -> Vec<Value> {
     if !live.is_null() {
         let app = &live["app"];
         if app["config"]["dev_login"] == true && !st.cfg.public_url.contains("localhost") && !st.cfg.public_url.contains("127.0.0.1") {
-            out.push(attention("critical", "Dev login is on in production", "Anyone can sign in as anyone. Set POTTIRA_DEV_LOGIN=false.", "diagnostics"));
+            out.push(attention("critical", "Dev login is on in production", "Anyone can sign in as anyone. Set LINKORD_DEV_LOGIN=false.", "diagnostics"));
         }
         for d in live["disks"].as_array().into_iter().flatten() {
             let (total, free) = (d["total"].as_f64().unwrap_or(1.0), d["free"].as_f64().unwrap_or(0.0));

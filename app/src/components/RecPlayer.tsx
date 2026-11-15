@@ -110,7 +110,7 @@ export function RecPlayer(p: {
     vod?.dispose();
     clearTimeout(idleTimer);
   });
-  // Where it plays: REC's own choice, else Pottira's output device.
+  // Where it plays: REC's own choice, else Linkord's output device.
   createEffect(() => {
     const id = prefs.rec.playbackDevice || prefs.outputDevice;
     const v = video as HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };

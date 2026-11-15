@@ -340,7 +340,7 @@ async fn save_files(st: &AppState, a: &Access, bot: Id, files: Vec<ReplyFile>) -
     for f in files.into_iter().take(MAX_FILES) {
         let bytes = base64::engine::general_purpose::STANDARD.decode(f.data.as_bytes()).map_err(|_| bad("bad file"))?;
         if bytes.is_empty() || bytes.len() > uploads::MAX_FILE {
-            return Err(bad("that file is too big for Pottira"));
+            return Err(bad("that file is too big for Linkord"));
         }
         let hash = hex::encode(Sha256::digest(&bytes));
         let key = (a.ch.id, hash);
@@ -395,7 +395,7 @@ pub fn routes() -> Router<AppState> {
         .route("/bots/steve/avatar", post(set_avatar).delete(reset_avatar))
 }
 
-/// An admin (POTTIRA_ADMINS) gives Steve a new picture (png, jpeg, gif or webp), like Kass's.
+/// An admin (LINKORD_ADMINS) gives Steve a new picture (png, jpeg, gif or webp), like Kass's.
 async fn set_avatar(State(st): State<AppState>, AdminUser(_): AdminUser, mut mp: Multipart) -> ApiResult<Json<User>> {
     let field = mp.next_field().await.map_err(|e| bad(e.body_text()))?.ok_or_else(|| bad("missing file"))?;
     if !uploads::is_image(field.content_type().unwrap_or_default()) {

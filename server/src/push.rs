@@ -1,4 +1,4 @@
-//! Web Push: notifications on phones (the installed web app) and in browsers while Pottira isn't open.
+//! Web Push: notifications on phones (the installed web app) and in browsers while Linkord isn't open.
 //!
 //! Standard Web Push (RFC 8030), so no Firebase or any account: the browser gives us an endpoint at its vendor's push
 //! service (Google, Mozilla, Apple, Microsoft) and two keys. We encrypt each notification for that browser only
@@ -7,7 +7,7 @@
 //!
 //! Who gets one follows the app's own rules (gateway.ts onMessage): DMs, mentions, replies, @everyone, and every
 //! message in channels set to "All messages"; never while muted ("Nothing", muted channel/server except direct
-//! mentions), in Do Not Disturb, from someone blocked, or while the person is using Pottira on another device
+//! mentions), in Do Not Disturb, from someone blocked, or while the person is using Linkord on another device
 //! (a session that reported activity in the last ACTIVE_WINDOW and isn't in the background, gateway.rs in_use).
 //! Endpoints must be at a known push service (SSRF: the server POSTs to them).
 
@@ -33,7 +33,7 @@ use crate::id::Id;
 use crate::models::{kind, Channel, Message};
 use crate::state::AppState;
 
-/// Someone using Pottira on another device (input in the last few minutes, window not in the background) gets no push.
+/// Someone using Linkord on another device (input in the last few minutes, window not in the background) gets no push.
 pub const ACTIVE_WINDOW: Duration = Duration::from_secs(5 * 60);
 /// One person's subscriptions; past this the oldest goes.
 const MAX_PER_USER: i64 = 10;
@@ -112,10 +112,10 @@ fn login_of(headers: &HeaderMap) -> ApiResult<Vec<u8>> {
     Ok(crate::auth::hash_token(token))
 }
 
-/// Extra hosts (with port) allowed as endpoints, over plain HTTP too: POTTIRA_PUSH_HOSTS, for tests.
+/// Extra hosts (with port) allowed as endpoints, over plain HTTP too: LINKORD_PUSH_HOSTS, for tests.
 fn extra_hosts() -> &'static Vec<String> {
     static H: OnceLock<Vec<String>> = OnceLock::new();
-    H.get_or_init(|| std::env::var("POTTIRA_PUSH_HOSTS").unwrap_or_default().split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
+    H.get_or_init(|| std::env::var("LINKORD_PUSH_HOSTS").unwrap_or_default().split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
 }
 
 fn allowed_endpoint(endpoint: &str) -> bool {
@@ -176,7 +176,7 @@ async fn unsubscribe(State(st): State<AppState>, AuthUser(me): AuthUser, Json(b)
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// "Send a test" in Settings: to this login's subscriptions, whether or not they're using Pottira right now.
+/// "Send a test" in Settings: to this login's subscriptions, whether or not they're using Linkord right now.
 #[derive(Deserialize, Default)]
 struct TestBody {
     /// Seconds to wait first (at most 30), so the app can be closed and the test arrives like a real one.
@@ -222,7 +222,7 @@ struct Received {
     shown: bool,
     #[serde(default)]
     error: Option<String>,
-    /// Pottira was on screen when it arrived (some browsers don't show notifications for the site you're looking at).
+    /// Linkord was on screen when it arrived (some browsers don't show notifications for the site you're looking at).
     #[serde(default)]
     visible: Option<bool>,
     /// How many of the site's notifications the browser lists right after showing it (0 = it dropped it).
@@ -279,13 +279,13 @@ fn words(lang: &str, w: Words) -> (&'static str, &'static str) {
         Words::Attachment => ("", if pt { "Enviou um anexo" } else { "Sent an attachment" }),
         Words::Forwarded => ("", if pt { "Encaminhou uma mensagem" } else { "Forwarded a message" }),
         Words::Calling => ("", if pt { "está te ligando" } else { "is calling you" }),
-        Words::Test => ("Pottira", if pt { "As notificações estão funcionando neste dispositivo." } else { "Notifications work on this device." }),
+        Words::Test => ("Linkord", if pt { "As notificações estão funcionando neste dispositivo." } else { "Notifications work on this device." }),
     }
 }
 
 // ---------- who gets a notification ----------
 
-/// A new message: notifications for the people it should reach who aren't in Pottira right now.
+/// A new message: notifications for the people it should reach who aren't in Linkord right now.
 pub fn on_message(st: &AppState, ch: &Channel, msg: &Message, audience: &[Id]) {
     if msg.ephemeral || msg.kind != crate::models::message_type::DEFAULT {
         return;
@@ -336,7 +336,7 @@ async fn message_pushes(st: &AppState, ch: &Channel, msg: &Message, audience: &[
             continue;
         }
         if st.hub.in_use(user, ACTIVE_WINDOW) {
-            skip(user, "using Pottira on another device");
+            skip(user, "using Linkord on another device");
             continue;
         }
         if crate::api::relationships::blocked_between(&st.db, user, msg.author.id).await? {
@@ -463,7 +463,7 @@ async fn name_in(st: &AppState, user: Id, guild: Option<Id>) -> String {
     .unwrap_or_default()
 }
 
-/// A DM call ringing `users`: their phones ring too (unless they're in Pottira already, where the app rings).
+/// A DM call ringing `users`: their phones ring too (unless they're in Linkord already, where the app rings).
 pub fn on_ring(st: &AppState, channel: Id, caller: Id, users: Vec<Id>) {
     let st = st.clone();
     tokio::spawn(async move {

@@ -143,7 +143,7 @@ impl AudioRecorder {
         let stop = Arc::new(AtomicBool::new(false));
         let thread = (!sources.is_empty()).then(|| {
             let (stop, gains, error) = (stop.clone(), gains.clone(), error.clone());
-            std::thread::Builder::new().name("pottira-rec-audio".into()).spawn(move || mix_loop(sources, origin, out, &stop, &gains, &error)).ok()
+            std::thread::Builder::new().name("linkord-rec-audio".into()).spawn(move || mix_loop(sources, origin, out, &stop, &gains, &error)).ok()
         });
         AudioRecorder { stop, thread: thread.flatten(), _captures: captures, game, gains, error, output: settings.output.clone() }
     }

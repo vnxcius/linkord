@@ -243,7 +243,7 @@ fn run() {
 fn create_window() -> windows::core::Result<HWND> {
     unsafe {
         let instance: HMODULE = GetModuleHandleW(None)?;
-        let class = w!("PottiraOverlay");
+        let class = w!("LinkordOverlay");
         let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
         RegisterClassW(&wc);
         // Layered + transparent: clicks go through to the game. Noactivate: it never takes focus, which is what would
@@ -285,7 +285,7 @@ fn is_desktop_class(hwnd: HWND) -> bool {
 }
 
 /// The screen this window fills, if it's one that does: a game, or anything else fullscreen.
-/// A maximized window doesn't count, nor do the desktop and Pottira.
+/// A maximized window doesn't count, nor do the desktop and Linkord.
 fn fullscreen_on(hwnd: HWND) -> Option<Screen> {
     unsafe {
         if hwnd.is_invalid() || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() || IsZoomed(hwnd).as_bool() {
@@ -830,7 +830,7 @@ mod tests {
         assert_eq!(&out[middle..middle + 4], &[30, 20, 10, 255], "BGRA, opaque in the middle");
     }
 
-    /// Really draws (Direct2D and DirectWrite on the CPU, no window). POTTIRA_OVERLAY_DUMP=<file> saves the pixels as
+    /// Really draws (Direct2D and DirectWrite on the CPU, no window). LINKORD_OVERLAY_DUMP=<file> saves the pixels as
     /// a 32-bit BMP to look at.
     #[test]
     fn draws_rows_on_a_see_through_background() {
@@ -857,7 +857,7 @@ mod tests {
             assert!(alpha(near, ROW_H as i32 / 2) > 100, "the first row's panel is drawn");
             assert_eq!(alpha(near, (ROW_H + ROW_GAP / 2.0) as i32), 0, "the gap between rows is see-through");
             assert_eq!(alpha(far, ROW_H as i32 / 2), 0, "a short row leaves the rest of the window see-through");
-            if let Ok(path) = std::env::var("POTTIRA_OVERLAY_DUMP") {
+            if let Ok(path) = std::env::var("LINKORD_OVERLAY_DUMP") {
                 let mut file = Vec::new();
                 let image = (size.0 * size.1 * 4) as u32;
                 file.extend_from_slice(b"BM");

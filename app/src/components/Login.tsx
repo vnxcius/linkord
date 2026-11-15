@@ -102,7 +102,7 @@ export function Login(p: { onLogin: () => void }) {
       <section class="login-panel">
         <header class="login-brand">
           <Emblem size={30} />
-          <span>Pottira</span>
+          <span>Linkord</span>
         </header>
 
         <div class="login-card">
@@ -156,8 +156,8 @@ export function Login(p: { onLogin: () => void }) {
                 <p class="login-note">
                   <I.Lock size={14} />
                   {isTauri
-                    ? t('Opens in your browser. Pottira never sees your Discord password.')
-                    : t('Pottira never sees your Discord password.')}
+                    ? t('Opens in your browser. Linkord never sees your Discord password.')
+                    : t('Linkord never sees your Discord password.')}
                 </p>
               </Show>
             </Show>
@@ -207,7 +207,7 @@ export function Login(p: { onLogin: () => void }) {
               <span>{t('Server')}</span>
               <input
                 value={server()}
-                placeholder="https://pottira.example.com"
+                placeholder="https://linkord.example.com"
                 onChange={(e) => {
                   useServer(e.currentTarget.value);
                   e.currentTarget.value = serverUrl();

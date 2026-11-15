@@ -1,6 +1,6 @@
 // Runs keybind actions. Two sources feed it:
 //  - the desktop app's native hook (Windows): works in games, minimized and from the tray;
-//  - key and mouse events in the Pottira window (everywhere, and a backup while Pottira is focused).
+//  - key and mouse events in the Linkord window (everywhere, and a backup while Linkord is focused).
 // A press seen by both counts once; a hold lasts until both sources saw the release.
 
 import { t } from './i18n';

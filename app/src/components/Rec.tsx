@@ -2185,7 +2185,7 @@ function RecordingSettings() {
           <Toggle
             label={t('Record every game you play')}
             hint={t(
-              'Starts when Pottira sees a game and stops when it closes. Nothing shows on your screen while it records.',
+              'Starts when Linkord sees a game and stops when it closes. Nothing shows on your screen while it records.',
             )}
             checked={r().auto}
             onChange={(v) => setRecPrefs({ auto: v })}
@@ -2426,7 +2426,7 @@ function AudioSettings() {
             label={t('Play recordings on')}
             icon={<I.Headphones size={18} />}
             value={r().playbackDevice}
-            none={t("Pottira's output device")}
+            none={t("Linkord's output device")}
             devices={outputs()}
             onChange={(id) => setRecPrefs({ playbackDevice: id })}
           />
@@ -2481,7 +2481,7 @@ function HotkeySettings() {
     <Block
       id="hotkeys"
       title={t('Hotkeys')}
-      description={t('They work in games, even with Pottira minimized. The game still gets the key too.')}
+      description={t('They work in games, even with Linkord minimized. The game still gets the key too.')}
     >
       <div class="rs-cards three">
         <For each={REC_ACTIONS}>
@@ -2559,7 +2559,7 @@ function StorageSettings(p: { library: Library | null | undefined }) {
             class="rs-input grow"
             value={folder()}
             placeholder={p.library?.folder ?? ''}
-            aria-label={t('Where REC saves (empty = Videos\\Pottira)')}
+            aria-label={t('Where REC saves (empty = Videos\\Linkord)')}
             onInput={(e) => setFolder(e.currentTarget.value)}
             onChange={() => apply({ folder: folder().trim() })}
           />
@@ -2568,7 +2568,7 @@ function StorageSettings(p: { library: Library | null | undefined }) {
           </button>
         </div>
         <small class="muted">
-          {t('Where REC saves (empty = Videos\\Pottira)')} · {t('Recordings already saved stay where they are.')}
+          {t('Where REC saves (empty = Videos\\Linkord)')} · {t('Recordings already saved stay where they are.')}
         </small>
       </div>
     </Block>
@@ -2591,7 +2591,7 @@ function LeagueSettings() {
       id="league"
       title={t('League of Legends')}
       description={t(
-        "Your kills, deaths, multikills and objectives are marked on the recording's timeline either way. Pottira reads them from League's own match data on your PC.",
+        "Your kills, deaths, multikills and objectives are marked on the recording's timeline either way. Linkord reads them from League's own match data on your PC.",
       )}
     >
       <div class="rs-cards two">
@@ -2642,7 +2642,7 @@ export function VoiceConsent() {
     <Toggle
       label={t('Let others record my voice')}
       hint={t(
-        "When this is off, everyone's Pottira leaves your voice out of their recordings from now on. What was already recorded stays.",
+        "When this is off, everyone's Linkord leaves your voice out of their recordings from now on. What was already recorded stays.",
       )}
       checked={!out()}
       onChange={set}

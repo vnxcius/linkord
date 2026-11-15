@@ -86,7 +86,7 @@ export function RecIntro(p: { onAccept: () => void; onLater: () => void }) {
           <li>
             <I.Rec size={20} />
             <strong>{t('Starts by itself')}</strong>
-            <span>{t('When Pottira sees a game, REC records it. Nothing shows on your screen while it does.')}</span>
+            <span>{t('When Linkord sees a game, REC records it. Nothing shows on your screen while it does.')}</span>
           </li>
           <li>
             <I.Scissors size={20} />
@@ -96,7 +96,7 @@ export function RecIntro(p: { onAccept: () => void; onLater: () => void }) {
           <li>
             <I.Link size={20} />
             <strong>{t('Share with a link')}</strong>
-            <span>{t('Anyone can watch a clip you share, even without Pottira.')}</span>
+            <span>{t('Anyone can watch a clip you share, even without Linkord.')}</span>
           </li>
         </ul>
         <div class="rx-actions">

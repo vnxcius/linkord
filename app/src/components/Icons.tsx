@@ -1,6 +1,6 @@
 // UI icons from Heroicons (MIT, outline set), under the names the components use. Heroicons has no headphones,
 // pushpin, controller, keyboard, picture-in-picture, signal bars or crossed-out mic, so those are drawn below on
-// the same 24px grid and stroke. The Pottira emblem is the app icon itself (a picture).
+// the same 24px grid and stroke. The Linkord emblem is the app icon itself (a picture).
 import type { JSX } from 'solid-js';
 import { Show, splitProps } from 'solid-js';
 import { brandOf } from '../lib/brand-icons';
@@ -292,13 +292,20 @@ export const Rejoin = hero(arrowPath);
 export const Refresh = hero(arrowPath);
 export const ArrowRight = hero(arrowRight);
 
-/** The app icon (assets/icon.png): the cotton swirl on its graphite tile, the same everywhere (window, tray, the app). */
-/** The swirl alone (design/pottira-mark.svg) in the current text colour: the Direct Messages tile draws it like any
+/** The app icon (assets/icon.png): the wings and the Triforce on the graphite tile, the same everywhere (window, tray,
+ * the app). */
+/** The mark alone (design/linkord-mark.svg) in the current text colour: the Direct Messages tile draws it like any
  * other tile's content, so it can change colour with the tile instead of swapping a picture. */
 export function Mark(p: { size?: number }) {
   return (
-    <svg width={p.size ?? 22} height={p.size ?? 22} viewBox="72 62 880 880" aria-hidden="true">
-      <path fill="currentColor" d="M434.8 413.4C453.6 407.8 471.6 400.2 490.6 395.1C528.8 385.0 569.6 381.9 608.3 391.1C625.0 395.0 641.3 401.2 656.0 410.1C666.2 416.4 675.7 424.1 683.7 433.0C733.9 488.9 706.2 569.3 665.3 621.5C637.0 657.5 601.0 687.1 563.5 713.0C506.2 752.4 443.0 784.3 377.7 808.3C340.1 822.0 300.5 830.1 263.2 844.0C468.1 879.1 698.5 790.8 836.6 636.9C892.4 574.7 953.0 483.0 927.9 395.3C908.0 325.8 840.3 287.7 773.1 275.4C647.7 252.5 505.5 305.8 434.8 413.4Z M623.1 502.1C603.2 508.5 584.1 517.3 564.0 523.3C502.0 541.5 404.1 542.9 376.0 470.2C372.2 460.7 370.4 450.4 370.0 440.2C369.4 423.8 372.7 407.6 378.0 392.2C385.1 371.9 395.9 352.9 408.4 335.5C478.8 237.4 593.5 188.0 707.5 162.1C652.5 145.9 589.1 151.7 533.5 163.0C401.7 189.6 275.2 257.3 182.9 355.6C132.0 410.0 73.1 493.2 97.0 571.8C118.6 643.1 196.3 673.6 264.2 680.7C406.7 695.5 551.8 627.5 623.1 502.1Z" />
+    <svg width={p.size ?? 22} height={p.size ?? 22} viewBox="34 9 444 444" aria-hidden="true">
+      <g fill="currentColor" stroke="currentColor" stroke-linejoin="round">
+        <path
+          stroke-width="20"
+          d="M176.3 176L68.5 123.4L50.9 159.3L111.3 212.7L66.4 214.7L48.9 250.6L114.7 282.7Z M335.7 176L443.5 123.4L461.1 159.3L400.7 212.7L445.6 214.7L463.1 250.6L397.3 282.7Z"
+        />
+        <path stroke-width="12" fill-rule="evenodd" d="M256 110L395.7 352L116.3 352Z M188 232.1L324 232.1L256 349.8Z" />
+      </g>
     </svg>
   );
 }
@@ -312,7 +319,7 @@ export function Emblem(p: { size?: number; christmas?: boolean }) {
       src={festive() ? emblemChristmasUrl : emblemUrl}
       width={w()}
       height={w()}
-      alt="Pottira"
+      alt="Linkord"
       draggable={false}
     />
   );

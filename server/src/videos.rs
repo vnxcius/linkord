@@ -1,4 +1,4 @@
-//! Videos every app can show. Pottira plays chat videos in the browser's engine (WebView2 in the desktop app), which
+//! Videos every app can show. Linkord plays chat videos in the browser's engine (WebView2 in the desktop app), which
 //! only decodes what Chromium ships or Windows provides: a phone video in HEVC (iPhones and many Androids record it by
 //! default), 10-bit H.264, ProRes or an MKV plays its sound with no picture, on Windows 10 especially (owner, 2026-11-13:
 //! a friend saw exactly that). So each video attachment is probed once after it's posted; when Chromium can't show it, a

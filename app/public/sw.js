@@ -1,4 +1,4 @@
-// Pottira's service worker (web only; lib/push.ts registers it). It only shows push notifications (server/src/push.rs)
+// Linkord's service worker (web only; lib/push.ts registers it). It only shows push notifications (server/src/push.rs)
 // and opens the right channel when one is clicked: no caching, the app always loads fresh from the server.
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -10,12 +10,12 @@ self.addEventListener('push', (e) => {
     n = e.data ? e.data.json() : {};
   } catch {}
   // Every push shows a notification (browsers, Safari especially, revoke push for sites that stay silent).
-  const shown = self.registration.showNotification(n.title || 'Pottira', {
+  const shown = self.registration.showNotification(n.title || 'Linkord', {
     body: n.body || '',
     icon: n.icon || '/icon-192.png',
     badge: '/badge-96.png',
     // One per channel: a newer message replaces the older one, and it buzzes again.
-    tag: String(n.tag || 'pottira'),
+    tag: String(n.tag || 'linkord'),
     renotify: true,
     requireInteraction: !!n.call,
     data: {

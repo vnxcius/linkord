@@ -30,7 +30,7 @@ const GROUPS = [
   [8, 'Symbols'],
   [9, 'Flags'],
 ];
-// Names Pottira's picker had before this list was generated, kept so they still autocomplete.
+// Names Linkord's picker had before this list was generated, kept so they still autocomplete.
 const OLD_NAMES = {
   '🙂': ['slight_smile'], '🥰': ['smiling_face_with_hearts'], '😝': ['squint_tongue'], '🤑': ['money_mouth'],
   '🙄': ['eye_roll'], '🤒': ['sick'], '🤕': ['hurt'], '🤯': ['mind_blown'], '🧐': ['monocle'], '🙁': ['slight_frown'],

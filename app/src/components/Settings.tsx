@@ -235,7 +235,7 @@ export function Settings(p: { tab?: string }) {
             <button onClick={() => (close(), startTour())}>{t('Take the tour')}</button>
           </nav>
           <div class="settings-version">
-            Pottira {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'}
+            Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'}
           </div>
           <div class="settings-version">
             {t('Emoji by')}{' '}
@@ -393,7 +393,7 @@ function ConnectionsPage(p: { connections: Connection[]; loading: boolean; refet
             <Show when={c().revoked}>
               <div class="notice row">
                 <span class="grow">
-                  {t('Pottira lost access to this Spotify account. Reconnect to show what you are listening to.')}
+                  {t('Linkord lost access to this Spotify account. Reconnect to show what you are listening to.')}
                 </span>
                 <button class="btn small-btn" onClick={() => void connect()}>
                   {t('Reconnect')}
@@ -541,7 +541,7 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
 
       <Section
         title={t('Connections')}
-        description={t('Discord is how you sign in. Your Pottira profile started as a copy of your Discord profile.')}
+        description={t('Discord is how you sign in. Your Linkord profile started as a copy of your Discord profile.')}
       >
         <Show
           when={p.discord}
@@ -592,7 +592,7 @@ function AccountPage(p: { discord?: Connection; loading: boolean; onEditProfile:
               <I.Warning size={20} />
             </span>
             <div class="grow">
-              <strong>{t('Delete your Pottira account')}</strong>
+              <strong>{t('Delete your Linkord account')}</strong>
               <p class="muted small">
                 {t(
                   'You leave every server, group and friendship, your profile is wiped and your Discord account is unlinked. Messages you sent stay, shown as "Deleted User". This can\'t be undone — signing in with Discord again creates a brand-new account.',
@@ -1412,7 +1412,7 @@ function timeAgo(date: string): string {
 
 function SessionRow(p: { session: Session; onEnd: () => void }) {
   const device = () => describeDevice(p.session.client, p.session.user_agent);
-  const name = () => (device().app ? t('Pottira app') : (device().browser ?? t('Unknown device')));
+  const name = () => (device().app ? t('Linkord app') : (device().browser ?? t('Unknown device')));
   const lastUsed = () => {
     if (p.session.current || p.session.online) return t('Active now');
     return t('Last active {when}', { when: timeAgo(p.session.last_seen_at ?? p.session.created_at) });
@@ -1670,7 +1670,7 @@ function GamesPage() {
       </Section>
       <Section
         title={t('Registered Games')}
-        description={t("Pottira detects the games you play. Add one it missed, or remove one you don't want shown.")}
+        description={t("Linkord detects the games you play. Add one it missed, or remove one you don't want shown.")}
       >
         <div class="now-playing" classList={{ playing: !!currentGame() }}>
           <Show
@@ -2174,12 +2174,12 @@ function KeybindsPage() {
         </span>
         <div>
           <strong>
-            {nativeKeybinds ? t('Keybinds work everywhere') : t('Keybinds work while Pottira is focused')}
+            {nativeKeybinds ? t('Keybinds work everywhere') : t('Keybinds work while Linkord is focused')}
           </strong>
           <p class="muted small">
             {nativeKeybinds
               ? t(
-                  'In games, in other apps, with Pottira minimized or closed to the tray. Keys still reach the app you are using.',
+                  'In games, in other apps, with Linkord minimized or closed to the tray. Keys still reach the app you are using.',
                 )
               : isTauri
                 ? t('Global keybinds are available in the Windows app.')
@@ -2297,7 +2297,7 @@ function PushSection() {
   const test = async () => {
     try {
       toast(
-        t('A test arrives in {n} seconds: close Pottira or lock the phone to see it like a real notification.', {
+        t('A test arrives in {n} seconds: close Linkord or lock the phone to see it like a real notification.', {
           n: TEST_DELAY,
         }),
         8000,
@@ -2315,7 +2315,7 @@ function PushSection() {
       else
         toast(
           t(
-            "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Pottira.",
+            "The test arrived and was shown. Don't see it? Android may be hiding this browser's notifications: allow them in Android's settings for the browser and for Linkord.",
           ),
           9000,
         );
@@ -2327,18 +2327,18 @@ function PushSection() {
     <Section
       title={t('Notifications on this device')}
       description={t(
-        "For your phone or this browser: DMs, mentions and calls arrive even when Pottira is closed. They aren't sent while you're using Pottira on another device.",
+        "For your phone or this browser: DMs, mentions and calls arrive even when Linkord is closed. They aren't sent while you're using Linkord on another device.",
       )}
     >
       <div class="set-card">
         <Switch>
           <Match when={pushState() === 'unsupported'}>
-            <p class="muted set-note">{t("This browser can't get notifications while Pottira is closed.")}</p>
+            <p class="muted set-note">{t("This browser can't get notifications while Linkord is closed.")}</p>
           </Match>
           <Match when={pushState() === 'install'}>
             <p class="muted set-note">
               {t(
-                'On iPhone and iPad, add Pottira to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.',
+                'On iPhone and iPad, add Linkord to your Home Screen first (Share, then Add to Home Screen), then turn this on from there.',
               )}
             </p>
           </Match>
@@ -2381,7 +2381,7 @@ function NotificationsPage() {
       <Section
         title={t('Desktop notifications')}
         description={t(
-          "Pop-ups for DMs, mentions, replies and server messages (servers notify for all messages unless you change it) while Pottira isn't focused.",
+          "Pop-ups for DMs, mentions, replies and server messages (servers notify for all messages unless you change it) while Linkord isn't focused.",
         )}
       >
         <div class="set-card">
@@ -2394,7 +2394,7 @@ function NotificationsPage() {
                 class="btn small-btn"
                 onClick={(e) => {
                   e.preventDefault();
-                  void notify('Pottira', t('Notifications are working.'));
+                  void notify('Linkord', t('Notifications are working.'));
                 }}
               >
                 {t('Send a test')}
@@ -2445,7 +2445,7 @@ function NotificationsPage() {
         <div class="set-card">
           <SwitchRow
             label={t('Show a banner after each update')}
-            hint={t('"Pottira was updated", with a link to the patch notes.')}
+            hint={t('"Linkord was updated", with a link to the patch notes.')}
             checked={prefs.updateBanner}
             onChange={(v) => setPrefs({ updateBanner: v })}
           />
@@ -2462,7 +2462,7 @@ function NotificationsPage() {
 
 // ---------- Appearance ----------
 
-/** Pottira itself in miniature, in one theme's colours whichever theme is on: server strip, channels, chat, people. */
+/** Linkord itself in miniature, in one theme's colours whichever theme is on: server strip, channels, chat, people. */
 function ThemeMock(p: { mode: 'dark' | 'light' | 'christmas'; half?: boolean }) {
   return (
     <span class={`tm tm-${p.mode}`} classList={{ 'tm-half': p.half }}>
@@ -2515,7 +2515,7 @@ function AppearancePage() {
     ['christmas', t('Christmas'), t('Evergreen, with snow, string lights and its own music.'), I.Snowflake],
   ];
   return (
-    <Section title={t('Theme')} description={t('How Pottira looks on this device.')}>
+    <Section title={t('Theme')} description={t('How Linkord looks on this device.')}>
       <div class="theme-cards">
         <For each={options()}>
           {([id, name, sub, Icon]) => (
@@ -2547,10 +2547,30 @@ function AppearancePage() {
           <SwitchRow
             label={t('Falling snow')}
             hint={t(
-              'Rests while Pottira is in the background or showing a call, so it never takes anything from a game.',
+              'Rests while Linkord is in the background or showing a call, so it never takes anything from a game.',
             )}
             checked={prefs.christmasSnow}
             onChange={(v) => setPrefs({ christmasSnow: v })}
+          />
+          <SwitchRow
+            label={t('Christmas sounds')}
+            hint={t("Discord's Winter sounds for calls, joining, leaving, mute and deafen.")}
+            checked={prefs.christmasSounds}
+            onChange={(v) => setPrefs({ christmasSounds: v })}
+            extra={
+              <button
+                class="icon-btn"
+                aria-label={t('Play {sound} sound', { sound: t('Christmas sounds') })}
+                data-tip={t('Preview')}
+                disabled={!prefs.christmasSounds || !prefs.sounds || !prefs.soundKinds.calls}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setTimeout(sounds.ringIncoming(), 5400);
+                }}
+              >
+                <I.Play size={15} />
+              </button>
+            }
           />
           <SwitchRow
             label={t('Santa hats')}
@@ -2651,7 +2671,7 @@ function LanguagePage() {
   ];
   return (
     <>
-      <Section title={t('Choose a language')} description={t('The language Pottira uses on this device.')}>
+      <Section title={t('Choose a language')} description={t('The language Linkord uses on this device.')}>
         <div class="set-card">
           <For each={options()}>
             {([id, name, sub]) => (
@@ -2725,14 +2745,14 @@ function AppPage() {
           <SwitchRow
             label={t('Minimize to tray on close')}
             hint={t(
-              'Closing the window keeps Pottira running in the tray, so you stay in voice and keybinds keep working.',
+              'Closing the window keeps Linkord running in the tray, so you stay in voice and keybinds keep working.',
             )}
             checked={prefs.closeToTray}
             onChange={(v) => setPrefs({ closeToTray: v })}
           />
           <SwitchRow
-            label={t('Open Pottira when your computer starts')}
-            hint={prefs.startMinimized ? t('Starts quietly in the tray.') : t('Opens the Pottira window.')}
+            label={t('Open Linkord when your computer starts')}
+            hint={prefs.startMinimized ? t('Starts quietly in the tray.') : t('Opens the Linkord window.')}
             checked={!!autostart()}
             onChange={(v) => void attempt(async () => (await setAutostart(v), mutate(v)))}
           />
@@ -2789,7 +2809,7 @@ function AppPage() {
       <Section title={t('Updates')}>
         <div class="set-card update-card">
           <div class="grow">
-            <strong>Pottira {__APP_VERSION__}</strong>{' '}
+            <strong>Linkord {__APP_VERSION__}</strong>{' '}
             <button class="settings-link" onClick={() => (setUi('modal', null), openPage('changelog'))}>
               {t("See what's new")}
             </button>

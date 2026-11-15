@@ -8,7 +8,7 @@ import { defaultServer, knownServers } from './api';
 import { isTauri } from './platform';
 import { state } from './store';
 
-const KEY = 'pottira.lastRoute';
+const KEY = 'linkord.lastRoute';
 
 function pathOf(view: string, channelId: string | undefined) {
   return `/channels/${view}${channelId ? `/${channelId}` : ''}`;

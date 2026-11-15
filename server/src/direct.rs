@@ -1,4 +1,4 @@
-//! A second way in that skips Cloudflare: `https://<POTTIRA_DIRECT_HOST>:<port>` pointing straight at this
+//! A second way in that skips Cloudflare: `https://<LINKORD_DIRECT_HOST>:<port>` pointing straight at this
 //! machine's public IP, for friends whose ISP blocks Cloudflare's shared addresses. The main site keeps going
 //! through the tunnel.
 //!
@@ -35,7 +35,7 @@ use crate::state::AppState;
 const RENEW_BEFORE_DAYS: i64 = 30;
 const CF_API: &str = "https://api.cloudflare.com/client/v4";
 
-/// The public origin a request came in on (e.g. `https://pottira.example.com`), without a trailing slash.
+/// The public origin a request came in on (e.g. `https://linkord.example.com`), without a trailing slash.
 #[derive(Clone)]
 pub struct PublicBase(pub Arc<str>);
 
@@ -82,7 +82,7 @@ async fn direct_request(State(st): State<AppState>, ConnectInfo(peer): ConnectIn
     next.run(req).await
 }
 
-/// Serves `app` on POTTIRA_DIRECT_BIND (if set) until the process ends.
+/// Serves `app` on LINKORD_DIRECT_BIND (if set) until the process ends.
 pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
     let cfg = st.cfg.clone();
     let Some(bind) = cfg.direct_bind.clone() else { return Ok(()) };
@@ -104,7 +104,7 @@ pub async fn serve(st: AppState, app: Router) -> anyhow::Result<()> {
         server.serve(app).await?;
         return Ok(());
     }
-    let token = cfg.cloudflare_token.clone().context("direct access needs CLOUDFLARE_API_TOKEN for its certificate (or POTTIRA_DIRECT_TLS=off)")?;
+    let token = cfg.cloudflare_token.clone().context("direct access needs CLOUDFLARE_API_TOKEN for its certificate (or LINKORD_DIRECT_TLS=off)")?;
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     // Get a certificate before listening; keep trying (Cloudflare or Let's Encrypt briefly down, token not set up yet).

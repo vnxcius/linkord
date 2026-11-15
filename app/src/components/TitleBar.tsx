@@ -8,13 +8,13 @@ import { Close, Emblem, Maximize, Minimize } from './Icons';
  *  chrome (the native title bar is disabled); on the web it's only shown on wide screens. */
 export function TitleBar() {
   const place = () =>
-    !state.ready ? '' : state.view === '@me' ? t('Direct Messages') : (state.guilds[state.view]?.name ?? 'Pottira');
+    !state.ready ? '' : state.view === '@me' ? t('Direct Messages') : (state.guilds[state.view]?.name ?? 'Linkord');
   return (
     <div class="titlebar" classList={{ web: !isTauri }} data-tauri-drag-region>
       <span class="titlebar-side" data-tauri-drag-region>
         <span class="titlebar-brand" data-tauri-drag-region>
           <Emblem size={15} />
-          <span data-tauri-drag-region>{import.meta.env.DEV ? 'Pottira Dev' : 'Pottira'}</span>
+          <span data-tauri-drag-region>{import.meta.env.DEV ? 'Linkord Dev' : 'Linkord'}</span>
         </span>
         <Show when={state.connection === 'reconnecting'}>
           <span class="titlebar-status">{t('Reconnecting…')}</span>

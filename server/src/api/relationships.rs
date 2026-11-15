@@ -139,7 +139,7 @@ async fn send_by_username(State(st): State<AppState>, AuthUser(me): AuthUser, Js
     };
     match ids.as_slice() {
         [id] => send_request(&st, me, *id).await,
-        [] => Err(bad("no one with that username has joined Pottira yet")),
+        [] => Err(bad("no one with that username has joined Linkord yet")),
         _ => Err(bad("several people share that username; add them from their profile instead")),
     }
 }

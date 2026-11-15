@@ -1,4 +1,4 @@
-// Removes Pottira's own playback (the voice chat) from whole-system loopback audio. Used on Windows 10,
+// Removes Linkord's own playback (the voice chat) from whole-system loopback audio. Used on Windows 10,
 // where Windows can't leave one app's sound out of a capture.
 //
 // The "echo" here is digital: the loopback contains exactly the samples we played, delayed by the output

@@ -28,7 +28,7 @@ pub struct LeagueStatus {
     /// The Riot ID signed in to the client (Settings -> Profile offers to link it).
     game_name: Option<String>,
     tag_line: Option<String>,
-    /// The signed-in summoner, for lobby invites through Pottira (the client invites by summoner id).
+    /// The signed-in summoner, for lobby invites through Linkord (the client invites by summoner id).
     summoner_id: Option<i64>,
     puuid: Option<String>,
     /// In a lobby and allowed to invite (the leader, or invites opened to everyone).
@@ -73,7 +73,7 @@ pub async fn league_status(dir: Option<String>) -> Result<Option<LeagueStatus>, 
     }
 }
 
-/// Has the League client invite this summoner to your lobby (someone asked through Pottira).
+/// Has the League client invite this summoner to your lobby (someone asked through Linkord).
 #[tauri::command]
 pub async fn league_invite(
     dir: Option<String>,
@@ -89,7 +89,7 @@ pub async fn league_invite(
     }
 }
 
-/// Accepts, in your League client, the lobby invite this summoner just sent (you asked to join through Pottira, so
+/// Accepts, in your League client, the lobby invite this summoner just sent (you asked to join through Linkord, so
 /// joining takes no click in League). Waits a few seconds for it to arrive; false when it never did.
 #[tauri::command]
 pub async fn league_accept(

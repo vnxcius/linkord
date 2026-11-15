@@ -77,7 +77,7 @@ export async function recCall<T>(cmd: string, args?: Record<string, unknown>): P
 }
 
 /** Device names seen before, by kind + id (ids are stable per app, names are hidden until the mic has been used). */
-const NAMES_KEY = 'pottira.deviceNames';
+const NAMES_KEY = 'linkord.deviceNames';
 const pseudo = (d: MediaDeviceInfo) => d.deviceId === 'default' || d.deviceId === 'communications';
 
 function savedNames(): Record<string, string> {

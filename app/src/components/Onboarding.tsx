@@ -1,6 +1,6 @@
 // Onboarding. New accounts get a guided tour of the app: a spotlight on each part of the window with a card beside it,
 // plus cards with screenshots for what has no fixed place (calls, Kass, watch together, soundboard). Accounts that have
-// had the tour get the release dialog once per big release instead (2.0: REC first, then Linkord becoming Pottira),
+// had the tour get the release dialog once per big release instead (2.0: REC first, then the new look),
 // with confetti, a fanfare and the highlights. Both are remembered per account in the synced settings (tour_done,
 // release_seen); Settings has links to see either again.
 import { createEffect, createSignal, For, type JSX, on, onCleanup, onMount, Show } from 'solid-js';
@@ -111,7 +111,7 @@ const FEATURES: Feature[] = [
     id: 'rec',
     title: msg('Your games, recorded'),
     text: msg(
-      'Turn on REC and Pottira records every game you play, quietly, in the background. Nothing shows on your screen while it does, and the recordings stay on your PC.',
+      'Turn on REC and Linkord records every game you play, quietly, in the background. Nothing shows on your screen while it does, and the recordings stay on your PC.',
     ),
     art: RecArt,
     windows: true,
@@ -162,9 +162,9 @@ const FEATURES: Feature[] = [
   },
   {
     id: 'name',
-    title: msg('Linkord is now Pottira'),
+    title: msg('A new icon'),
     text: msg(
-      'A name of our own: potira means “flower” in Tupi. Same app, same friends, same servers, nothing to do on your side. The swirl is our new icon.',
+      'Wings around the Triforce, drawn to read at any size, from the taskbar to the tray. Same app, same friends, same servers.',
     ),
     art: NameArt,
   },
@@ -172,7 +172,7 @@ const FEATURES: Feature[] = [
     id: 'look',
     title: msg('Cotton on steel'),
     text: msg(
-      'Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme. And every sound is new, made for Pottira, from messages to ringtones.',
+      'Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme.',
     ),
     art: LookArt,
   },
@@ -340,10 +340,10 @@ function Release() {
     <Showcase
       features={FEATURES}
       more={MORE}
-      kicker={t('Pottira {version}', { version: RELEASE_NAME })}
+      kicker={t('Linkord {version}', { version: RELEASE_NAME })}
       title={t('Meet REC')}
       intro={t(
-        '{name}, Pottira now records your games and turns your best moments into clips. And yes, Linkord has a new name: that comes right after.',
+        '{name}, Linkord now records your games and turns your best moments into clips. And it has a new look: that comes right after.',
         { name: displayName(state.me) },
       )}
       emblem={
@@ -389,7 +389,7 @@ function Release() {
 const CHRISTMAS: Feature[] = [
   {
     id: 'christmas-look',
-    title: msg('Pottira in evergreen'),
+    title: msg('Linkord in evergreen'),
     text: msg(
       'A Christmas theme with falling snow, string lights, a tree, Santa hats on everyone and snow that slowly piles up behind the message box. Click the snow to clear it.',
     ),
@@ -435,7 +435,12 @@ const CHRISTMAS: Feature[] = [
   },
 ];
 
-const CHRISTMAS_MORE = [msg('Festive app icon'), msg('Bells on the soundboard'), msg('Works for New Year too')];
+const CHRISTMAS_MORE = [
+  msg('Festive app icon'),
+  msg('Winter call sounds'),
+  msg('Bells on the soundboard'),
+  msg('Works for New Year too'),
+];
 
 function ChristmasGreeting() {
   const close = () => {
@@ -447,9 +452,9 @@ function ChristmasGreeting() {
     <Showcase
       features={CHRISTMAS}
       more={CHRISTMAS_MORE}
-      kicker={t('Happy holidays from Pottira')}
+      kicker={t('Happy holidays from Linkord')}
       title={t('Merry Christmas, {name}!', { name: displayName(state.me) })}
-      intro={t('Pottira dressed up for the season. Here is everything that came with it.')}
+      intro={t('Linkord dressed up for the season. Here is everything that came with it.')}
       emblem={<Emblem size={64} christmas />}
       class="xmas-modal"
       decor={
@@ -505,7 +510,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     hero: true,
-    title: msg('Welcome to Pottira'),
+    title: msg('Welcome to Linkord'),
     text: msg("Here's a quick look at where everything is. It takes a minute, and you can leave whenever you like."),
   },
   {
@@ -708,7 +713,7 @@ function Tour() {
       classList={{ anchored: anchored() }}
       role="dialog"
       aria-modal="true"
-      aria-label={t('Pottira tour')}
+      aria-label={t('Linkord tour')}
     >
       <Show when={anchored()} fallback={<div class="tour-dim" />}>
         <div
@@ -745,7 +750,7 @@ function Tour() {
               <p class="tour-kicker">
                 <Show
                   when={!step().hero}
-                  fallback={index() === 0 ? t('Pottira {version}', { version: RELEASE_NAME }) : t('Tour complete')}
+                  fallback={index() === 0 ? t('Linkord {version}', { version: RELEASE_NAME }) : t('Tour complete')}
                 >
                   {t('Step {n} of {total}', {
                     n: String(index()).padStart(2, '0'),
@@ -755,7 +760,7 @@ function Tour() {
               </p>
               <h2>
                 {index() === 0 && state.me
-                  ? t('Welcome to Pottira, {name}', { name: displayName(state.me) })
+                  ? t('Welcome to Linkord, {name}', { name: displayName(state.me) })
                   : t(step().title)}
               </h2>
               <p class="tour-text">{t(step().text)}</p>

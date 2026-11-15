@@ -17,14 +17,14 @@ use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
 
-const COOKIE: &str = "pottira_monitor";
+const COOKIE: &str = "linkord_monitor";
 const SESSION_DAYS: i64 = 14;
 /// Wrong passwords allowed per minute, in total: there is one account.
 const ATTEMPTS: usize = 8;
 
 fn sign(password: &str, expires: i64) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(password.as_bytes()).expect("hmac takes any key");
-    mac.update(format!("pottira-monitor:{expires}").as_bytes());
+    mac.update(format!("linkord-monitor:{expires}").as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
 
@@ -84,14 +84,14 @@ pub fn signed_in(st: &AppState, headers: &HeaderMap) -> bool {
 
 /// Which addresses this dashboard answers as. A web page can point its own hostname at 127.0.0.1 (DNS rebinding) and
 /// so reach a service on loopback, but it can't change the name the browser asks for. IP addresses and localhost are
-/// always fine; other names (a tunnel hostname) go in POTTIRA_MONITOR_HOSTS.
+/// always fine; other names (a tunnel hostname) go in LINKORD_MONITOR_HOSTS.
 pub async fn check_host(State(st): State<AppState>, req: Request, next: Next) -> Response {
     let host = req.headers().get(header::HOST).and_then(|v| v.to_str().ok()).map(str::to_owned).or_else(|| req.uri().authority().map(|a| a.to_string())).unwrap_or_default();
     if host_allowed(&host, &st.cfg.allowed_hosts) {
         next.run(req).await
     } else {
         tracing::warn!("refused a request for another host name");
-        (StatusCode::MISDIRECTED_REQUEST, "Unknown host. Add it to POTTIRA_MONITOR_HOSTS to use this name.").into_response()
+        (StatusCode::MISDIRECTED_REQUEST, "Unknown host. Add it to LINKORD_MONITOR_HOSTS to use this name.").into_response()
     }
 }
 

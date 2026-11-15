@@ -23,7 +23,7 @@ export interface Prefs {
   captureAudio: Record<string, string>;
   userVolumes: Record<string, number>;
   closeToTray: boolean;
-  /** Starting with the computer keeps Pottira in the tray (off: opens the window). */
+  /** Starting with the computer keeps Linkord in the tray (off: opens the window). */
   startMinimized: boolean;
   /** Master switch for UI sounds, plus each kind. */
   sounds: boolean;
@@ -47,6 +47,8 @@ export interface Prefs {
   theme: 'system' | 'light' | 'dark' | 'christmas';
   /** With the Christmas theme: falling snow. */
   christmasSnow: boolean;
+  /** With the Christmas theme: its sound pack instead of the usual sounds. */
+  christmasSounds: boolean;
   /** With the Christmas theme: background music, and how loud (0-1). */
   christmasMusic: boolean;
   christmasMusicVolume: number;
@@ -62,9 +64,9 @@ export interface Prefs {
   emojiTone: number;
   /** Web: the "get the desktop app" banner was closed. */
   downloadBannerDismissed: boolean;
-  /** Last version whose "Pottira was updated" banner was seen ('' = first run). */
+  /** Last version whose "Linkord was updated" banner was seen ('' = first run). */
   lastSeenVersion: string;
-  /** Show the "Pottira was updated" banner after each update. */
+  /** Show the "Linkord was updated" banner after each update. */
   updateBanner: boolean;
   /** Stream/camera debug info (bitrate, codec, audio and capture diagnostics) over the video. */
   streamDebug: boolean;
@@ -107,7 +109,7 @@ export interface RecPrefs {
   setupDone: boolean;
   /** Record every game you play, once REC is on (on by default, the dev app too: it records into its own folder). */
   auto: boolean;
-  /** Where recordings go ('' = Videos\Pottira). */
+  /** Where recordings go ('' = Videos\Linkord). */
   folder: string;
   /** Largest recorded height (0 = as captured), frames per second, bitrate. */
   maxHeight: number;
@@ -122,7 +124,7 @@ export interface RecPrefs {
   /** The output recorded when a game's own sound can't be told apart (Windows 10, desktop recordings): '' = Windows'
    * default, else a deviceId. */
   outputDevice: string;
-  /** Where the REC player plays ('' = Pottira's output device). */
+  /** Where the REC player plays ('' = Linkord's output device). */
   playbackDevice: string;
   /** The voice chat (others in your call, minus anyone who opted out). */
   voices: boolean;
@@ -180,6 +182,7 @@ const DEFAULTS: Prefs = {
   language: 'system',
   theme: 'system',
   christmasSnow: true,
+  christmasSounds: true,
   christmasMusic: true,
   christmasMusicVolume: 0.2,
   christmasHats: true,
@@ -234,7 +237,7 @@ const DEFAULTS: Prefs = {
   recDefaults: 0,
 };
 
-const KEY = 'pottira.prefs';
+const KEY = 'linkord.prefs';
 
 function load(): Prefs {
   try {

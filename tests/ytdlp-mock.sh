@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stands in for yt-dlp in tests (POTTIRA_YTDLP): `-j ... -- <url|ytsearch1:query>` prints a video's info,
+# Stands in for yt-dlp in tests (LINKORD_YTDLP): `-j ... -- <url|ytsearch1:query>` prints a video's info,
 # `-o - ... -- <url>` streams 8 s of a 440 Hz tone, `-U` does nothing. "nothing" finds nothing; a URL with
 # "broken" in it fails to download. `-j` with ytsearch10: lists results, one of them live and one too long.
 target="${*: -1}"

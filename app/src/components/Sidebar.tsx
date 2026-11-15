@@ -1268,7 +1268,7 @@ function UserPanel() {
   const logoutClick = () =>
     setUi('modal', {
       type: 'confirm',
-      title: t('Log out of Pottira?'),
+      title: t('Log out of Linkord?'),
       body: t("You'll need to sign in with Discord again on this device."),
       action: t('Log Out'),
       run: async () => logout(),

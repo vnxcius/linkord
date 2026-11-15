@@ -2,8 +2,8 @@
 # Builds the Linux packages (.deb and .rpm) into app/out/.
 set -euo pipefail
 cd "$(dirname "$0")"
-server="${POTTIRA_SERVER_URL:-https://pottira.com}"
-key="${POTTIRA_UPDATER_KEY:-$HOME/.config/pottira/updater.key}"
+server="${LINKORD_SERVER_URL:-https://linkord.app}"
+key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
 [[ -f "$key" ]] || { echo "Updater signing key not found at $key"; exit 1; }
 rm -f out/*.deb out/*.rpm
 

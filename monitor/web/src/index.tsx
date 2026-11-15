@@ -40,7 +40,7 @@ function Login() {
     <main class="login">
       <form onSubmit={submit}>
         <img src={emblem} alt="" width="44" height="44" />
-        <h1>Pottira Monitor</h1>
+        <h1>Linkord Monitor</h1>
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" autofocus value={password()} onInput={(e) => setPassword(e.currentTarget.value)} />
         <Show when={error()}>
@@ -192,7 +192,7 @@ function Shell() {
       </nav>
       <main class="page" ref={page}>
         <div class="running-head">
-          <span>Pottira Monitor</span>
+          <span>Linkord Monitor</span>
           <Show when={host()}>
             <span>{host()}</span>
           </Show>

@@ -52,15 +52,15 @@ test('every player origin is allowed in the web CSP frame-src too', () => {
 });
 
 test('watch together chat: only live streams have one, and Twitch is framed only where it allows it', () => {
-  const chat = (provider, media, live, frames = true) => watchChat({ provider, media, live }, 'pottira.com', frames, true);
-  assert.deepEqual(chat('twitch', 'someone', true), { src: 'https://www.twitch.tv/embed/someone/chat?parent=pottira.com&darkpopout', framed: true });
+  const chat = (provider, media, live, frames = true) => watchChat({ provider, media, live }, 'linkord.app', frames, true);
+  assert.deepEqual(chat('twitch', 'someone', true), { src: 'https://www.twitch.tv/embed/someone/chat?parent=linkord.app&darkpopout', framed: true });
   assert.deepEqual(chat('twitch', 'someone', true, false), { src: 'https://www.twitch.tv/popout/someone/chat?popout=&darkpopout', framed: false });
   assert.deepEqual(chat('kick', 'someone', true), { src: 'https://kick.com/popout/someone/chat', framed: true });
-  assert.deepEqual(chat('youtube', 'aqz-KE-bpKQ', true), { src: 'https://www.youtube.com/live_chat?v=aqz-KE-bpKQ&embed_domain=pottira.com&dark_theme=1', framed: true });
+  assert.deepEqual(chat('youtube', 'aqz-KE-bpKQ', true), { src: 'https://www.youtube.com/live_chat?v=aqz-KE-bpKQ&embed_domain=linkord.app&dark_theme=1', framed: true });
   assert.equal(chat('youtube', 'aqz-KE-bpKQ', false), null);
   assert.equal(chat('twitch', 'v123', false), null);
   const page = (url) => new URL(url);
-  assert.equal(twitchChatFrames(page('https://pottira.com/')), true);
+  assert.equal(twitchChatFrames(page('https://linkord.app/')), true);
   assert.equal(twitchChatFrames(page('https://direct.example.com:8443/')), false);
   assert.equal(twitchChatFrames(page('http://tauri.localhost/')), false);
   assert.equal(twitchChatFrames(page('http://127.0.0.1:7701/')), true);

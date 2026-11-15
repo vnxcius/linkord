@@ -50,14 +50,14 @@ fn config_checks(st: &AppState, r: &mut Report, live: &Value) {
     const G: &str = "Configuration";
     let app = &live["app"];
     if app.is_null() {
-        r.warn(G, "App settings", "Can't read them: the app isn't answering on its internal address.", "Start the server, or check POTTIRA_INTERNAL_BIND and that both services use the same data directory.");
+        r.warn(G, "App settings", "Can't read them: the app isn't answering on its internal address.", "Start the server, or check LINKORD_INTERNAL_BIND and that both services use the same data directory.");
         return;
     }
     let cfg = &app["config"];
     let is_public = !st.cfg.public_url.contains("localhost") && !st.cfg.public_url.contains("127.0.0.1");
     if cfg["dev_login"] == true {
         if is_public {
-            r.fail(G, "Dev login", "POTTIRA_DEV_LOGIN is on while the app is public: anyone can sign in as anyone.", "Set POTTIRA_DEV_LOGIN=false in server/.env and restart the server right away.");
+            r.fail(G, "Dev login", "LINKORD_DEV_LOGIN is on while the app is public: anyone can sign in as anyone.", "Set LINKORD_DEV_LOGIN=false in server/.env and restart the server right away.");
         } else {
             r.info(G, "Dev login", "On, which is fine for a local server.");
         }
@@ -72,7 +72,7 @@ fn config_checks(st: &AppState, r: &mut Report, live: &Value) {
         r.info(G, "Discord login", "Not configured.");
     }
     if cfg["admins"].as_u64().unwrap_or(0) == 0 {
-        r.warn(G, "Admins", "POTTIRA_ADMINS is empty, so nobody can change Kass's picture.", "Add your Discord username to POTTIRA_ADMINS in server/.env.");
+        r.warn(G, "Admins", "LINKORD_ADMINS is empty, so nobody can change Kass's picture.", "Add your Discord username to LINKORD_ADMINS in server/.env.");
     } else {
         r.pass(G, "Admins", format!("{} configured.", cfg["admins"]));
     }
@@ -212,7 +212,7 @@ async fn storage_checks(st: &AppState, r: &mut Report, live: &Value) {
     if tokio::fs::metadata(&uploads).await.is_ok() {
         r.pass(G, "Uploads folder", "Readable.");
     } else {
-        r.fail(G, "Uploads folder", format!("Not found at {}.", uploads.display()), "Check POTTIRA_DATA_DIR in server/.env and POTTIRA_MONITOR_SERVER_DIR in monitor/.env.");
+        r.fail(G, "Uploads folder", format!("Not found at {}.", uploads.display()), "Check LINKORD_DATA_DIR in server/.env and LINKORD_MONITOR_SERVER_DIR in monitor/.env.");
     }
     let today = chrono::Utc::now().format("%Y-%m-%d");
     if tokio::fs::metadata(st.cfg.logs_dir().join(format!("{today}.jsonl"))).await.is_ok() {
@@ -246,7 +246,7 @@ async fn tool_checks(st: &AppState, r: &mut Report, live: &Value) {
     if let Some(t) = &reported {
         match t.get("node").and_then(Value::as_str) {
             Some(v) => r.pass(G, "Node", format!("{v} (yt-dlp's JavaScript runtime).")),
-            None => r.warn(G, "Node", "The server can't run it.", "yt-dlp needs it for YouTube (POTTIRA_YTDLP_ARGS=--js-runtimes node)."),
+            None => r.warn(G, "Node", "The server can't run it.", "yt-dlp needs it for YouTube (LINKORD_YTDLP_ARGS=--js-runtimes node)."),
         }
     }
     match tokio::fs::metadata(st.cfg.app_data.join("detectable.json")).await.and_then(|m| m.modified()) {
@@ -356,7 +356,7 @@ async fn service_checks(r: &mut Report, live: &Value) {
     const G: &str = "Services";
     let app = &live["app"];
     if app.is_null() {
-        r.fail(G, "Server", "Not answering on its internal address.", "docker ps -a; docker logs --tail 50 pottira-server-<slot> (server/data/run/live says which slot serves)");
+        r.fail(G, "Server", "Not answering on its internal address.", "docker ps -a; docker logs --tail 50 linkord-server-<slot> (server/data/run/live says which slot serves)");
     } else {
         let slot = app["slot"].as_str().filter(|s| !s.is_empty()).map(|s| format!("slot {s}, ")).unwrap_or_default();
         let version = app["version"].as_str().map(|v| format!("version {v}, ")).unwrap_or_default();
@@ -364,11 +364,11 @@ async fn service_checks(r: &mut Report, live: &Value) {
         r.pass(G, "Server", format!("Running ({slot}{version}up {hours:.1} h)."));
     }
     // Only where the docker CLI is around (not inside the monitor's own container, which has no access to Docker).
-    if let Some(state) = first_line("docker", &["inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}", "pottira-postgres-1"]).await {
+    if let Some(state) = first_line("docker", &["inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}}", "linkord-postgres-1"]).await {
         if state.starts_with("running") && !state.contains("unhealthy") {
             r.pass(G, "Postgres container", state);
         } else {
-            r.fail(G, "Postgres container", state, "docker logs pottira-postgres-1");
+            r.fail(G, "Postgres container", state, "docker logs linkord-postgres-1");
         }
     }
 }
@@ -477,7 +477,7 @@ pub async fn speedtest(State(st): State<AppState>) -> ToolResult {
     let Ok(_running) = st.speedtest.try_lock() else {
         return Err(bad("A speed test is already running."));
     };
-    let client = reqwest::Client::builder().user_agent("pottira-monitor").timeout(Duration::from_secs(40)).build().map_err(|_| bad("Couldn't start."))?;
+    let client = reqwest::Client::builder().user_agent("linkord-monitor").timeout(Duration::from_secs(40)).build().map_err(|_| bad("Couldn't start."))?;
 
     let mut latency = None;
     if let Ok(ms) = checks::tcp_ping("speed.cloudflare.com:443").await {

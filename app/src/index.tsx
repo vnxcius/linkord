@@ -15,9 +15,6 @@ import { initSanta } from './lib/santa';
 import { initTheme } from './lib/theme';
 
 initTheme();
-initChristmasMusic();
-initHolidays();
-initSanta();
 installContextMenu();
 installErrorReporting();
 initTooltips();
@@ -47,6 +44,12 @@ if (label === 'watch-popout')
 // The REC overlay over games (src-tauri/src/rec/overlay.rs): only its panel.
 else if (label === 'rec-overlay')
   void import('./components/RecOverlay').then(({ RecOverlay }) => render(() => <RecOverlay />, root));
-// The desktop app may need the direct address before anything connects (ISPs that block Cloudflare).
-else
+// The desktop app may need the direct address before anything connects (ISPs that block Cloudflare). The Christmas
+// music, midnight fireworks and Santa belong to the main window only: the pop-out and the overlay would play and draw
+// them a second time.
+else {
+  initChristmasMusic();
+  initHolidays();
+  initSanta();
   void Promise.all([import('./App'), pickReachableServer()]).then(([{ default: App }]) => render(() => <App />, root));
+}

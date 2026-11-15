@@ -2,12 +2,12 @@ import { serverError, t } from './i18n';
 import { isTauri } from './platform';
 
 /** A web login started in this tab (see App.tsx captureUrlState). */
-export const LOGIN_PENDING_KEY = 'pottira.loginPending';
+export const LOGIN_PENDING_KEY = 'linkord.loginPending';
 /** The invite link this person arrived through before signing in; its join dialog opens after login (App.tsx). */
-export const INVITE_KEY = 'pottira.pendingInvite';
+export const INVITE_KEY = 'linkord.pendingInvite';
 
-const SERVER_KEY = 'pottira.server';
-const TOKEN_KEY = 'pottira.token';
+const SERVER_KEY = 'linkord.server';
+const TOKEN_KEY = 'linkord.token';
 
 function load(key: string): string | null {
   try {
@@ -27,7 +27,7 @@ function store(key: string, value: string | null) {
 // Desktop, this session only: the direct address when the usual one is unreachable (see pickReachableServer).
 let fallback: string | null = null;
 
-/** Base URL of the pottira server. The web build is served by the server itself. */
+/** Base URL of the linkord server. The web build is served by the server itself. */
 export function serverUrl(): string {
   if (!isTauri) return window.location.origin;
   return fallback || load(SERVER_KEY) || import.meta.env.VITE_DEFAULT_SERVER || '';
@@ -38,9 +38,16 @@ export const defaultServer = (): string => import.meta.env.VITE_DEFAULT_SERVER |
 /** Direct access that skips Cloudflare (server/src/direct.rs), for ISPs that block Cloudflare's addresses. */
 export const directServer = (): string => import.meta.env.VITE_DIRECT_SERVER || '';
 
-/** Every address this server is reachable at (the current one first), e.g. to recognize its invite links. */
+/** Addresses this server had before (Pottira's pottira.com, 1.x's old.example.com): links to them in old messages. */
+const formerServers = (): string[] =>
+  (import.meta.env.VITE_FORMER_SERVERS || '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+
+/** Every address this server is or was reachable at (the current one first), e.g. to recognize its invite links. */
 export function knownServers(): string[] {
-  const all = [serverUrl(), defaultServer(), directServer(), isTauri ? '' : window.location.origin];
+  const all = [serverUrl(), defaultServer(), directServer(), isTauri ? '' : window.location.origin, ...formerServers()];
   return [...new Set(all.filter(Boolean))];
 }
 
@@ -64,8 +71,8 @@ export async function pickReachableServer() {
 }
 
 /**
- * Turns whatever someone typed or pasted ("pottira.example.com", an invite link, ".../api") into
- * the server's origin, e.g. "https://pottira.example.com". Returns '' if it isn't usable.
+ * Turns whatever someone typed or pasted ("linkord.example.com", an invite link, ".../api") into
+ * the server's origin, e.g. "https://linkord.example.com". Returns '' if it isn't usable.
  */
 export function normalizeServerUrl(input: string): string {
   const t = input.trim();
@@ -89,7 +96,7 @@ export async function checkServer(url: string): Promise<ServerCheck> {
   if (!url)
     return {
       ok: false,
-      reason: t("That doesn't look like a server address. It should look like https://pottira.example.com"),
+      reason: t("That doesn't look like a server address. It should look like https://linkord.example.com"),
     };
   const host = new URL(url).host;
   const ctl = new AbortController();
@@ -116,7 +123,7 @@ export async function checkServer(url: string): Promise<ServerCheck> {
     return {
       ok: false,
       reason: t(
-        '{host} answered, but not like a Pottira server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.',
+        '{host} answered, but not like a Linkord server (HTTP {status}). If opening {url} in your browser shows a security check, complete it, or ask the server owner.',
         { host, url, status: res.status },
       ),
     };

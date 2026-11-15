@@ -265,7 +265,7 @@ fn subscribe(target: Target, kind: Kind) -> Result<Duplicated, String> {
         if let Some(entry) = unsent {
             let (tx, rx) = channel();
             let _ = tx.send(entry);
-            std::thread::Builder::new().name("pottira-duplication".into()).spawn(move || run(rx)).map_err(|e| e.to_string())?;
+            std::thread::Builder::new().name("linkord-duplication".into()).spawn(move || run(rx)).map_err(|e| e.to_string())?;
             *hub = Some(tx);
         }
     }
@@ -697,7 +697,7 @@ unsafe fn shows_over(w: HWND, root: HWND, area: Rect) -> bool {
         return false;
     }
     let ex = GetWindowLongW(w, GWL_EXSTYLE) as u32;
-    // Click-through layers (Pottira's own overlay, other programs' overlays) aren't content anyone opened.
+    // Click-through layers (Linkord's own overlay, other programs' overlays) aren't content anyone opened.
     if ex & WS_EX_TRANSPARENT.0 != 0 {
         return false;
     }

@@ -1,12 +1,12 @@
-// End-to-end API tests. Run against a server with POTTIRA_DEV_LOGIN=true (never production):
-//   POTTIRA_TEST_URL=http://localhost:7701 node --test tests/
+// End-to-end API tests. Run against a server with LINKORD_DEV_LOGIN=true (never production):
+//   LINKORD_TEST_URL=http://localhost:7701 node --test tests/
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const BASE = process.env.POTTIRA_TEST_URL ?? 'http://localhost:7701';
+const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
 const run = Math.random().toString(36).slice(2, 7);
 
 async function call(token, method, path, body) {
@@ -240,12 +240,12 @@ test('update feed: nothing newer than the running version', async () => {
   assert.equal(r.status, 204);
 });
 
-test('update feed: Linux apps get the .deb and .rpm of linux.json', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
-  const dir = path.join(process.env.POTTIRA_TEST_DATA_DIR, 'updates');
+test('update feed: Linux apps get the .deb and .rpm of linux.json', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR, 'updates');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'linux.json'), JSON.stringify({
     version: '1.2.3', notes: 'n', pub_date: '2026-10-28T00:00:00.000Z',
-    deb: 'Pottira_1.2.3_amd64.deb', deb_signature: 'sig-deb', rpm: 'Pottira-1.2.3-1.x86_64.rpm', rpm_signature: 'sig-rpm',
+    deb: 'Linkord_1.2.3_amd64.deb', deb_signature: 'sig-deb', rpm: 'Linkord-1.2.3-1.x86_64.rpm', rpm_signature: 'sig-rpm',
   }));
   try {
     const r = await fetch(`${BASE}/api/updates/linux/x86_64/1.2.2`);
@@ -253,7 +253,7 @@ test('update feed: Linux apps get the .deb and .rpm of linux.json', { skip: !pro
     const body = await r.json();
     assert.equal(body.version, '1.2.3');
     assert.equal(body.platforms['linux-x86_64-rpm'].signature, 'sig-rpm');
-    assert.match(body.platforms['linux-x86_64-rpm'].url, /\/api\/updates\/download\/Pottira-1\.2\.3-1\.x86_64\.rpm$/);
+    assert.match(body.platforms['linux-x86_64-rpm'].url, /\/api\/updates\/download\/Linkord-1\.2\.3-1\.x86_64\.rpm$/);
     assert.equal(body.platforms['linux-x86_64-deb'].signature, 'sig-deb');
     assert.equal((await fetch(`${BASE}/api/updates/linux/x86_64/1.2.3`)).status, 204);
     assert.equal((await fetch(`${BASE}/api/updates/windows/x86_64/1.2.2`)).status, 204);
@@ -383,10 +383,10 @@ test('avatar history keeps the last 5 uploads, restores one, removes one, and ig
   await ok(member.token, 'DELETE', '/users/@me/banner');
 });
 
-test('nameplates: defaults come from the server folder, can be picked, uploaded and removed', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
+test('nameplates: defaults come from the server folder, can be picked, uploaded and removed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   // The folder ships empty (Discord's nameplates were removed in the rebrand), so the test puts one there.
   const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
-  fs.writeFileSync(path.join(process.env.POTTIRA_TEST_DATA_DIR, 'nameplates', 'aa-plain.png'), png);
+  fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'aa-plain.png'), png);
   const defaults = await ok(member.token, 'GET', '/nameplates');
   assert.ok(defaults.includes('/nameplates/aa-plain.png') && defaults.every((u) => u.startsWith('/nameplates/')));
   assert.equal((await ok(member.token, 'PUT', '/users/@me/nameplate', { url: defaults[0] })).nameplate, defaults[0]);
@@ -403,9 +403,9 @@ test('nameplates: defaults come from the server folder, can be picked, uploaded 
   assert.equal((await ok(member.token, 'DELETE', '/users/@me/nameplate')).nameplate, null);
 });
 
-test('nameplates: WebM videos work as defaults and uploads; a fake WebM is refused', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
+test('nameplates: WebM videos work as defaults and uploads; a fake WebM is refused', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const webm = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0xe3b341:s=132x24:d=1', '-c:v', 'libvpx-vp9', '-f', 'webm', 'pipe:1']);
-  fs.writeFileSync(path.join(process.env.POTTIRA_TEST_DATA_DIR, 'nameplates', 'zz-shimmer.webm'), webm);
+  fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'zz-shimmer.webm'), webm);
   const defaults = await ok(member.token, 'GET', '/nameplates');
   assert.equal(defaults.at(-1), '/nameplates/zz-shimmer.webm');
   const served = await fetch(`${BASE}/nameplates/zz-shimmer.webm`);
@@ -943,8 +943,8 @@ test('direct access (skips Cloudflare): client IP from the connection, not heade
   assert.equal(await authUrl(DIRECT), 'http://localhost:7703/api/connections/spotify/callback');
 });
 
-test('Kass, the music bot: /play joins your voice channel and streams music; queue, remove, repeat, pause, skip and stop', { skip: !process.env.POTTIRA_TEST_DATA_DIR, timeout: 60000 }, async () => {
-  // run-local.sh points POTTIRA_YTDLP at tests/ytdlp-mock.sh: every "video" is 8 s of a tone.
+test('Kass, the music bot: /play joins your voice channel and streams music; queue, remove, repeat, pause, skip and stop', { skip: !process.env.LINKORD_TEST_DATA_DIR, timeout: 60000 }, async () => {
+  // run-local.sh points LINKORD_YTDLP at tests/ytdlp-mock.sh: every "video" is 8 s of a tone.
   const voiceCh = guild.channels.find((c) => c.kind === 2);
   const cmd = (u, name, query = '') => call(u.token, 'POST', `/channels/${general.id}/commands`, { name, query });
   const watch = await gateway(owner.token);
@@ -1156,7 +1156,7 @@ test('logs: clients report errors into the log files, the app no longer serves t
   assert.doesNotMatch(res.headers.get('content-type') ?? '', /json/, 'the old logs route must be gone');
 });
 
-test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
+test('soundboard: default sounds, server sounds need Manage Emojis, everyone in the call gets a played sound', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const defaults = await ok(member.token, 'GET', '/soundboard/default');
   assert.ok(defaults.some((s) => s.name === 'sleigh bells' && s.emoji === '🔔'), JSON.stringify(defaults.slice(0, 2)));
   const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=1', '-f', 'mp3', 'pipe:1']);
@@ -1179,7 +1179,7 @@ test('soundboard: default sounds, server sounds need Manage Emojis, everyone in 
   assert.equal(cut.trim_end, 4);
   assert.ok(cut.source && cut.source !== cut.url);
   const lengthOf = (url) =>
-    Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(process.env.POTTIRA_TEST_DATA_DIR, 'uploads', url.replace('/uploads/', ''))]).toString());
+    Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path.join(process.env.LINKORD_TEST_DATA_DIR, 'uploads', url.replace('/uploads/', ''))]).toString());
   assert.ok(Math.abs(lengthOf(cut.url) - 3) < 0.2, `cut is ${lengthOf(cut.url)} s`);
   const retrimmed = await ok(owner.token, 'PATCH', `/guilds/${guild.id}/soundboard/${cut.id}`, { trim_start: 6, trim_end: 7.5, volume: 0.3 });
   assert.notEqual(retrimmed.url, cut.url);
@@ -1709,7 +1709,7 @@ test('profile widgets: the stats card is opt-in, Kass songs opt-out; you always 
   assert.equal(theirs.top_songs, undefined);
 });
 
-test('profile song: up to 30 s of an audio file, trimmed again later, removed', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
+test('profile song: up to 30 s of an audio file, trimmed again later, removed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const u = await login('songbird');
   await ok(u.token, 'POST', `/invites/${invite.code}`); // profiles show in full to people who share a server
   const mp3 = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=d=40', '-b:a', '32k', '-f', 'mp3', 'pipe:1']);
@@ -1833,7 +1833,7 @@ test('a rejected message keeps no files and costs no quota', async () => {
   fd.append('payload_json', '{}');
   for (let i = 0; i < 11; i++) fd.append('file', new Blob([new Uint8Array(1000)]), `f${i}.bin`);
   assert.equal((await call(u.token, 'POST', `/channels/${text.id}/messages`, fd)).status, 400);
-  const dir = path.join(process.env.POTTIRA_TEST_DATA_DIR ?? '', 'uploads', 'attachments', String(text.id));
+  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR ?? '', 'uploads', 'attachments', String(text.id));
   assert.ok(await eventually(() => !fs.existsSync(dir) || fs.readdirSync(dir).length === 0), 'saved files are removed');
   assert.equal(before, (await ok(u.token, 'GET', '/users/@me/stats?tz=0')).upload_bytes);
 });
@@ -2057,7 +2057,7 @@ test('Discord sign-in: anyone can sign up, from the browser that started it, and
   let res = await callback(stateOf(s), name);
   assert.match(await res.text(), /expired/, 'no cookie');
   s = await start('');
-  res = await callback(stateOf(s), name, 'pottira_login=someone-elses');
+  res = await callback(stateOf(s), name, 'linkord_login=someone-elses');
   assert.match(await res.text(), /expired/, 'wrong cookie');
 
   // No invite needed: the web sign-in creates the account and lands in the client.
@@ -2135,7 +2135,7 @@ test('sessions: your devices are listed without their tokens, and one can be log
   assert.equal((await call(mine, 'DELETE', `/auth/sessions/${there.id}`)).status, 404, 'already gone');
 });
 
-test('soundboard: a big upload is kept smaller, its quota given back, and it can still be trimmed', { skip: !process.env.POTTIRA_TEST_DATA_DIR }, async () => {
+test('soundboard: a big upload is kept smaller, its quota given back, and it can still be trimmed', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
   const u = await login('soundsize');
   const g = await ok(u.token, 'POST', '/guilds', { name: `Sizes ${run}` });
   const wav = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=10', '-ac', '2', '-ar', '48000', '-f', 'wav', 'pipe:1'], { maxBuffer: 32 * 1024 * 1024 });
@@ -2148,7 +2148,7 @@ test('soundboard: a big upload is kept smaller, its quota given back, and it can
   const quotaBefore = (await ok(u.token, 'GET', '/users/@me/stats')).upload_bytes;
   const r = await upload('tone', wav, 'tone.wav');
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  const size = (url) => fs.statSync(path.join(process.env.POTTIRA_TEST_DATA_DIR, url.replace(/^\/+/, ''))).size;
+  const size = (url) => fs.statSync(path.join(process.env.LINKORD_TEST_DATA_DIR, url.replace(/^\/+/, ''))).size;
   assert.match(r.body.source, /\.mp3$/, 'the original is replaced');
   assert.ok(size(r.body.source) < wav.length / 5, `${size(r.body.source)} of ${wav.length} bytes`);
   assert.ok(size(r.body.url) < 30 * 1024, `2 s clip is ${size(r.body.url)} bytes`);
@@ -2279,8 +2279,8 @@ test('snowballs: only at people who can see the channel, and the score reaches t
 });
 
 test('Steve: mc-manager drives him over the internal listener', async (t) => {
-  const INTERNAL = process.env.POTTIRA_INTERNAL_TEST_URL ?? 'http://127.0.0.1:7704';
-  const dataDir = process.env.POTTIRA_TEST_DATA_DIR;
+  const INTERNAL = process.env.LINKORD_INTERNAL_TEST_URL ?? 'http://127.0.0.1:7704';
+  const dataDir = process.env.LINKORD_TEST_DATA_DIR;
   const token = fs.readFileSync(path.join(dataDir, 'steve-token'), 'utf8').trim();
   const bot = (method, p, body, tok = token) =>
     fetch(`${INTERNAL}/bots/steve${p}`, {
@@ -2506,7 +2506,7 @@ test('voice: a dropped connection keeps the seat for a reconnect, quietly; leavi
 test('push: encrypted notifications reach a phone when it should, and only then', async () => {
   const http = await import('node:http');
   const crypto = await import('node:crypto');
-  // A push service (POTTIRA_PUSH_HOSTS=localhost:7708 in run-local.sh); /gone answers like an expired subscription.
+  // A push service (LINKORD_PUSH_HOSTS=localhost:7708 in run-local.sh); /gone answers like an expired subscription.
   const got = [];
   const service = http.createServer((req, res) => {
     const chunks = [];
@@ -2574,7 +2574,7 @@ test('push: encrypted notifications reach a phone when it should, and only then'
   assert.equal(n.url, `/channels/@me/${dm.id}`);
   assert.equal(n.channel_id, dm.id);
 
-  // Using Pottira on another device: no push. In the background: pushes again.
+  // Using Linkord on another device: no push. In the background: pushes again.
   const desk = await gateway(a.token);
   desk.ws.send(JSON.stringify({ op: 'active' }));
   await settle();
@@ -2656,7 +2656,7 @@ test('REC: a clip uploads in chunks, plays for anyone at its link, counts viewer
   const { mkdtempSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const file = join(mkdtempSync(join(tmpdir(), 'pottira-clip-')), 'clip.mp4');
+  const file = join(mkdtempSync(join(tmpdir(), 'linkord-clip-')), 'clip.mp4');
   execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=30:d=2', '-f', 'lavfi', '-i', 'sine=d=2',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', file]);
   const bytes = readFileSync(file);
@@ -2696,7 +2696,7 @@ test('REC: a clip uploads in chunks, plays for anyone at its link, counts viewer
   const html = await page.text();
   assert.match(html, /property="og:video" content="[^"]+\/uploads\/clips\/[A-Za-z0-9]{12}\.mp4"/);
   assert.match(html, /Clutch &lt;3/, 'escaped');
-  assert.match(html, /Download Pottira/);
+  assert.match(html, /Download Linkord/);
   assert.doesNotMatch(html, /<script(?![^>]*\ssrc="\/assets\/)/, 'no inline or outside scripts');
   assert.match(html, /<div id="clip-player"[^>]*><video src=/, 'plays without the script too');
   const pageCsp = page.headers.get('content-security-policy');
@@ -2770,7 +2770,7 @@ test('videos: a format browsers cannot show gets a copy every app plays; the ori
   const { mkdtempSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const dir = mkdtempSync(join(tmpdir(), 'pottira-video-'));
+  const dir = mkdtempSync(join(tmpdir(), 'linkord-video-'));
   const make = (name, args) => {
     const file = join(dir, name);
     execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=30:d=1', '-f', 'lavfi', '-i', 'sine=d=1', '-shortest', ...args, file]);

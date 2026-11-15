@@ -31,13 +31,13 @@ pub struct CaptureSource {
 #[derive(Serialize)]
 pub struct CaptureInfo {
     encoder: &'static str,
-    /// "app" (only the shared app), "all_but_pottira", "system" (everything, Windows 10) or "none"
+    /// "app" (only the shared app), "all_but_linkord", "system" (everything, Windows 10) or "none"
     audio: &'static str,
 }
 
 #[derive(Serialize)]
 pub struct CaptureCapabilities {
-    /// Per-application audio (and excluding Pottira's own audio) needs Windows 11.
+    /// Per-application audio (and excluding Linkord's own audio) needs Windows 11.
     per_app_audio: bool,
 }
 
@@ -55,9 +55,9 @@ pub fn set_webview_pid(pid: u32) {
     imp::WEBVIEW_PID.store(pid, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The process tree to leave out of "everything the PC plays" (Pottira's voice chat), ours if not known yet.
+/// The process tree to leave out of "everything the PC plays" (Linkord's voice chat), ours if not known yet.
 #[cfg(windows)]
-pub fn pottira_audio_pid() -> u32 {
+pub fn linkord_audio_pid() -> u32 {
     match imp::WEBVIEW_PID.load(std::sync::atomic::Ordering::Relaxed) {
         0 => std::process::id(),
         pid => pid,
@@ -644,7 +644,7 @@ mod imp {
         let mode = match (&capture, source) {
             (None, _) => "none",
             (Some(_), Source::Only(_)) => "app",
-            (Some(_), Source::AllExcept(_)) => "all_but_pottira",
+            (Some(_), Source::AllExcept(_)) => "all_but_linkord",
             (Some(_), Source::System) => "system",
         };
         (capture, mode)

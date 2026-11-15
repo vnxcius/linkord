@@ -1,7 +1,8 @@
 //! REC's session engine (Windows): one recording at a time, started and stopped by the app (lib/rec.ts) when a game
 //! starts and ends, and everything around it.
 //!
-//! The folder (`Videos\Pottira` unless the user picked one; `Videos\Pottira Dev` for the dev app):
+//! The folder (`Videos\Linkord` unless the user picked one; `Videos\Linkord Dev` for the dev app; 2.0.0 used
+//! `Videos\Pottira`, moved over by `root`):
 //! - `VODs/<date> <game>/`: the recording (vod.rs segments), `session.json` (`Meta`: game, times, size, bookmarks,
 //!   events, stems, starred) and `thumbs/<second>.jpg` (a picture every 10 s, for the timeline).
 //! - `Clips/<game> <date>.mp4` and `Screenshots/<game> <date>.png`, each with a `.json` sidecar (`ItemMeta`).
@@ -65,7 +66,7 @@ pub fn init(app: AppHandle) {
 pub fn start_housekeeping() {
     static STARTED: std::sync::Once = std::sync::Once::new();
     STARTED.call_once(|| {
-        std::thread::Builder::new().name("pottira-rec".into()).spawn(housekeeping).ok();
+        std::thread::Builder::new().name("linkord-rec".into()).spawn(housekeeping).ok();
     });
 }
 
@@ -129,7 +130,15 @@ pub fn root(config: &Config) -> PathBuf {
     };
     let videos = videos.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Videos"));
     // The dev app records into its own folder, so trying REC never mixes with the real library.
-    videos.join(if cfg!(debug_assertions) { "Pottira Dev" } else { "Pottira" })
+    let (name, old) = if cfg!(debug_assertions) { ("Linkord Dev", "Pottira Dev") } else { ("Linkord", "Pottira") };
+    let folder = videos.join(name);
+    // Linkord was called Pottira in 2.0.0, and REC recorded into Videos\Pottira then: that library moves over once.
+    // If it can't move (a file in use), REC keeps using it where it is.
+    let pottira = videos.join(old);
+    if !folder.exists() && pottira.is_dir() && std::fs::rename(&pottira, &folder).is_err() {
+        return pottira;
+    }
+    folder
 }
 
 /// "2026-11-13 21-04-05", local time.
@@ -216,12 +225,12 @@ fn video_settings(c: &Config) -> VideoSettings {
 }
 
 /// Windows 11 records only the game's own sound; Windows 10 has the whole PC's (which holds the voice chat already).
-/// A manual recording (pid 0, no game) gets everything the PC plays except Pottira.
+/// A manual recording (pid 0, no game) gets everything the PC plays except Linkord.
 fn audio_settings(c: &Config, pid: u32) -> AudioSettings {
     let per_process = process_loopback_supported();
     let game = match (per_process, pid) {
         (false, _) => Source::System,
-        (true, 0) => Source::AllExcept(crate::capture::pottira_audio_pid()),
+        (true, 0) => Source::AllExcept(crate::capture::linkord_audio_pid()),
         (true, pid) => Source::Only(pid),
     };
     AudioSettings {

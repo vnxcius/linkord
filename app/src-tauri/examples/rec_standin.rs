@@ -59,7 +59,7 @@ mod imp {
         let (width, height) = ((r.right - r.left) as u32, (r.bottom - r.top) as u32);
 
         let instance = GetModuleHandleW(None)?;
-        let class = w!("PottiraRecStandIn");
+        let class = w!("LinkordRecStandIn");
         RegisterClassW(&WNDCLASSW { lpfnWndProc: Some(proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() });
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),

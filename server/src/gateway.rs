@@ -55,7 +55,7 @@ struct Session {
     buffer: VecDeque<(u64, Arc<str>)>,
     detached_at: Option<Instant>,
     /// Last input in the app (op `active`); None while it's in the background (op `away`). push.rs skips people who
-    /// are using Pottira somewhere.
+    /// are using Linkord somewhere.
     active_at: Option<Instant>,
     /// Last frame from the client (it answers our pings every 25 s): a phone app closed without saying `away` stops
     /// counting as "in use" once this goes stale, before the socket times out.
@@ -174,7 +174,7 @@ impl Hub {
         }
     }
 
-    /// Someone is using Pottira right now: a connected session with input within `within`, not in the background.
+    /// Someone is using Linkord right now: a connected session with input within `within`, not in the background.
     pub fn in_use(&self, user: Id, within: Duration) -> bool {
         let Some(ids) = self.by_user.get(&user).map(|v| v.clone()) else { return false };
         ids.iter().any(|id| {
@@ -523,7 +523,7 @@ struct Ready<'a> {
     watches: Vec<serde_json::Value>,
     server_now: i64,
     features: Features,
-    /// POTTIRA_ADMINS: can change the music bot's picture.
+    /// LINKORD_ADMINS: can change the music bot's picture.
     admin: bool,
     /// Slash commands of bots driven from outside (Steve, steve.rs), while they're connected.
     bot_commands: serde_json::Value,

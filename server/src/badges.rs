@@ -1,11 +1,11 @@
 //! Profile badges (Settings -> Badges, owner 2026-11-12). Stored in `user_badges` (migration 0026): once earned a
-//! badge stays, except Pottira Admin, which follows POTTIRA_ADMINS.
+//! badge stays, except Linkord Admin, which follows LINKORD_ADMINS.
 //!
 //! - Milestones have 5 tiers (0 Bronze .. 4 Diamond) and keep the highest one reached: account age, games, time
 //!   played, streaming, calls, watch together, soundboard, snowballs. Thresholds: [`LADDERS`] (the client's
 //!   lib/badges.ts has the same numbers to label them).
 //! - Single badges: admin, early (accounts from before 1.0, given by the migration), owner (owns a server),
-//!   christmas_<year> (used Pottira during that Christmas season), and the ones an admin gives from the monitor
+//!   christmas_<year> (used Linkord during that Christmas season), and the ones an admin gives from the monitor
 //!   ([`MANUAL`], through internal.rs).
 //!
 //! [`sweeper`] checks everyone connected once a minute; a new badge or tier reaches its owner as BADGE_EARNED (for the

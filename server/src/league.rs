@@ -21,7 +21,7 @@
 //!   restarts (data/league-cache.json, saved at most once a minute). The widget's Update button
 //!   (?refresh=true) rebuilds it all, once a minute per profile.
 //!
-//! Lobby invites through Pottira: someone asks to join from your League card (POST /league/join with their
+//! Lobby invites through Linkord: someone asks to join from your League card (POST /league/join with their
 //! summoner id, read from their own League client), you get LEAGUE_JOIN_REQUEST and your app has your client invite
 //! them. Or you invite someone (POST /league/invite: LEAGUE_INVITE), and when they accept, their join request comes
 //! back marked `auto`, so your app invites them without asking you again. Once the host's client has sent the
@@ -70,7 +70,7 @@ const CDRAGON_ROOT: &str = "https://raw.communitydragon.org/latest/";
 const DDRAGON: &str = "https://ddragon.leagueoflegends.com";
 /// CommunityDragon's game-data folder, where the paths /league/art serves live.
 const ART_GAME: &str = "plugins/rcp-be-lol-game-data/global/default/v1/";
-/// An invite from Pottira stays good this long (the person may need to open League first).
+/// An invite from Linkord stays good this long (the person may need to open League first).
 const INVITE_TTL: Duration = Duration::from_secs(600);
 /// How long a join request waits for the host's client to send the invite (prompts last a minute, plus slack).
 const JOIN_TTL: Duration = Duration::from_secs(120);
@@ -97,7 +97,7 @@ pub struct League {
     accounts: DashMap<String, (i64, Value)>,
     /// Something above changed since data/league-cache.json was written.
     dirty: AtomicBool,
-    /// (host, invited) -> when the host invited them through Pottira.
+    /// (host, invited) -> when the host invited them through Linkord.
     invites: DashMap<(Id, Id), Instant>,
     /// (host, joiner) -> when the joiner asked to join the host's lobby (POST /league/invited needs one).
     joins: DashMap<(Id, Id), Instant>,

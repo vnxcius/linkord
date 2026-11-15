@@ -42,7 +42,7 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-/// An admin (POTTIRA_ADMINS): may read the logs and change the music bot's picture.
+/// An admin (LINKORD_ADMINS): may read the logs and change the music bot's picture.
 pub async fn is_admin(st: &AppState, user: Id) -> bool {
     if st.cfg.admins.is_empty() {
         return false;
@@ -56,7 +56,7 @@ pub async fn is_admin(st: &AppState, user: Id) -> bool {
             .flatten();
     let Some((username, discord_id, discord_username)) = row else { return false };
     let id = user.to_string();
-    // Names are matched against the Discord username: Pottira usernames can be changed, so someone could take an
+    // Names are matched against the Discord username: Linkord usernames can be changed, so someone could take an
     // admin's old one. (Dev-login accounts have no Discord username; they can't sign in when dev login is off.)
     let name = discord_username.map(|n| n.to_lowercase()).or_else(|| discord_id.starts_with("dev:").then_some(username));
     st.cfg.admins.iter().any(|a| Some(a) == name.as_ref() || *a == discord_id || *a == id)
@@ -138,7 +138,7 @@ struct StartQuery {
     challenge: Option<String>,
 }
 
-const LOGIN_COOKIE: &str = "pottira_login";
+const LOGIN_COOKIE: &str = "linkord_login";
 
 async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip): ClientIp, Query(q): Query<StartQuery>) -> ApiResult<Response> {
     st.limits.check(format!("login:{ip}"), 10.0, 0.2)?;
@@ -146,7 +146,7 @@ async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip
         return Err(bad("Discord login is not configured on this server"));
     }
     if q.nonce.is_some() {
-        return Ok(result_page("This version of Pottira can't sign in any more. Restart it to update, then try again.").into_response());
+        return Ok(result_page("This version of Linkord can't sign in any more. Restart it to update, then try again.").into_response());
     }
     let long_enough = |v: &str| (32..=128).contains(&v.len()) && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     let desktop = match (q.port, q.state, q.challenge) {
@@ -157,7 +157,7 @@ async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip
         _ => return Err(bad("invalid sign-in request")),
     };
     let state = random_token(24);
-    // Only people already signed in to Pottira on Discord skip the consent screen, and only in the browser client:
+    // Only people already signed in to Linkord on Discord skip the consent screen, and only in the browser client:
     // the desktop flow always shows it.
     let prompt = if desktop.is_some() { "" } else { "&prompt=none" };
     st.oauth_states.insert(state.clone(), OAuthState { desktop, created: Instant::now() });
@@ -221,11 +221,11 @@ async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp
         return result_page("Too many sign-in attempts. Please wait a minute and try again.").into_response();
     }
     if q.state.is_none() || q.state.as_deref() != login_cookie(&headers) {
-        return result_page("This login link expired. Please try again from Pottira.").into_response();
+        return result_page("This login link expired. Please try again from Linkord.").into_response();
     }
     let oauth = match q.state.as_deref().and_then(|s| st.oauth_states.remove(s)) {
         Some((_, o)) if o.created.elapsed() < LOGIN_TTL => o,
-        _ => return result_page("This login link expired. Please try again from Pottira.").into_response(),
+        _ => return result_page("This login link expired. Please try again from Linkord.").into_response(),
     };
     let Some(code) = q.code.filter(|_| q.error.is_none()) else {
         return result_page("Discord login was cancelled.").into_response();
@@ -291,7 +291,7 @@ async fn finish_discord_login(st: &AppState, code: &str, base: &PublicBase) -> a
             .await?;
     }
 
-    // Profile pictures are copied from Discord once, on first login. After that the profile is pottira's own.
+    // Profile pictures are copied from Discord once, on first login. After that the profile is linkord's own.
     if inserted {
         let ext = |h: &str| if h.starts_with("a_") { "gif" } else { "png" };
         let avatar_url = match &du.avatar {
@@ -342,7 +342,7 @@ pub async fn username_taken(db: &PgPool, name: &str, except: Option<Id>) -> sqlx
 
 /// Finds or creates the account for `discord_id` -> (id, newly created). New accounts take `wanted` as their
 /// username; if someone has it, they get a free stand-in ("name_1234") and must pick their own (needs_username).
-/// Existing accounts follow their Discord username until they pick one in Pottira, as long as it's free.
+/// Existing accounts follow their Discord username until they pick one in Linkord, as long as it's free.
 async fn sign_up_or_in(db: &PgPool, discord_id: &str, wanted: &str, discord_username: Option<&str>) -> sqlx::Result<(Id, bool)> {
     let existing: Option<(Id, String, bool)> = sqlx::query_as("SELECT id, username, username_set FROM users WHERE discord_id = $1")
         .bind(discord_id)
@@ -389,7 +389,7 @@ async fn stand_in(db: &PgPool, base: &str) -> sqlx::Result<String> {
     }
 }
 
-/// Discord usernames already follow pottira's rules; this only guards against legacy names.
+/// Discord usernames already follow linkord's rules; this only guards against legacy names.
 fn normalize_username(raw: &str) -> String {
     let mut s: String = raw
         .to_lowercase()
@@ -408,10 +408,10 @@ fn normalize_username(raw: &str) -> String {
 
 pub fn result_page(message: &str) -> Html<String> {
     Html(format!(
-        r#"<!doctype html><html><head><meta charset="utf-8"><title>Pottira</title>
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>Linkord</title>
 <style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#0e1412;color:#e8e4d6;font:16px system-ui,sans-serif}}
 .c{{text-align:center;max-width:420px;padding:24px}}h1{{font-weight:600;letter-spacing:.02em;color:#d9b65d}}</style></head>
-<body><div class="c"><h1>Pottira</h1><p>{}</p></div></body></html>"#,
+<body><div class="c"><h1>Linkord</h1><p>{}</p></div></body></html>"#,
         message.replace('<', "&lt;")
     ))
 }

@@ -17,7 +17,7 @@ interface InvitePreview {
   inviter: User;
 }
 
-/** Invite codes from links to this Pottira server in a message, in order, without repeats. */
+/** Invite codes from links to this Linkord server in a message, in order, without repeats. */
 export function inviteCodes(content: string): string[] {
   // Any address of this server counts (the usual one and direct access).
   const origins = knownServers().map((o) => o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));

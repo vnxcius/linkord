@@ -13,7 +13,7 @@ function dictionaries(): Plugin {
   const file = (lang: string, ext: string) => readFileSync(`node_modules/dictionary-${lang}/index.${ext}`);
   const names = ['en', 'pt', 'es'].flatMap((lang) => ['aff', 'dic'].map((ext) => [lang, ext] as const));
   return {
-    name: 'pottira-dictionaries',
+    name: 'linkord-dictionaries',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const m = req.url?.match(/^\/dictionaries\/(en|pt|es)\.(aff|dic)$/);
@@ -37,7 +37,7 @@ function dictionaries(): Plugin {
 function christmasMusic(): Plugin {
   const tracks = () => readdirSync('music/christmas').filter((f) => f.endsWith('.mp3'));
   return {
-    name: 'pottira-christmas-music',
+    name: 'linkord-christmas-music',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const m = req.url?.match(/^\/christmas-music\/([a-z-]+\.mp3)$/);
@@ -66,7 +66,7 @@ function christmasMusic(): Plugin {
 function fixHunspellAsm(): Plugin {
   const namespaces = /import \* as (nanoid|runtime) from ('[^']+')/g;
   return {
-    name: 'pottira-hunspell-asm',
+    name: 'linkord-hunspell-asm',
     transform(code, id) {
       if (!/hunspell-asm|emscripten-wasm-loader/.test(id) || !namespaces.test(code)) return;
       namespaces.lastIndex = 0;

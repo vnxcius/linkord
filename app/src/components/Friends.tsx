@@ -248,7 +248,7 @@ function AddFriend() {
     <div class="add-friend">
       <h3>{t('Add Friend')}</h3>
       <p class="muted">
-        {t('You can add friends with their Discord username. They need to have signed in to Pottira once.')}
+        {t('You can add friends with their Discord username. They need to have signed in to Linkord once.')}
       </p>
       <form class="add-friend-box" classList={{ ok: result()?.ok, err: result()?.ok === false }} onSubmit={submit}>
         <input

@@ -557,7 +557,7 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
 
 const MAX_FAVORITE_GAMES: usize = 20;
 
-/// A user's favorite games, in their order, with art from the game catalog and the time Pottira saw them play it.
+/// A user's favorite games, in their order, with art from the game catalog and the time Linkord saw them play it.
 #[derive(Deserialize)]
 struct GameQuery {
     /// The game's name as their activity shows it ("Teamfight Tactics", a game added by hand...).

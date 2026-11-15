@@ -50,7 +50,7 @@ impl AppState {
         let session_secret = RwLock::new(crate::auth::load_secret(&cfg.data_dir)?);
         // Read only, small and impatient: a slow dashboard query is cancelled long before it could bother the app,
         // and the database refuses any write from this connection.
-        let options = PgConnectOptions::from_str(&cfg.database_url)?.application_name("pottira-monitor").options([
+        let options = PgConnectOptions::from_str(&cfg.database_url)?.application_name("linkord-monitor").options([
             ("default_transaction_read_only", "on"),
             ("statement_timeout", "8000"),
             ("lock_timeout", "1000"),
@@ -62,7 +62,7 @@ impl AppState {
             .acquire_timeout(Duration::from_secs(4))
             .idle_timeout(Duration::from_secs(120))
             .connect_lazy_with(options);
-        let http = reqwest::Client::builder().user_agent("pottira-monitor").timeout(Duration::from_secs(10)).connect_timeout(Duration::from_secs(6)).build()?;
+        let http = reqwest::Client::builder().user_agent("linkord-monitor").timeout(Duration::from_secs(10)).connect_timeout(Duration::from_secs(6)).build()?;
         Ok(AppState(Arc::new(Inner {
             cfg,
             store,

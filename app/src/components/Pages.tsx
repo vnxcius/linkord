@@ -1,6 +1,6 @@
 // Full-window pages over the app: the desktop app's download page (web only, /download) and the patch notes
 // (/changelog on the web, also in the desktop app). Plus the two banners that lead to them: "get the desktop
-// app" (web, dismissable) and "Pottira was updated" (once per new version).
+// app" (web, dismissable) and "Linkord was updated" (once per new version).
 import {
   createEffect,
   on,
@@ -112,7 +112,7 @@ function PageShell(p: { children: JSX.Element }) {
       <header class="site-nav">
         <button class="site-brand" onClick={closePage}>
           <Emblem size={24} />
-          <span>Pottira</span>
+          <span>Linkord</span>
         </button>
         <nav class="site-links">
           <Show when={!isTauri}>
@@ -126,7 +126,7 @@ function PageShell(p: { children: JSX.Element }) {
         </nav>
         <button class="btn site-back" onClick={closePage}>
           <I.Back size={16} />
-          <span>{t('Back to Pottira')}</span>
+          <span>{t('Back to Linkord')}</span>
         </button>
       </header>
       <main class="site-main" ref={main}>
@@ -140,7 +140,7 @@ function PageShell(p: { children: JSX.Element }) {
 const DESKTOP: { title: string; text: string; windows?: boolean }[] = [
   {
     title: msg('Push to talk inside games'),
-    text: msg('Keybinds keep working while a game has focus, with Pottira minimized or in the tray.'),
+    text: msg('Keybinds keep working while a game has focus, with Linkord minimized or in the tray.'),
     windows: true,
   },
   {
@@ -161,7 +161,7 @@ const DESKTOP: { title: string; text: string; windows?: boolean }[] = [
   },
   {
     title: msg('League of Legends, built in'),
-    text: msg('Your lobby, queue and champion on your card, and friends join your lobby from Pottira.'),
+    text: msg('Your lobby, queue and champion on your card, and friends join your lobby from Linkord.'),
     windows: true,
   },
   {
@@ -202,7 +202,7 @@ function DownloadPage() {
     <div class="dl">
       <section class="dl-hero">
         <div class="dl-hero-text">
-          <p class="showcase-kicker">{t('Pottira for desktop')}</p>
+          <p class="showcase-kicker">{t('Linkord for desktop')}</p>
           <h1>{t('Talk, stream, play. And now, record.')}</h1>
           <p class="dl-lead">
             {t(
@@ -319,7 +319,7 @@ function DownloadPage() {
             </div>
             <p class="muted">
               {t(
-                'Windows 10 and 11, 64-bit. Everything Pottira does, REC included. App-only stream sound needs Windows 11.',
+                'Windows 10 and 11, 64-bit. Everything Linkord does, REC included. App-only stream sound needs Windows 11.',
               )}
             </p>
             <Show when={win()} fallback={<p class="muted small">{t('Not available yet.')}</p>}>
@@ -377,11 +377,11 @@ function DownloadPage() {
             </div>
             <p class="muted">
               {t(
-                'On a Mac, a phone or anywhere else, Pottira runs in the browser with voice, video and screen sharing. Add it to your home screen for notifications.',
+                'On a Mac, a phone or anywhere else, Linkord runs in the browser with voice, video and screen sharing. Add it to your home screen for notifications.',
               )}
             </p>
             <button class="btn" onClick={closePage}>
-              {t('Open Pottira')}
+              {t('Open Linkord')}
             </button>
           </div>
         </div>
@@ -423,7 +423,7 @@ function DownloadPage() {
             </li>
             <li>
               <strong>{t('Updates')}</strong>
-              <p>{t('Pottira asks for your password when an update is ready, then installs it.')}</p>
+              <p>{t('Linkord asks for your password when an update is ready, then installs it.')}</p>
             </li>
           </Show>
           <li>
@@ -435,13 +435,13 @@ function DownloadPage() {
 
       <footer class="dl-foot">
         <Emblem size={36} />
-        <strong>Pottira</strong>
+        <strong>Linkord</strong>
         <span class="grow" />
         <button class="btn ghost" onClick={() => openPage('changelog')}>
           {t('Patch notes')}
         </button>
         <button class="btn" onClick={closePage}>
-          {t('Open Pottira')}
+          {t('Open Linkord')}
         </button>
       </footer>
     </div>
@@ -489,7 +489,7 @@ function PrimaryDownload(p: { win?: Download; deb?: Download; rpm?: Download }) 
       </Show>
       <Show when={os !== 'windows' && os !== 'linux'}>
         <p class="muted small">
-          {t('The desktop app is for Windows and Linux. On this device, Pottira works right in the browser.')}
+          {t('The desktop app is for Windows and Linux. On this device, Linkord works right in the browser.')}
         </p>
       </Show>
     </div>
@@ -506,7 +506,7 @@ function PatchNotesPage() {
         <h1>{t('Patch notes')}</h1>
         <p class="dl-lead">
           {t(
-            'What changed in Pottira, newest first. The desktop app updates itself; the web app is always on the latest version.',
+            'What changed in Linkord, newest first. The desktop app updates itself; the web app is always on the latest version.',
           )}
         </p>
       </section>
@@ -582,7 +582,7 @@ export function UpdatedBanner() {
   return (
     <Show when={prefs.updateBanner && prefs.lastSeenVersion && cmpVersion(__APP_VERSION__, prefs.lastSeenVersion) > 0}>
       <div class="update-banner">
-        <span>{t('Pottira was updated to {version}.', { version: __APP_VERSION__ })}</span>
+        <span>{t('Linkord was updated to {version}.', { version: __APP_VERSION__ })}</span>
         <button class="btn primary small-btn" onClick={() => openPage('changelog')}>
           {t("See what's new")}
         </button>

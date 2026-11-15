@@ -6,11 +6,11 @@
 //! - Finish checks the file with ffprobe, strictly as MP4 (H.264 video, AAC audio, nothing else), takes a picture from
 //!   it, and moves it to uploads/clips/<slug>.mp4: served like every upload (nosniff, sandbox CSP, Range for seeking).
 //! - /clip/<slug>: a plain page anyone can open, no login, no script: the video, who shared it, and a slim "Recorded with
-//!   Pottira" strip (download / create an account). Open Graph tags make the link play in Discord, WhatsApp...
+//!   Linkord" strip (download / create an account). Open Graph tags make the link play in Discord, WhatsApp...
 //!   Views: each viewer once a day (a salted hash of address + day, never the address), link-preview bots left out.
 //! - In chat a clip link becomes a `clip` embed (embeds.rs asks `embed_for`): the app's player, no page fetched.
 //!
-//! Limits: POTTIRA_CLIP_QUOTA_MB per person (default 5 GB), POTTIRA_CLIP_MAX_MB per file (default 1 GB), apart from
+//! Limits: LINKORD_CLIP_QUOTA_MB per person (default 5 GB), LINKORD_CLIP_MAX_MB per file (default 1 GB), apart from
 //! the attachments quota.
 
 use std::path::{Path as FsPath, PathBuf};
@@ -258,7 +258,7 @@ async fn probe(path: &FsPath) -> ApiResult<Probed> {
     if !out.status.success() {
         return Err(bad("the clip couldn't be read"));
     }
-    check_probe(&json).ok_or_else(|| bad("only clips from Pottira's REC can be shared"))
+    check_probe(&json).ok_or_else(|| bad("only clips from Linkord's REC can be shared"))
 }
 
 /// A picture from a second in (or the first frame of a very short clip), 640 px wide at most.
@@ -560,15 +560,15 @@ fn duration_text(ms: i64) -> String {
 }
 
 const PAGE_STYLE: &str = "
-:root{color-scheme:dark;--bg:#0f1012;--panel:#17181b;--line:#2a2c31;--text:#e8e6e1;--muted:#9a9890;--gold:#e3b341}
-@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f3f1ec;--panel:#fff;--line:#dedad1;--text:#1d1c1a;--muted:#6b6862;--gold:#b8860f}}
+:root{color-scheme:dark;--bg:#0f1012;--panel:#17181b;--line:#2a2c31;--text:#e8e6e1;--muted:#9a9890;--brand:#ece8e1}
+@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:#f3f1ec;--panel:#fff;--line:#dedad1;--text:#1d1c1a;--muted:#6b6862;--brand:#22201d}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column}
 header{display:flex;align-items:center;gap:10px;padding:14px 20px}header img{width:26px;height:26px;border-radius:7px}header a{color:inherit;text-decoration:none;font-weight:600;letter-spacing:.02em}
 main{flex:1;width:min(1100px,100%);margin:0 auto;padding:8px 16px 32px;display:flex;flex-direction:column;gap:14px}
 video{width:100%;max-height:72vh;background:#000;border-radius:14px;display:block}
 h1{margin:0;font:400 30px/1.15 Georgia,'Times New Roman',serif}.meta{color:var(--muted);font-size:14px}.meta b{color:var(--text);font-weight:600}
 .cta{position:sticky;bottom:0;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;padding:10px 16px;background:var(--panel);border-top:1px solid var(--line);font-size:14px}
-.cta a{color:var(--gold);text-decoration:none;font-weight:600}.cta a:hover{text-decoration:underline}
+.cta a{color:var(--brand);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--brand) 45%,transparent);text-underline-offset:2px;font-weight:600}.cta a:hover{text-decoration-color:var(--brand)}
 .cta label{cursor:pointer;color:var(--muted);padding:0 6px;font-size:18px;line-height:1}#hide-cta{display:none}#hide-cta:checked+.cta{display:none}
 ";
 
@@ -587,17 +587,17 @@ fn render_page(st: &AppState, clip: &Clip, author: Option<&User>) -> String {
     let views = if clip.views == 1 { "1 view".to_string() } else { format!("{} views", clip.views) };
     format!(
         r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{t} · Pottira</title><meta name="description" content="{d}">
-<meta property="og:site_name" content="Pottira"><meta property="og:type" content="video.other"><meta property="og:title" content="{t}">
+<title>{t} · Linkord</title><meta name="description" content="{d}">
+<meta property="og:site_name" content="Linkord"><meta property="og:type" content="video.other"><meta property="og:title" content="{t}">
 <meta property="og:description" content="{d}"><meta property="og:url" content="{u}"><meta property="og:image" content="{p}">
 <meta property="og:video" content="{v}"><meta property="og:video:secure_url" content="{v}"><meta property="og:video:type" content="video/mp4">
 <meta property="og:video:width" content="{w}"><meta property="og:video:height" content="{h}"><meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="{p}"><meta name="theme-color" content="#e3b341"><link rel="icon" href="/icon.png">{player}<style>{s}</style></head>
-<body><header><img src="/icon.png" alt=""><a href="/">Pottira</a></header>
+<meta name="twitter:image" content="{p}"><meta name="theme-color" content="#18181c"><link rel="icon" href="/icon.png">{player}<style>{s}</style></head>
+<body><header><img src="/icon.png" alt=""><a href="/">Linkord</a></header>
 <main><div id="clip-player" data-filename="{f}"><video src="{v}" poster="{p}" controls playsinline preload="metadata"></video></div>
 <h1>{t}</h1><div class="meta">{who_part}{game_part}{len} · {views}</div></main>
-<input type="checkbox" id="hide-cta"><div class="cta"><span>Recorded with <b>Pottira</b>, where friends talk, play and clip their games.</span>
-<a href="/download">Download Pottira</a><a href="/">Create an account</a><label for="hide-cta" title="Hide">×</label></div></body></html>"##,
+<input type="checkbox" id="hide-cta"><div class="cta"><span>Recorded with <b>Linkord</b>, where friends talk, play and clip their games.</span>
+<a href="/download">Download Linkord</a><a href="/">Create an account</a><label for="hide-cta" title="Hide">×</label></div></body></html>"##,
         t = escape(&title),
         d = escape(&description),
         u = escape(&url),
@@ -617,8 +617,8 @@ fn render_page(st: &AppState, clip: &Clip, author: Option<&User>) -> String {
 
 fn not_found_page() -> String {
     format!(
-        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Clip not found · Pottira</title><style>{PAGE_STYLE}</style></head>
-<body><header><img src="/icon.png" alt=""><a href="/">Pottira</a></header><main><h1>This clip isn't here anymore</h1><p class="meta">It was deleted, or the link is wrong.</p></main></body></html>"#
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Clip not found · Linkord</title><style>{PAGE_STYLE}</style></head>
+<body><header><img src="/icon.png" alt=""><a href="/">Linkord</a></header><main><h1>This clip isn't here anymore</h1><p class="meta">It was deleted, or the link is wrong.</p></main></body></html>"#
     )
 }
 

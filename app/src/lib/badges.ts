@@ -52,8 +52,8 @@ interface Ladder {
 
 const age = (days: number) =>
   days >= 365
-    ? plural(Math.floor(days / 365), '{n} year on Pottira', '{n} years on Pottira', { n: num(Math.floor(days / 365)) })
-    : plural(Math.max(1, Math.floor(days / 30)), '{n} month on Pottira', '{n} months on Pottira', {
+    ? plural(Math.floor(days / 365), '{n} year on Linkord', '{n} years on Linkord', { n: num(Math.floor(days / 365)) })
+    : plural(Math.max(1, Math.floor(days / 30)), '{n} month on Linkord', '{n} months on Linkord', {
         n: num(Math.max(1, Math.floor(days / 30))),
       });
 
@@ -124,12 +124,12 @@ const LADDERS: Record<string, Ladder> = {
 };
 
 const SINGLES: Record<string, { name: string; about: string }> = {
-  admin: { name: msg('Pottira Admin'), about: msg('Runs this Pottira') },
-  early: { name: msg('Early Member'), about: msg('Here before Pottira 1.0') },
+  admin: { name: msg('Linkord Admin'), about: msg('Runs this Linkord') },
+  early: { name: msg('Early Member'), about: msg('Here before Linkord 1.0') },
   owner: { name: msg('Server Owner'), about: msg('Created a server') },
   bug_hunter: { name: msg('Bug Hunter'), about: msg('Found and reported a bug') },
   tester: { name: msg('Tester'), about: msg('Tried new builds before release') },
-  contributor: { name: msg('Contributor'), about: msg('Helped build Pottira') },
+  contributor: { name: msg('Contributor'), about: msg('Helped build Linkord') },
   helper: { name: msg('Helper'), about: msg('Helped others in the community') },
   premiere: { name: msg('Premiere'), about: msg('A clip of theirs was watched together by 3 or more people') },
   pentakill: { name: msg('Pentakill'), about: msg('Caught a League of Legends pentakill on REC') },

@@ -27,7 +27,7 @@ export function DesktopMock() {
     <div class="mk" aria-hidden="true">
       <div class="mk-bar">
         <Emblem size={14} />
-        <span>Pottira</span>
+        <span>Linkord</span>
         <span class="mk-controls">
           <I.Minimize size={12} />
           <I.Maximize size={12} />

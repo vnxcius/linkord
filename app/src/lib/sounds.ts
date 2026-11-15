@@ -1,28 +1,40 @@
-// UI sounds: the owner's own picks plus original synthesized tones (ringtones, camera, push to talk), decoded once and played
-// through a small Web Audio graph so they can overlap and start without delay.
+// UI sounds: the owner's picks (private app, the owner's choice: edits of game sounds, Discord's camera, push to talk and
+// Winter sounds), decoded once and played through a small Web Audio graph so they can overlap and start without delay.
 import { prefs, type SoundKind } from './prefs';
-import cameraOffUrl from '../assets/sounds/camera-off.wav';
-import cameraOnUrl from '../assets/sounds/camera-on.wav';
+import { isChristmas } from './theme';
+import cameraOffUrl from '../assets/sounds/camera-off.mp3';
+import cameraOnUrl from '../assets/sounds/camera-on.mp3';
 import deafenUrl from '../assets/sounds/deafen.wav';
 import disconnectUrl from '../assets/sounds/disconnect.wav';
 import joinUrl from '../assets/sounds/join.wav';
 import leaveUrl from '../assets/sounds/leave.wav';
 import messageUrl from '../assets/sounds/message.wav';
 import muteUrl from '../assets/sounds/mute.wav';
-import pttOffUrl from '../assets/sounds/ptt-off.wav';
-import pttOnUrl from '../assets/sounds/ptt-on.wav';
+import pttOffUrl from '../assets/sounds/ptt-off.mp3';
+import pttOnUrl from '../assets/sounds/ptt-on.mp3';
 import streamStartUrl from '../assets/sounds/stream-start.wav';
 import streamStopUrl from '../assets/sounds/stream-stop.wav';
 import undeafenUrl from '../assets/sounds/undeafen.wav';
 import unmuteUrl from '../assets/sounds/unmute.wav';
 import viewerJoinUrl from '../assets/sounds/viewer-join.wav';
 import viewerLeaveUrl from '../assets/sounds/viewer-leave.wav';
-import ringIncomingUrl from '../assets/sounds/ring-incoming.wav';
-import ringOutgoingUrl from '../assets/sounds/ring-outgoing.wav';
+import ringIncomingUrl from '../assets/sounds/ring-incoming.mp3';
+import ringOutgoingUrl from '../assets/sounds/ring-outgoing.mp3';
 import fanfareUrl from '../assets/sounds/fanfare.wav';
+import xmasDeafenUrl from '../assets/sounds/christmas/deafen.mp3';
+import xmasDisconnectUrl from '../assets/sounds/christmas/disconnect.mp3';
+import xmasJoinUrl from '../assets/sounds/christmas/join.mp3';
+import xmasLeaveUrl from '../assets/sounds/christmas/leave.mp3';
+import xmasMuteUrl from '../assets/sounds/christmas/mute.mp3';
+import xmasUndeafenUrl from '../assets/sounds/christmas/undeafen.mp3';
+import xmasUnmuteUrl from '../assets/sounds/christmas/unmute.mp3';
+import xmasRingIncomingUrl from '../assets/sounds/christmas/ring-incoming.mp3';
+import xmasRingOutgoingUrl from '../assets/sounds/christmas/ring-outgoing.mp3';
 import recSavedUrl from '../assets/sounds/rec-saved.wav';
 import recFailedUrl from '../assets/sounds/rec-failed.wav';
 
+/** Discord's Winter sound pack, with the Christmas theme. It has no message, stream, camera or push to talk sounds. */
+const pack = (usual: string, christmas: string) => (isChristmas() && prefs.christmasSounds ? christmas : usual);
 
 /** The files are mastered loud; this keeps them in line with voice. */
 const GAIN = 0.5;
@@ -141,17 +153,17 @@ export const sounds = {
   /** Version 1.0 is here! */
   fanfare: () => celebrate(fanfareUrl),
   /** Someone is calling you (loops until stopped). */
-  ringIncoming: () => loop('calls', ringIncomingUrl),
+  ringIncoming: () => loop('calls', pack(ringIncomingUrl, xmasRingIncomingUrl)),
   /** You're calling someone and they haven't picked up yet. */
-  ringOutgoing: () => loop('calls', ringOutgoingUrl),
-  join: () => play('voice', joinUrl),
-  leave: () => play('voice', leaveUrl),
-  selfJoin: () => play('voice', joinUrl),
-  disconnect: () => play('voice', disconnectUrl),
-  mute: () => play('mute', muteUrl),
-  unmute: () => play('mute', unmuteUrl),
-  deafen: () => play('mute', deafenUrl),
-  undeafen: () => play('mute', undeafenUrl),
+  ringOutgoing: () => loop('calls', pack(ringOutgoingUrl, xmasRingOutgoingUrl)),
+  join: () => play('voice', pack(joinUrl, xmasJoinUrl)),
+  leave: () => play('voice', pack(leaveUrl, xmasLeaveUrl)),
+  selfJoin: () => play('voice', pack(joinUrl, xmasJoinUrl)),
+  disconnect: () => play('voice', pack(disconnectUrl, xmasDisconnectUrl)),
+  mute: () => play('mute', pack(muteUrl, xmasMuteUrl)),
+  unmute: () => play('mute', pack(unmuteUrl, xmasUnmuteUrl)),
+  deafen: () => play('mute', pack(deafenUrl, xmasDeafenUrl)),
+  undeafen: () => play('mute', pack(undeafenUrl, xmasUndeafenUrl)),
   message: () => play('messages', messageUrl),
   cameraOn: () => play('voice', cameraOnUrl),
   cameraOff: () => play('voice', cameraOffUrl),

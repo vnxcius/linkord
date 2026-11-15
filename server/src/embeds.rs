@@ -152,7 +152,7 @@ pub async fn safe_get(url: &str) -> Option<reqwest::Response> {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(6))
             .resolve_to_addrs(&host, &addrs)
-            .user_agent("Mozilla/5.0 (compatible; PottiraBot/0.1; link previews)")
+            .user_agent("Mozilla/5.0 (compatible; LinkordBot/0.1; link previews)")
             .build()
             .ok()?;
         let resp = client.get(current.clone()).send().await.ok()?;

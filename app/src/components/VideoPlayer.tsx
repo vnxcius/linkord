@@ -331,7 +331,7 @@ export function VideoPlayer(p: {
           <I.Warning size={16} />
           <span>
             {p.checking
-              ? t("This video's format doesn't show here. Pottira is making a copy that does; it appears by itself.")
+              ? t("This video's format doesn't show here. Linkord is making a copy that does; it appears by itself.")
               : t("This video's picture can't be shown here (its format), only the sound. Download it to watch.")}
           </span>
         </div>

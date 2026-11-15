@@ -17,11 +17,11 @@ export interface CaptureSource {
 
 export interface CaptureInfo {
   encoder: 'hardware' | 'software';
-  /** app: only the shared app · all_but_pottira · system: everything incl. voice chat (Windows 10) · none */
-  audio: 'app' | 'all_but_pottira' | 'system' | 'none';
+  /** app: only the shared app · all_but_linkord · system: everything incl. voice chat (Windows 10) · none */
+  audio: 'app' | 'all_but_linkord' | 'system' | 'none';
 }
 
-/** Per-app audio (and leaving Pottira's own sound out) needs Windows 11. */
+/** Per-app audio (and leaving Linkord's own sound out) needs Windows 11. */
 export async function captureCapabilities(): Promise<{ per_app_audio: boolean }> {
   if (!nativeCaptureAvailable) return { per_app_audio: false };
   const { invoke } = await import('@tauri-apps/api/core');

@@ -1,5 +1,5 @@
 // Builds the desktop icons from assets/icon.png (the app icon: the cotton swirl on a graphite tile, traced from
-// design/pottira-icon.svg) with the test suite's
+// design/linkord-icon.svg) with the test suite's
 // headless Chromium:
 //   CHROMIUM=/path/to/chrome node app/src-tauri/icons/tray/generate.mjs
 //   cd app && bun tauri icon ../assets/icon-square.png      (then every app icon size)

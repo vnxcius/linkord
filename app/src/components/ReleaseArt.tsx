@@ -221,23 +221,19 @@ export function LeagueArt() {
   );
 }
 
-/** The new name. */
+/** The new icon. */
 export function NameArt() {
   return (
     <Art class="ra-name">
-      <span class="ra-old">Linkord</span>
       <div class="ra-word">
         <Emblem size={88} />
-        <span>Pottira</span>
+        <span>Linkord</span>
       </div>
-      <span class="ra-meaning">
-        po·ti·ra <i>·</i> {t('“flower” in Tupi')}
-      </span>
     </Art>
   );
 }
 
-/** The new colours (live tokens, so it shows the theme you're on) and the new sounds. */
+/** The new colours (live tokens, so it shows the theme you're on). */
 export function LookArt() {
   return (
     <Art class="ra-look">
@@ -252,12 +248,6 @@ export function LookArt() {
         </For>
         <strong>Aço</strong>
         <small>{t('steel, the grays')}</small>
-      </div>
-      <div class="ra-sound">
-        <span class="ra-bars">
-          <For each={[0.5, 0.9, 0.65, 1, 0.4, 0.75, 0.55]}>{(h, i) => <i style={{ '--h': h, '--i': i() }} />}</For>
-        </span>
-        <strong>{t('New sounds')}</strong>
       </div>
     </Art>
   );

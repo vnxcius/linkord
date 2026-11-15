@@ -125,7 +125,7 @@ impl DailyFile {
             self.written += line.len() as u64 + 1;
             if self.written >= MAX_DAY_BYTES {
                 let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-                let _ = writeln!(f, r#"{{"t":"{at}","level":"WARN","target":"pottira_server::logs","msg":"this day's log reached its size limit; nothing more is written until tomorrow","fields":{{}}}}"#);
+                let _ = writeln!(f, r#"{{"t":"{at}","level":"WARN","target":"linkord_server::logs","msg":"this day's log reached its size limit; nothing more is written until tomorrow","fields":{{}}}}"#);
             }
         }
     }
@@ -172,7 +172,7 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         event.record(&mut fields);
         let meta = event.metadata();
         let msg = fields.0.remove("message").unwrap_or_default();
-        let target = meta.target().strip_prefix("pottira_server::").unwrap_or(meta.target());
+        let target = meta.target().strip_prefix("linkord_server::").unwrap_or(meta.target());
         let mut line = json!({
             "t": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "level": meta.level().as_str(),

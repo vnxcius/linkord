@@ -1,12 +1,12 @@
 //! Drives REC's session engine like the app does, against a running examples/rec_standin.rs (Windows): records its
 //! window and process, saves a clip from the live recording, a screenshot and a bookmark, stops, and prints the
-//! library. Everything goes to %TEMP%\pottira-rec-session (not the real REC folder).
+//! library. Everything goes to %TEMP%\linkord-rec-session (not the real REC folder).
 //!
 //!   start rec_standin, then: cargo run --release --example rec_session -- <seconds=12>
 
 #[cfg(windows)]
 fn main() {
-    use pottira_lib::rec::session;
+    use linkord_lib::rec::session;
     use windows::core::w;
     use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId};
@@ -19,7 +19,7 @@ fn main() {
     let mut pid = 0;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     session::start_housekeeping();
-    let folder = std::env::temp_dir().join("pottira-rec-session");
+    let folder = std::env::temp_dir().join("linkord-rec-session");
     let _ = std::fs::remove_dir_all(&folder);
     session::configure(session::Config { folder: folder.display().to_string(), mic: None, clip_seconds: 5, ..session::Config::default() });
 

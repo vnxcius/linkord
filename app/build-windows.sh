@@ -8,11 +8,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 profile=fast
 [[ "${1:-}" == "--release" ]] && profile=release
-server="${POTTIRA_SERVER_URL:-https://pottira.com}"
-key="${POTTIRA_UPDATER_KEY:-$HOME/.config/pottira/updater.key}"
+server="${LINKORD_SERVER_URL:-https://linkord.app}"
+key="${LINKORD_UPDATER_KEY:-$HOME/.config/linkord/updater.key}"
 signed=true
 if [[ ! -f "$key" ]]; then
-  [[ -n "${POTTIRA_REQUIRE_SIGNING:-}" ]] && { echo "Updater signing key not found at $key"; exit 1; }
+  [[ -n "${LINKORD_REQUIRE_SIGNING:-}" ]] && { echo "Updater signing key not found at $key"; exit 1; }
   echo "Updater signing key not found at $key: building an unsigned test installer (not publishable)."
   signed=false
 fi

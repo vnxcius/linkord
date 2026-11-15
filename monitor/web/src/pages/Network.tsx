@@ -25,7 +25,7 @@ export function Network() {
   };
   const realInterfaces = () => (d()?.interfaces ?? []).filter((i: J) => !i.virtual || i.rx_total + i.tx_total > 0);
   return (
-    <Page title="Network" lead="This machine's connection, and whether what Pottira depends on answers." actions={<RangePicker value={range()} onChange={setRange} />}>
+    <Page title="Network" lead="This machine's connection, and whether what Linkord depends on answers." actions={<RangePicker value={range()} onChange={setRange} />}>
       <Section title="The connection">
         <dl class="stats">
           <Stat label="Going out" value={rate(d()?.net?.tx)} note="streams and voice to people" />

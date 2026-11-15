@@ -114,7 +114,7 @@ async fn database_check(st: &AppState) -> Outcome {
 
 async fn counters_check(st: &AppState) -> Outcome {
     let start = Instant::now();
-    let Some(url) = &st.cfg.internal_url else { return failed(0.0, "POTTIRA_INTERNAL_BIND is off") };
+    let Some(url) = &st.cfg.internal_url else { return failed(0.0, "LINKORD_INTERNAL_BIND is off") };
     let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
         return failed(0.0, "can't read data/internal-token: is the app's data directory right?");
     };

@@ -1,9 +1,9 @@
-# Pottira
+# Linkord
 
 A self-hosted chat app for a small group of friends: servers, channels, threads, DMs, voice, video and screen share.
 Login is Discord OAuth only.
 
-Pottira was called Linkord until November 2026.
+It was briefly called Pottira in November 2026 (version 2.0.0) and went back to Linkord right after.
 
 - **Server:** Rust (axum, sqlx) + PostgreSQL. REST API, a websocket gateway, and a voice/video relay, all on one
   HTTPS origin, so voice needs no port forwarding, TURN or media server.
@@ -33,9 +33,9 @@ Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no T
    ```bash
    cp server/.env.example server/.env
    ```
-   Set `DATABASE_URL` to the password above. For local work set `POTTIRA_DEV_LOGIN=true` (passwordless login,
+   Set `DATABASE_URL` to the password above. For local work set `LINKORD_DEV_LOGIN=true` (passwordless login,
    **never in production**), or fill `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` with redirect URI
-   `<POTTIRA_PUBLIC_URL>/api/auth/discord/callback`.
+   `<LINKORD_PUBLIC_URL>/api/auth/discord/callback`.
 3. **Run the server** (migrations run on startup):
    ```bash
    cd server && cargo run
@@ -46,7 +46,7 @@ Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no T
    ```
 5. **Test:**
    ```bash
-   tests/run-local.sh                # everything, on a throwaway server (:7701, DB pottira_test)
+   tests/run-local.sh                # everything, on a throwaway server (:7701, DB linkord_test)
    tests/run-local.sh --api          # API only (~10 s)
    tests/run-local.sh --ui 'regex'   # matching browser steps only
    tests/run-local.sh --monitor      # the dashboard only
@@ -66,8 +66,8 @@ tests, `cd tests && npx playwright-core install chromium`. Run the `.sh` scripts
 the server running as above:
 
 ```powershell
-cd app; bun run desktop      # "Pottira Dev": tauri dev against the local server, next to an installed Pottira
-$env:VITE_DEFAULT_SERVER='https://pottira.com'; bun run desktop   # the dev build against production
+cd app; bun run desktop      # "Linkord Dev": tauri dev against the local server, next to an installed Linkord
+$env:VITE_DEFAULT_SERVER='https://linkord.app'; bun run desktop   # the dev build against production
 cd app/src-tauri; cargo test # desktop shell unit tests (keybinds, colour conversion)
 ```
 
@@ -79,7 +79,7 @@ Production runs in Docker on `127.0.0.1:7700` (deploy/docker-compose.yml), publi
 2. **Deploy the server and web client** (builds the image, then swaps slots a/b without dropping anyone):
    ```bash
    deploy/install-service.sh
-   docker logs -f pottira-server-<slot>            # logs; server/data/run/live names the slot serving
+   docker logs -f linkord-server-<slot>            # logs; server/data/run/live names the slot serving
    ```
 3. **Publish the desktop app** (bumps the patch version, signed build, published to the update feed):
    ```bash
@@ -97,21 +97,21 @@ Production runs in Docker on `127.0.0.1:7700` (deploy/docker-compose.yml), publi
    ssh -L 7710:127.0.0.1:7710 <user>@<server>      # from your PC, then open http://localhost:7710
    ```
    Availability, performance, network, storage, database, logs and diagnostics, plus every server, account and uploaded
-   file for moderation. It listens on loopback by default (`POTTIRA_MONITOR_BIND`). Only expose it on purpose: it can see
+   file for moderation. It listens on loopback by default (`LINKORD_MONITOR_BIND`). Only expose it on purpose: it can see
    everything people upload, direct messages included.
 
-**Updater signing key:** `~/.config/pottira/updater.key` (outside the repo). Back it up: without it, installed apps
+**Updater signing key:** `~/.config/linkord/updater.key` (outside the repo). Back it up: without it, installed apps
 can't verify updates and everyone has to reinstall.
 
 ### Configuration (`server/.env`)
 
 | Variable | Purpose |
 | --- | --- |
-| `POTTIRA_PUBLIC_URL` | Public https URL (OAuth redirects are built from it) |
+| `LINKORD_PUBLIC_URL` | Public https URL (OAuth redirects are built from it) |
 | `DATABASE_URL` | Postgres connection string |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth app |
-| `POTTIRA_DEV_LOGIN` | Passwordless test login. Keep `false` in production |
-| `POTTIRA_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
+| `LINKORD_DEV_LOGIN` | Passwordless test login. Keep `false` in production |
+| `LINKORD_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional Spotify connection (redirect `<public_url>/api/connections/spotify/callback`) |
-| `POTTIRA_DIRECT_BIND` / `POTTIRA_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |
-| `POTTIRA_INTERNAL_BIND` | Loopback address the dashboard reads live numbers from (default `127.0.0.1:7711`, `off` to disable) |
+| `LINKORD_DIRECT_BIND` / `LINKORD_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |
+| `LINKORD_INTERNAL_BIND` | Loopback address the dashboard reads live numbers from (default `127.0.0.1:7711`, `off` to disable) |

@@ -70,7 +70,7 @@ export interface State {
   selected: Record<string, string | undefined>;
   /** Message to highlight after a jump (search result, reply, pin). */
   highlight: string | null;
-  /** POTTIRA_ADMINS on the server: can change the music bot's picture. */
+  /** LINKORD_ADMINS on the server: can change the music bot's picture. */
   admin: boolean;
   /** DM calls going on: channel id -> who is being rung. */
   calls: Record<string, string[]>;

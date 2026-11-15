@@ -74,7 +74,7 @@ fn login_listen(app: AppHandle, state: String) -> Result<u16, String> {
             let text = String::from_utf8_lossy(&buf[..n]);
             let code = login_code(text.lines().next().unwrap_or(""), &state);
             let (status, body) = if code.is_some() {
-                ("200 OK", "You're signed in. You can close this tab and return to Pottira.")
+                ("200 OK", "You're signed in. You can close this tab and return to Linkord.")
             } else {
                 ("404 Not Found", "Not found")
             };
@@ -103,7 +103,7 @@ fn show_main(app: &AppHandle) {
 fn set_tray_state(app: AppHandle, state: String, tooltip: Option<String>) {
     if let Some(tray) = app.state::<Tray>().0.lock().unwrap().as_ref() {
         let _ = tray.set_icon(tray_image(&state));
-        let _ = tray.set_tooltip(Some(tooltip.as_deref().unwrap_or("Pottira")));
+        let _ = tray.set_tooltip(Some(tooltip.as_deref().unwrap_or("Linkord")));
     }
     *TRAY_STATE.lock().unwrap() = state;
 }
@@ -266,9 +266,9 @@ fn quit_app(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
-    let menu = tray_menu(app, "Open Pottira", "Quit Pottira")?;
+    let menu = tray_menu(app, "Open Linkord", "Quit Linkord")?;
     let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Pottira")
+        .tooltip("Linkord")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
@@ -412,20 +412,26 @@ fn watch_chat_close(app: AppHandle) {
     }
 }
 
-/// Pottira used to be called Linkord, with the identifier dev.linkord.app, and Tauri keeps everything (WebView2 or
-/// WebKitGTK storage with the sign-in and prefs, the window position, the Christmas icon marker) in folders named
-/// after the identifier. Before anything opens them, the old folders become the new ones: moved when possible,
-/// copied (without the browser caches) when the old app's webview processes still hold them. Folders already there
-/// under the new name win. Safe to delete once every installed app has started a 2.0 build.
+/// Linkord had the identifier dev.linkord.app until 1.x and com.pottira.app in 2.0.0 (when it was called Pottira),
+/// and Tauri keeps everything (WebView2 or WebKitGTK storage with the sign-in and prefs, the window position, the
+/// Christmas icon marker) in folders named after the identifier. Before anything opens them, the old folders become
+/// the new ones: moved when possible, copied (without the browser caches) when the old app's webview processes still
+/// hold them. The 2.0 folders go first, being the newest; folders already there under the new name win. Safe to
+/// delete once every installed app has started a build with this.
 fn move_old_app_data(identifier: &str) {
-    let Some(rest) = identifier.strip_prefix("com.pottira.app") else { return };
-    let old = format!("dev.linkord.app{rest}");
+    let Some(rest) = identifier.strip_prefix("com.linkord.app") else { return };
+    for old in [format!("com.pottira.app{rest}"), format!("dev.linkord.app{rest}")] {
+        move_app_data(&old, identifier);
+    }
+}
+
+fn move_app_data(old: &str, identifier: &str) {
     let mut bases: Vec<std::path::PathBuf> =
         [dirs::config_dir(), dirs::data_dir(), dirs::data_local_dir(), dirs::cache_dir()].into_iter().flatten().collect();
     bases.sort();
     bases.dedup();
     for base in bases {
-        let (from, to) = (base.join(&old), base.join(identifier));
+        let (from, to) = (base.join(old), base.join(identifier));
         if !from.is_dir() || to.exists() {
             continue;
         }
@@ -590,7 +596,7 @@ pub fn run() {
             _ => {}
         })
         .run(context)
-        .expect("error while running Pottira");
+        .expect("error while running Linkord");
 }
 
 /// Lets voice work out of the box on Linux: enables media capture in WebKitGTK and grants the

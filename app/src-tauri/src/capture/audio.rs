@@ -1,6 +1,6 @@
 //! Stream audio through Windows process loopback (Windows 10 2004+), like Discord:
 //! - sharing a window: only that application's sound (its process tree);
-//! - sharing a screen: everything except Pottira itself, so viewers never hear the voice chat echoed back.
+//! - sharing a screen: everything except Linkord itself, so viewers never hear the voice chat echoed back.
 //! Delivers 20 ms chunks of 48 kHz stereo f32, ready for the Opus encoder.
 //!
 //! REC uses the same captures for a game's sound (`start_quiet`, which leaves the stream readout's counters alone)

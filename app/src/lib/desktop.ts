@@ -30,7 +30,7 @@ const [launchUpdate, setLaunchUpdate] = createSignal<{ version: string; progress
 export { launchUpdate, update, updating };
 
 /** Set for the life of the window, so a reload isn't mistaken for a launch. */
-const LAUNCHED = 'pottira.launched';
+const LAUNCHED = 'linkord.launched';
 /** An update found later than this after launch waits for the banner: you may be using the app by then. */
 const LAUNCH_WINDOW = 15_000;
 
@@ -43,10 +43,10 @@ function trayState(): string {
 }
 
 const TRAY_TIPS: Record<string, string> = {
-  speaking: msg('Pottira — speaking'),
-  muted: msg('Pottira — muted'),
-  deafened: msg('Pottira — deafened'),
-  connected: msg('Pottira — in voice'),
+  speaking: msg('Linkord — speaking'),
+  muted: msg('Linkord — muted'),
+  deafened: msg('Linkord — deafened'),
+  connected: msg('Linkord — in voice'),
 };
 
 /** A red count badge for the taskbar button (Windows overlay icon). */
@@ -142,12 +142,12 @@ export async function initDesktop() {
   createRoot(() => {
     createEffect(() => {
       const tray = trayState();
-      void invoke('set_tray_state', { state: tray, tooltip: TRAY_TIPS[tray] ? t(TRAY_TIPS[tray]) : 'Pottira' }).catch(
+      void invoke('set_tray_state', { state: tray, tooltip: TRAY_TIPS[tray] ? t(TRAY_TIPS[tray]) : 'Linkord' }).catch(
         () => {},
       );
     });
     createEffect(
-      () => void invoke('set_tray_menu', { open: t('Open Pottira'), quit: t('Quit Pottira') }).catch(() => {}),
+      () => void invoke('set_tray_menu', { open: t('Open Linkord'), quit: t('Quit Linkord') }).catch(() => {}),
     );
     createEffect(() => void invoke('set_app_icon', { christmas: isChristmas() }).catch(() => {}));
     createEffect(() => void invoke('set_close_to_tray', { enabled: prefs.closeToTray }).catch(() => {}));
@@ -183,7 +183,7 @@ export async function initDesktop() {
 /** Asks the update feed. `version`: the server just announced this release (APP_UPDATE): check again even if the
  *  banner already offers an older one, so it never installs a stale version. */
 export async function checkForUpdates(version?: string): Promise<boolean> {
-  // `tauri dev` (Pottira Dev) never updates: the update is the released installer, which would replace the real app.
+  // `tauri dev` (Linkord Dev) never updates: the update is the released installer, which would replace the real app.
   if (!isTauri || import.meta.env.DEV || updating()) return !!update();
   if (update() && (!version || update()!.version === version)) return true;
   try {

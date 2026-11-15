@@ -88,7 +88,7 @@ export function memberMenu(userId: string, guildId?: string): MenuEntry[] {
   const me = state.me?.id;
   const items: MenuEntry[] = [];
   if (userId !== me) items.push({ label: t('Message'), run: () => attempt(() => openDm(userId)) });
-  // You're in a League lobby and may invite: invite them through Pottira (they accept, your client invites them).
+  // You're in a League lobby and may invite: invite them through Linkord (they accept, your client invites them).
   if (userId !== me && !state.users[userId]?.bot && leagueCanInvite()) {
     items.push({
       label: t('Invite to League lobby'),
@@ -200,7 +200,7 @@ function voiceModItems(userId: string, guildId: string): MenuEntry[] {
 /** Each bot's own picture endpoint (Kass: music.rs, Steve: steve.rs). */
 const BOT_AVATAR: Record<string, string> = { kass: '/bots/music/avatar', steve: '/bots/steve/avatar' };
 
-/** Admins (POTTIRA_ADMINS) choose the bots' pictures. */
+/** Admins (LINKORD_ADMINS) choose the bots' pictures. */
 function botPictureItems(userId: string): MenuEntry[] {
   const path = BOT_AVATAR[state.users[userId]?.username ?? ''];
   if (!path) return [];
@@ -547,7 +547,7 @@ export function DmProfile(p: { userId: string }) {
             </Show>
             <Show when={full()}>
               <div class="profile-section">
-                <div class="label">{t('Pottira member since')}</div>
+                <div class="label">{t('Linkord member since')}</div>
                 <p>{longDate(full()!.created_at)}</p>
               </div>
               <Show when={servers().length || full()!.mutual_friends?.length}>
@@ -808,7 +808,7 @@ export function ProfileModal(p: { userId: string; guildId?: string }) {
                       <div class="profile-dates">
                         <Show when={full()}>
                           <div class="profile-section">
-                            <div class="label">{t('Pottira member since')}</div>
+                            <div class="label">{t('Linkord member since')}</div>
                             <p>{longDate(full()!.created_at)}</p>
                           </div>
                         </Show>

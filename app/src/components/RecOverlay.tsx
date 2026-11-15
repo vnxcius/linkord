@@ -27,7 +27,7 @@ const MIN = { w: 480, h: 340 };
 const MAX = { w: 1200, h: 1000 };
 /** Kept clear of the screen's edges. */
 const MARGIN = 8;
-const BOX_KEY = 'pottira.recOverlayBox';
+const BOX_KEY = 'linkord.recOverlayBox';
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
 type Edge = (typeof EDGES)[number];
 
@@ -299,7 +299,7 @@ export function RecOverlay() {
 
           <footer class="rov-foot">
             <button class="btn" onClick={() => void emitTo('main', 'rec-action', 'open')}>
-              {t('Open REC in Pottira')}
+              {t('Open REC in Linkord')}
             </button>
             <span class="muted small">{t('Esc to close')}</span>
           </footer>

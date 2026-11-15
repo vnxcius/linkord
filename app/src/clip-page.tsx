@@ -1,4 +1,4 @@
-// The public clip page (/clip/<slug>, rendered by server/src/clips.rs) with Pottira's own video player instead of the
+// The public clip page (/clip/<slug>, rendered by server/src/clips.rs) with Linkord's own video player instead of the
 // browser's. The server's page already has a plain <video> inside #clip-player, so it plays without this script (link
 // previews, JavaScript off, an older build); this swaps it for VideoPlayer once it loads.
 

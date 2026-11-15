@@ -52,7 +52,7 @@ const pipApi = () =>
 export const canPopOutWatch = () => isTauri || !!pipApi();
 
 /**
- * Windows 10 streams the sound of the whole PC (it can't leave Pottira out), so the shared video would reach our
+ * Windows 10 streams the sound of the whole PC (it can't leave Linkord out), so the shared video would reach our
  * stream's viewers on top of their own player: it's muted here while we stream that way.
  */
 const mutedForStream = () => voiceUi.screen && voiceUi.streamAudio?.mode === 'system';
@@ -107,7 +107,7 @@ async function popOutWatch() {
   if (!pip || popped()) return;
   try {
     const win = await pip.requestWindow({ width: 640, height: 360 });
-    win.document.title = 'Pottira';
+    win.document.title = 'Linkord';
     for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
       const copy = node.cloneNode(true) as HTMLElement;
       // The pop-out's own address is about:blank: stylesheet links need their full address.
@@ -140,7 +140,7 @@ async function popOutNative() {
   if (nativePopped()) return;
   try {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('watch_popout_open', { title: `${t('Watch together')} · Pottira` });
+    await invoke('watch_popout_open', { title: `${t('Watch together')} · Linkord` });
     setNativePopped(true);
   } catch (e) {
     console.warn('watch pop-out', e);
@@ -241,7 +241,7 @@ function nativeChatWindow(src: () => string | null) {
     const url = src();
     if (url) {
       open = true;
-      invoke('watch_chat_open', { url, title: `${t('Stream chat')} · Pottira` }).catch((e) => {
+      invoke('watch_chat_open', { url, title: `${t('Stream chat')} · Linkord` }).catch((e) => {
         console.warn('watch chat', e);
         toast(t("Couldn't open the pop-out window"));
       });
