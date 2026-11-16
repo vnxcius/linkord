@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+# Linkord's runner on the box: every push to master on GitLab is tested, deployed and published from here, in
+# CLAUDE.md's release order (tests, server, then clients). Installed by deploy/ci/install.sh: cron calls `tick`
+# every minute, and deploy/ci/ship.sh kicks it right after a push.
+#
+#   linkord-ci tick            fetch master; if it moved, fast-forward this checkout and run the pipeline
+#   linkord-ci kick            the same, detached (survives the ssh session that started it)
+#   linkord-ci follow [sha]    stream the run for sha (default: origin/master) until it ends; exit 1 if it failed
+#   linkord-ci status          the last runs, and where each target stands
+#   linkord-ci log [-f]        the latest run's log
+#   linkord-ci retry           run the failed commit again (a failure isn't retried until master moves)
+# LINKORD_CI_DRY=1 logs each step instead of running it (to try the runner's decisions).
+#
+# What runs depends on what changed since each target last went out (non-release commits only):
+#   server  server/, the web client (app/ minus the desktop shell), deploy/ files of the image  -> install-service.sh
+#   monitor monitor/ and its deploy files                                                         -> install-monitor.sh
+#   desktop app/                                                                                  -> publish-windows + linux
+#   android android/ and app/src/lib/locales/pt-BR.ts (its strings)                               -> android/publish.sh
+# Tests first: the full suite (one retry for the known flaky step), unit tests, lint, cargo and gradle tests as
+# relevant. Patch notes come from the commit subjects (deploy/ci/notes.mjs). The version bumps are committed as
+# "chore(release): ..." and pushed back, which the next tick recognizes and skips.
+set -uo pipefail
+
+repo="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/linkord-ci"
+runs="$state/runs"
+mkdir -p "$runs"
+export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export ANDROID_HOME="${ANDROID_HOME:-/mnt/hdd/linkord/android-sdk}"
+# A full JDK (the system only has a JRE): Temurin 21, unpacked on the HDD.
+export JAVA_HOME="${JAVA_HOME:-/mnt/hdd/linkord/jdk-21}"
+export CI=1
+# Real tests, deploys and publishes only happen in production's checkout on the box; anywhere else (a dev PC, a
+# throwaway clone to try the runner) every step is a dry run, whatever LINKORD_CI_DRY says.
+live_host="${LINKORD_CI_HOST:-simon-server}"
+if [ "$(hostname)" != "$live_host" ] || [ "$repo" != "$HOME/repositories/linkord" ]; then export LINKORD_CI_DRY=1; fi
+RELEASE='^chore\(release\): '
+
+server_paths=(server app ':!app/src-tauri' ':!app/*.sh' ':!app/*.Dockerfile' ':!app/*.md' deploy/server.Dockerfile
+  deploy/docker-compose.yml deploy/install-service.sh deploy/buildkitd.toml deploy/builder.sh)
+monitor_paths=(monitor deploy/monitor.Dockerfile deploy/install-monitor.sh)
+desktop_paths=(app ':!app/*.md' ':!app/publish-*.sh')
+android_paths=(android ':!android/**/*.md' app/src/lib/locales/pt-BR.ts)
+test_paths=(tests)
+targets=(server monitor desktop android)
+
+git_() { git -C "$repo" "$@"; }
+mark() { cat "$state/last-$1" 2>/dev/null; }
+# Files changed in non-release commits between two shas, limited to pathspecs.
+changed() { git_ log --no-merges --format= --name-only --invert-grep -E --grep="$RELEASE" "$1..$2" -- "${@:3}" | sort -u | grep -v '^$'; }
+log() { printf '[%s] %s\n' "$(date +%T)" "$*"; }
+history() { printf '%s\t%s\t%s\t%s\n' "$(date -Is)" "$1" "$2" "$3" >>"$state/history.tsv"; }
+
+pipeline() {
+  local new=$1 t
+  local -A todo=()
+  for t in "${targets[@]}"; do
+    local base; base=$(mark "$t")
+    [ -n "$base" ] || { echo "$new" >"$state/last-$t"; continue; }
+    [ "$base" = "$new" ] && continue
+    local -n paths="${t}_paths"
+    if [ -n "$(changed "$base" "$new" "${paths[@]}")" ]; then todo[$t]=$base; else echo "$new" >"$state/last-$t"; fi
+    unset -n paths
+  done
+  local oldest="${todo[server]:-${todo[monitor]:-${todo[desktop]:-${todo[android]:-}}}}"
+  local tests_changed=""
+  [ -n "$oldest" ] || oldest=$(cat "$state/last-tick" 2>/dev/null || echo "$new")
+  [ "$oldest" != "$new" ] && tests_changed=$(changed "$oldest" "$new" "${test_paths[@]}")
+  if [ ${#todo[@]} -eq 0 ] && [ -z "$tests_changed" ]; then
+    log "Nothing to test, deploy or publish in ${new:0:9} (docs or release commits only)."
+    return 0
+  fi
+  local names=("${!todo[@]}")
+  log "To go out: ${names[*]:-tests only}"
+
+  # 1. Tests.
+  if [ -n "${todo[server]:-}${todo[monitor]:-}${todo[desktop]:-}$tests_changed" ]; then
+    step "full test suite" retry_once "$repo/tests/run-local.sh" || return 1
+    step "unit tests" bash -c "cd '$repo/tests' && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs markdown.test.mjs brand-icons.test.mjs capture-match.test.mjs device.test.mjs league-events.test.mjs" || return 1
+  fi
+  if [ -n "${todo[server]:-}${todo[desktop]:-}" ]; then
+    step "client lint and format" bash -c "cd '$repo/app' && bun install --frozen-lockfile >/dev/null && bun run lint && bun run fmt:check" || return 1
+  fi
+  [ -n "${todo[server]:-}" ] && { step "server unit tests" bash -c "cd '$repo/server' && cargo test -q" || return 1; }
+  [ -n "${todo[monitor]:-}" ] && { step "monitor unit tests" bash -c "cd '$repo/monitor' && cargo test -q" || return 1; }
+  [ -n "${todo[android]:-}" ] && { step "android unit tests" bash -c "cd '$repo/android' && ./gradlew -q :core:test :app:testDebugUnitTest" || return 1; }
+
+  # 2. Server and web client, then the dashboard: zero-downtime swaps.
+  if [ -n "${todo[server]:-}" ]; then step "deploy server + web" "$repo/deploy/install-service.sh" || return 1; echo "$new" >"$state/last-server"; fi
+  if [ -n "${todo[monitor]:-}" ]; then step "deploy monitor" "$repo/deploy/install-monitor.sh" || return 1; echo "$new" >"$state/last-monitor"; fi
+
+  # 3. Clients: apps see the update at once.
+  local released=()
+  if [ -n "${todo[desktop]:-}" ]; then
+    local notes; notes=$(node "$repo/deploy/ci/notes.mjs" desktop "${todo[desktop]}" "$new")
+    printf 'Desktop notes:\n%s\n' "$notes"
+    step "publish desktop (Windows)" "$repo/app/publish-windows.sh" "$notes" || return 1
+    step "publish desktop (Linux)" "$repo/app/publish-linux.sh" "$notes" || return 1
+    echo "$new" >"$state/last-desktop"
+    released+=("desktop $(node -p "require('$repo/app/src-tauri/tauri.conf.json').version")")
+  fi
+  if [ -n "${todo[android]:-}" ]; then
+    local notes; notes=$(node "$repo/deploy/ci/notes.mjs" android "${todo[android]}" "$new")
+    printf 'Android notes:\n%s\n' "$notes"
+    step "publish android" "$repo/android/publish.sh" "$notes" || return 1
+    echo "$new" >"$state/last-android"
+    released+=("android $(grep -oE 'versionName = "[^"]+"' "$repo/android/app/build.gradle.kts" | cut -d'"' -f2)")
+  fi
+  [ ${#released[@]} -gt 0 ] && { commit_release "${released[@]}" || return 1; }
+  return 0
+}
+
+retry_once() { "$@" || { log "Failed once; running it again (the box has a known flaky UI step)."; "$@"; }; }
+
+step() {
+  local name=$1; shift
+  log "▶ $name"
+  local t0=$SECONDS
+  if [ -n "${LINKORD_CI_DRY:-}" ]; then log "  (dry run) $*"; return 0; fi
+  if "$@"; then log "✔ $name ($((SECONDS - t0)) s)"; else log "✘ $name failed"; echo "$name" >"$state/failed-step"; return 1; fi
+}
+
+# The version bumps go back to master as one commit, so every machine builds the next version from them.
+commit_release() {
+  local msg="chore(release): $(IFS=,; echo "$*" | sed 's/,/, /g')"
+  local files=(app/src-tauri/tauri.conf.json app/package.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock android/app/build.gradle.kts)
+  git_ add -- "${files[@]}" 2>/dev/null
+  git_ diff --cached --quiet && { log "No version files changed?"; return 0; }
+  git_ commit -q -m "$msg" || return 1
+  for _ in 1 2 3; do
+    [ -n "${LINKORD_CI_DRY:-}" ] && { log "(dry run) push: $msg"; return 0; }
+    git_ push -q origin HEAD:master && { log "Pushed: $msg"; return 0; }
+    log "master moved meanwhile: rebasing the release commit onto it"
+    git_ fetch -q origin master && git_ rebase -q --autostash origin/master || { git_ rebase --abort 2>/dev/null; return 1; }
+  done
+  return 1
+}
+
+tick() {
+  exec 9>"$state/lock"
+  flock -n 9 || exit 0
+  git_ fetch -q origin master || { echo "fetch failed" >&2; exit 1; }
+  local new; new=$(git_ rev-parse origin/master)
+  [ "$new" = "$(cat "$state/last-tick" 2>/dev/null)" ] && exit 0
+  [ "$new" = "$(cat "$state/failed" 2>/dev/null)" ] && exit 0
+  local last; last=$(cat "$state/last-tick" 2>/dev/null)
+  # Only our own release commits since the last run: catch up without a run.
+  if [ -n "$last" ] && [ -z "$(git_ log --format=%H --invert-grep -E --grep="$RELEASE" "$last..$new")" ] && git_ merge -q --ff-only "$new" 2>/dev/null; then
+    for t in "${targets[@]}" tick; do [ "$(cat "$state/last-$t" 2>/dev/null)" = "$last" ] && echo "$new" >"$state/last-$t"; done
+    exit 0
+  fi
+  local logf="$runs/$(date +%Y%m%d-%H%M%S)-${new:0:9}.log"
+  ln -sfn "$logf" "$state/current.log"
+  echo "$new" >"$state/running"
+  {
+    log "Linkord CI: $(git_ log -1 --format='%h %s' "$new")"
+    if [ -n "$(git_ status --porcelain --untracked-files=no)" ]; then
+      log "This checkout has uncommitted changes; not touching it:"; git_ status --short --untracked-files=no
+      false
+    elif ! git_ merge -q --ff-only "$new"; then
+      log "Can't fast-forward $(git_ rev-parse --abbrev-ref HEAD) to master (local commits?)."
+      false
+    else
+      rm -f "$state/failed-step"
+      pipeline "$new"
+    fi
+  } >"$logf" 2>&1
+  local ok=$?
+  rm -f "$state/running"
+  if [ $ok -eq 0 ]; then
+    rm -f "$state/failed"
+    # The release commit this run pushed (if any) is skipped by the next tick.
+    echo "$new" >"$state/last-tick"
+    history "${new:0:9}" ok "$(git_ log -1 --format=%s "$new")"
+    echo "RESULT ok" >>"$logf"
+  else
+    echo "$new" >"$state/failed"
+    history "${new:0:9}" "failed: $(cat "$state/failed-step" 2>/dev/null || echo setup)" "$(git_ log -1 --format=%s "$new")"
+    echo "RESULT failed" >>"$logf"
+  fi
+}
+
+follow() {
+  local sha=${1:-}
+  [ -n "$sha" ] || { git_ fetch -q origin master; sha=$(git_ rev-parse origin/master); }
+  sha=$(git_ rev-parse "$sha" 2>/dev/null || echo "$sha")
+  local f=""
+  for _ in $(seq 1 120); do
+    f=$(ls -t "$runs"/*-"${sha:0:9}".log 2>/dev/null | head -1)
+    [ -n "$f" ] && break
+    [ "$(cat "$state/last-tick" 2>/dev/null)" = "$sha" ] && { echo "Already done for ${sha:0:9}."; return 0; }
+    sleep 1
+  done
+  [ -n "$f" ] || { echo "No run started for ${sha:0:9} yet (is a run for an older push still going?)."; return 1; }
+  tail -n +1 -f "$f" &
+  local tp=$!
+  while ! grep -q '^RESULT ' "$f"; do sleep 1; done
+  sleep 0.5
+  kill $tp 2>/dev/null
+  grep -q '^RESULT ok' "$f"
+}
+
+status() {
+  [ -f "$state/running" ] && echo "Running: $(cut -c1-9 "$state/running")"
+  [ -f "$state/failed" ] && echo "Failed and waiting for a new push (or 'linkord-ci retry'): $(cut -c1-9 "$state/failed")"
+  for t in "${targets[@]}"; do printf '  %-8s %s\n' "$t" "$(git_ log -1 --format='%h %s' "$(mark "$t")" 2>/dev/null || echo -)"; done
+  echo "Last runs:"; tail -n 8 "$state/history.tsv" 2>/dev/null | column -ts $'\t'
+}
+
+# Sourced (to test single functions on a throwaway repo): define everything, run nothing.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
+case "${1:-}" in
+  tick) tick ;;
+  kick) setsid "$0" tick </dev/null >/dev/null 2>&1 & ;;
+  follow) follow "${2:-}" ;;
+  status) status ;;
+  log) if [ "${2:-}" = -f ]; then tail -f "$state/current.log"; else cat "$state/current.log"; fi ;;
+  retry) rm -f "$state/failed" "$state/last-tick"; "$0" kick; echo "Retrying." ;;
+  *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

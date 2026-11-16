@@ -52,4 +52,4 @@ node -e "
   list = [{ version: '$next', date: new Date().toISOString(), notes: process.argv[1] }, ...list.filter((r) => r.version !== '$next')];
   fs.writeFileSync(f, JSON.stringify(list, null, 2));
 " "$notes"
-echo "Published $next. Commit the version bump: git commit -am 'Release $next'"
+echo "Published $next."

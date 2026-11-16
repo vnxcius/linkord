@@ -4,7 +4,7 @@
 #   android/publish.sh "notes, one change per line"          bumps the patch version (0.1.0 -> 0.1.1)
 #   android/publish.sh "notes" 0.2.0                          sets that version
 # Needs the release key (scripts/new-release-key.sh) and Node. LINKORD_UPDATES_DIR = the production server's
-# data/updates (default ../server/data/updates). Leave the version bump uncommitted until the owner asks.
+# data/updates (default ../server/data/updates). The box's runner (deploy/ci) calls this and commits the bump.
 set -euo pipefail
 cd "$(dirname "$0")"
 notes="${1:?usage: publish.sh \"notes\" [version]}"
@@ -23,7 +23,7 @@ echo "Linkord for Android $name ($code) -> $new_name ($new_code)"
 ./gradlew -q :app:assembleRelease
 apk=app/build/outputs/apk/release/app-release.apk
 [ -f "$apk" ] || { echo "No signed APK was built (is the key in $props right?)"; exit 1; }
-apksigner=$(ls -d "$HOME"/Android/Sdk/build-tools/*/apksigner | sort -V | tail -1)
+apksigner=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/build-tools/*/apksigner | sort -V | tail -1)
 "$apksigner" verify "$apk"
 
 updates="${LINKORD_UPDATES_DIR:-../server/data/updates}"
