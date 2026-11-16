@@ -41,5 +41,6 @@ fi
   --executor shell --name "$(hostname)"
 chmod 600 "$conf"
 printf '%s\n%s\n' "$current" "$line" | sed '/^$/d' | crontab -
-pgrep -f "^$bin run" >/dev/null || nohup "$bin" run --config "$conf" --working-directory "$dir" >>"$dir/runner.log" 2>&1 &
+# Detached from this shell entirely (its own session, no stdin), so an ssh that ran this script can close.
+pgrep -f "^$bin run" >/dev/null || setsid nohup "$bin" run --config "$conf" --working-directory "$dir" </dev/null >>"$dir/runner.log" 2>&1 &
 echo "gitlab-runner $version registered and running; GitLab -> Build -> Pipelines shows each push."
