@@ -30,7 +30,10 @@ if [ "$("$bin" --version 2>/dev/null | sed -n 's/^Version: *//p')" != "${version
   base="https://gitlab-runner-downloads.s3.amazonaws.com/$version"
   curl -fsSL -o "$tmp/gitlab-runner-linux-amd64" "$base/binaries/gitlab-runner-linux-amd64"
   curl -fsSL -o "$tmp/release.sha256" "$base/release.sha256"
-  (cd "$tmp" && grep ' binaries/gitlab-runner-linux-amd64$' release.sha256 | sed 's# binaries/# #' | sha256sum -c --quiet -)
+  # release.sha256 lines are "<hash><tab>binaries/<file>": checked as "<hash>  <file>" against the download.
+  sum=$(awk '$2 == "binaries/gitlab-runner-linux-amd64" { print $1 "  gitlab-runner-linux-amd64" }' "$tmp/release.sha256")
+  [ -n "$sum" ] || { echo "No checksum for gitlab-runner-linux-amd64 in $version's release.sha256."; exit 1; }
+  (cd "$tmp" && printf '%s\n' "$sum" | sha256sum -c --quiet -)
   install -m 755 "$tmp/gitlab-runner-linux-amd64" "$bin"
   rm -rf "$tmp"
 fi
