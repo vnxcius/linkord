@@ -9,6 +9,9 @@ the generic 💑), the fully-qualified emoji wins, since that is what the picker
 Also repairs glyphs the upstream SVG->COLR conversion broke (see LAYER_FIXES) and renames the family so it never
 clashes with an installed Twemoji.
 
+It also writes the Android app's copy, android/designsystem/src/main/res/font/twemoji.ttf: the same font as a TTF plus
+a cmap format 14 table (see ANDROID_OUT below), so rerunning this after a Twemoji bump updates both clients.
+
 Upstream bugs were found by rendering every emoji with this font and with the official Twemoji SVGs
 (@twemoji/svg, same version) in Chromium and comparing the images; recheck that way when bumping the package.
 
@@ -22,11 +25,13 @@ from fontTools.pens.recordingPen import DecomposingRecordingPen, RecordingPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables.C_O_L_R_ import LayerRecord
+from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
 from fontTools.ttLib.tables.otTables import Ligature
 
 APP = Path(__file__).resolve().parent.parent
 SRC = APP / "node_modules/twemoji-colr-font/twemoji.woff2"
 OUT = APP / "src/assets/fonts/twemoji.woff2"
+ANDROID_OUT = APP.parent / "android/designsystem/src/main/res/font/twemoji.ttf"
 FAMILY = "Linkord Twemoji"
 
 # Colour glyphs whose layers ended up in the wrong order: glyph -> [(layer, contour, before layer)], indexes into
@@ -117,3 +122,19 @@ OUT.parent.mkdir(parents=True, exist_ok=True)
 font.flavor = "woff2"
 font.save(OUT)
 print(f"{OUT.relative_to(APP)}: added {added} ligatures without FE0F, fixed {len(LAYER_FIXES)} glyphs")
+
+# Android (Minikin) picks a font per character, and for a character followed by U+FE0F it only keeps a font that
+# declares that variation sequence in a cmap format 14 table; otherwise the system emoji font (Noto) wins. So in 🏳️‍🌈
+# the flag came from Noto and the rainbow after the ZWJ from Twemoji: two pictures (❤️‍🔥, 1️⃣, 🕵️‍♀️ too). Declaring
+# <character, FE0F> as a default variation sequence for every character keeps the whole sequence in Twemoji; HarfBuzz
+# then drops the FE0F before GSUB, as Chromium does, and the FE0F-less ligatures above apply. Only the Android copy
+# gets it, so the web font stays as it was.
+uvs = CmapSubtable.newSubtable(14)
+uvs.platformID, uvs.platEncID, uvs.language, uvs.cmap = 0, 5, 0xFF, {}
+uvs.uvsDict = {
+    0xFE0F: [(cp, None) for cp in sorted(font.getBestCmap()) if cp not in (0x200D, 0xFE0F, 0x20E3) and not 0xE0000 <= cp <= 0xE007F]
+}
+font["cmap"].tables.append(uvs)
+font.flavor = None
+font.save(ANDROID_OUT)
+print(f"{ANDROID_OUT.relative_to(APP.parent)}: the same as TTF, {len(uvs.uvsDict[0xFE0F])} FE0F sequences declared")

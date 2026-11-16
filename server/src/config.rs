@@ -8,6 +8,9 @@ pub struct Config {
     pub bind: String,
     /// Externally reachable base URL, e.g. https://linkord.example.com
     pub public_url: String,
+    /// Older public origins still routed here (LINKORD_FORMER_URLS, comma-separated, e.g. https://pottira.com): a
+    /// request that came in on one gets it as its PublicBase, so sign-in started there comes back there.
+    pub former_urls: Vec<String>,
     pub database_url: String,
     pub data_dir: PathBuf,
     pub web_dir: PathBuf,
@@ -25,6 +28,8 @@ pub struct Config {
     pub signup_closed: bool,
     /// Enables passwordless username login for local testing. Never enable on a public server.
     pub dev_login: bool,
+    /// LINKORD_ANDROID_CERTS: the Android app's release certificate fingerprints, for App Links (android.rs).
+    pub android_certs: Vec<String>,
     /// Total bytes each user may upload.
     pub upload_quota: u64,
     /// REC: bytes of shared clips each user may keep, and the largest one.
@@ -74,6 +79,9 @@ impl Config {
                 .unwrap_or_else(|| "http://localhost:7700".into())
                 .trim_end_matches('/')
                 .to_string(),
+            former_urls: opt("LINKORD_FORMER_URLS")
+                .map(|v| v.split(',').map(|u| u.trim().trim_end_matches('/').to_string()).filter(|u| u.starts_with("https://")).collect())
+                .unwrap_or_default(),
             database_url: opt("DATABASE_URL").context("DATABASE_URL is required")?,
             data_dir: opt("LINKORD_DATA_DIR").unwrap_or_else(|| "./data".into()).into(),
             nameplates_dir: opt("LINKORD_NAMEPLATES_DIR").unwrap_or_else(|| "./nameplates".into()).into(),
@@ -85,6 +93,7 @@ impl Config {
             discord_cdn_url: opt("DISCORD_CDN_URL").unwrap_or_else(|| "https://cdn.discordapp.com".into()),
             signup_closed: opt("LINKORD_SIGNUP").is_some_and(|v| v == "closed"),
             dev_login: opt("LINKORD_DEV_LOGIN").is_some_and(|v| v == "true" || v == "1"),
+            android_certs: opt("LINKORD_ANDROID_CERTS").map(|v| v.split(',').filter_map(crate::android::normalize_cert).collect()).unwrap_or_default(),
             upload_quota: opt("LINKORD_UPLOAD_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(2048) * 1024 * 1024,
             clip_quota: opt("LINKORD_CLIP_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5120) * 1024 * 1024,
             clip_max: opt("LINKORD_CLIP_MAX_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(1024) * 1024 * 1024,

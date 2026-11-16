@@ -32,7 +32,7 @@ interface Download {
   date?: string | null;
   notes?: string;
 }
-type Downloads = Partial<Record<'windows' | 'deb' | 'rpm', Download>>;
+type Downloads = Partial<Record<'windows' | 'deb' | 'rpm' | 'android', Download>>;
 
 interface Release {
   version: string;
@@ -370,6 +370,25 @@ function DownloadPage() {
               )}
             </Show>
           </div>
+          <Show when={downloads()?.android}>
+            {(a) => (
+              <div class="dl-platform" classList={{ mine: /Android/.test(ua) }}>
+                <div class="dl-platform-head">
+                  <I.MobileDevice size={20} />
+                  <strong>{t('Android')}</strong>
+                </div>
+                <p class="muted">
+                  {t('The Linkord app for Android phones. Allow your browser to install apps when Android asks; it updates itself after that.')}
+                </p>
+                <div class="row">
+                  <a class="btn primary" href={a().url} download="">
+                    <I.Download size={16} /> .apk
+                  </a>
+                </div>
+                <span class="dl-meta">{meta(a())}</span>
+              </div>
+            )}
+          </Show>
           <div class="dl-platform" classList={{ mine: os === 'mac' || os === 'mobile' }}>
             <div class="dl-platform-head">
               <I.MobileDevice size={20} />

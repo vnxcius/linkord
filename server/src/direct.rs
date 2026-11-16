@@ -43,7 +43,18 @@ impl FromRequestParts<AppState> for PublicBase {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, st: &AppState) -> Result<Self, Self::Rejection> {
-        Ok(parts.extensions.get::<PublicBase>().cloned().unwrap_or_else(|| PublicBase(st.cfg.public_url.as_str().into())))
+        if let Some(base) = parts.extensions.get::<PublicBase>() {
+            return Ok(base.clone());
+        }
+        // Only origins listed in the settings: a Host header is the client's word, and the web login hands the session
+        // token to `{base}/#token=`.
+        let host = parts.headers.get(HOST).and_then(|v| v.to_str().ok()).map(str::to_owned).or_else(|| parts.uri.authority().map(|a| a.to_string()));
+        if let Some(host) = host {
+            if let Some(former) = st.cfg.former_urls.iter().find(|u| u.strip_prefix("https://") == Some(host.as_str())) {
+                return Ok(PublicBase(former.as_str().into()));
+            }
+        }
+        Ok(PublicBase(st.cfg.public_url.as_str().into()))
     }
 }
 

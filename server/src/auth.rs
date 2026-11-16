@@ -136,6 +136,23 @@ struct StartQuery {
     port: Option<u16>,
     state: Option<String>,
     challenge: Option<String>,
+    /// `android` / `android-dev`: the Android app (android/), which gets the code through its own link scheme.
+    client: Option<String>,
+}
+
+/// The Android apps have no local callback: they get the code at `linkord://auth` (`linkord-dev://auth` for the dev
+/// build, so both can be installed). They're kept as these ports in [`DesktopLogin`], which no desktop app can use
+/// (its ports start at 1024), so a sign-in in progress survives a handover in the same snapshot as before.
+const ANDROID_PORT: u16 = 0;
+const ANDROID_DEV_PORT: u16 = 1;
+
+/// Where the code goes once Discord said yes: the desktop app's local listener, or the Android app's scheme.
+fn app_callback(d: &DesktopLogin, code: &str) -> String {
+    match d.port {
+        ANDROID_PORT => format!("linkord://auth?code={code}&state={}", d.state),
+        ANDROID_DEV_PORT => format!("linkord-dev://auth?code={code}&state={}", d.state),
+        port => format!("http://127.0.0.1:{port}/login?code={code}&state={}", d.state),
+    }
 }
 
 const LOGIN_COOKIE: &str = "linkord_login";
@@ -149,11 +166,21 @@ async fn discord_start(State(st): State<AppState>, base: PublicBase, ClientIp(ip
         return Ok(result_page("This version of Linkord can't sign in any more. Restart it to update, then try again.").into_response());
     }
     let long_enough = |v: &str| (32..=128).contains(&v.len()) && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    let desktop = match (q.port, q.state, q.challenge) {
+    let android = match q.client.as_deref() {
+        None => None,
+        Some("android") => Some(ANDROID_PORT),
+        Some("android-dev") => Some(ANDROID_DEV_PORT),
+        Some(_) => return Err(bad("invalid sign-in request")),
+    };
+    // A desktop app names its port, an Android app its build; never both.
+    let port = match (q.port, android) {
+        (Some(p), None) if p >= 1024 => Some(p),
+        (None, a) => a,
+        _ => return Err(bad("invalid sign-in request")),
+    };
+    let desktop = match (port, q.state, q.challenge) {
         (None, None, None) => None,
-        (Some(port), Some(state), Some(challenge)) if port >= 1024 && long_enough(&state) && long_enough(&challenge) => {
-            Some(DesktopLogin { port, state, challenge })
-        }
+        (Some(port), Some(state), Some(challenge)) if long_enough(&state) && long_enough(&challenge) => Some(DesktopLogin { port, state, challenge }),
         _ => return Err(bad("invalid sign-in request")),
     };
     let state = random_token(24);
@@ -241,11 +268,13 @@ async fn discord_callback(State(st): State<AppState>, base: PublicBase, ClientIp
         }
     };
     match oauth.desktop {
-        // Only the app listening on this computer gets the code, so a link someone else sends can't sign them in.
+        // Only the app that started this gets the code (the one listening on this computer, or the Android app
+        // holding the verifier), so a link someone else sends can't sign them in.
         Some(d) => {
             let code = random_token(32);
-            st.pending_logins.insert(code.clone(), PendingLogin { user, challenge: d.challenge, created: Instant::now() });
-            Redirect::to(&format!("http://127.0.0.1:{}/login?code={code}&state={}", d.port, d.state)).into_response()
+            let to = app_callback(&d, &code);
+            st.pending_logins.insert(code, PendingLogin { user, challenge: d.challenge, created: Instant::now() });
+            Redirect::to(&to).into_response()
         }
         None => match create_session(&st, user).await {
             Ok(token) => Redirect::to(&format!("{base}/#token={token}")).into_response(),
@@ -562,6 +591,14 @@ mod tests {
         assert!(validate_username("x").is_err());
         assert_eq!(normalize_username("Old Name"), "old_name");
         assert_eq!(normalize_username("a..b"), "a.b");
+    }
+
+    #[test]
+    fn app_callbacks() {
+        let d = |port| DesktopLogin { port, state: "s".into(), challenge: "c".into() };
+        assert_eq!(app_callback(&d(45123), "x"), "http://127.0.0.1:45123/login?code=x&state=s");
+        assert_eq!(app_callback(&d(ANDROID_PORT), "x"), "linkord://auth?code=x&state=s");
+        assert_eq!(app_callback(&d(ANDROID_DEV_PORT), "x"), "linkord-dev://auth?code=x&state=s");
     }
 }
 

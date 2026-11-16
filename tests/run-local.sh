@@ -48,13 +48,24 @@ else
   ytdlp="$root/tests/ytdlp-mock.sh" ytdlp_args=
   chromium=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux64/chrome 2>/dev/null | tail -1)
 fi
+# FCM (server fcm.rs): a throwaway service account whose token and send endpoints the API test serves on :7709.
+node -e '
+const { generateKeyPairSync } = require("crypto"); const fs = require("fs"); const dir = process.argv[1];
+const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+fs.writeFileSync(dir + "/fcm-credentials.json", JSON.stringify({ type: "service_account", project_id: "linkord-test", client_email: "push@linkord-test.iam.gserviceaccount.com",
+  private_key: privateKey.export({ type: "pkcs8", format: "pem" }), token_uri: "http://localhost:7709/token" }));
+fs.writeFileSync(dir + "/fcm-public.pem", publicKey.export({ type: "spki", format: "pem" }));
+fs.writeFileSync(dir + "/google-services.json", JSON.stringify({ project_info: { project_number: "123456789", project_id: "linkord-test" },
+  client: [{ client_info: { mobilesdk_app_id: "1:123456789:android:abc", android_client_info: { package_name: "com.linkord.app" } }, api_key: [{ current_key: "test-api-key" }] }] }));
+' "$data"
 cd "$root/server"
+LINKORD_FCM_CREDENTIALS="$data/fcm-credentials.json" LINKORD_FCM_CLIENT="$data/google-services.json" LINKORD_FCM_URL=http://localhost:7709 \
 SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=500 \
   SPOTIFY_ACCOUNTS_URL=http://localhost:7702 SPOTIFY_API_URL=http://localhost:7702 LINKORD_DETECTABLE_URL=http://localhost:7702/detectable \
   LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704 LINKORD_VOICE_GRACE_MS=1500 LINKORD_PUSH_HOSTS=localhost:7708 \
   LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off \
   DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" \
-  LINKORD_YTDLP="$ytdlp" LINKORD_YTDLP_ARGS="$ytdlp_args" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true LINKORD_GAME_INFO=off LINKORD_ADMINS=logadmin DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702 \
+  LINKORD_YTDLP="$ytdlp" LINKORD_YTDLP_ARGS="$ytdlp_args" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true LINKORD_ANDROID_CERTS=$(printf 'ab%.0s' {1..32}) LINKORD_GAME_INFO=off LINKORD_ADMINS=logadmin DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702 \
   "${CARGO_TARGET_DIR:-target}/debug/linkord-server" >"$data/server.log" 2>&1 &
 server=$!
 monitor=

@@ -1,0 +1,13 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+# Signing material never lives in the repo (see CLAUDE.md, Updater and release).
+*.jks
+*.keystore
+keystore.properties

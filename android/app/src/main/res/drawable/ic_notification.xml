@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The wings and the Triforce (design/linkord-mark.svg). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <group android:scaleX="0.0495" android:scaleY="0.0495" android:translateX="-0.67" android:translateY="0.565">
+        <path android:fillColor="#FFFFFFFF" android:strokeColor="#FFFFFFFF" android:strokeWidth="20" android:strokeLineJoin="round"
+            android:pathData="M176.3 176L68.5 123.4L50.9 159.3L111.3 212.7L66.4 214.7L48.9 250.6L114.7 282.7Z M335.7 176L443.5 123.4L461.1 159.3L400.7 212.7L445.6 214.7L463.1 250.6L397.3 282.7Z" />
+        <path android:fillColor="#FFFFFFFF" android:strokeColor="#FFFFFFFF" android:strokeWidth="12" android:strokeLineJoin="round"
+            android:fillType="evenOdd" android:pathData="M256 110L395.7 352L116.3 352Z M188 232.1L324 232.1L256 349.8Z" />
+    </group>
+</vector>

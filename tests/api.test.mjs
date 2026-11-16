@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
 const BASE = process.env.LINKORD_TEST_URL ?? 'http://localhost:7701';
@@ -260,6 +261,37 @@ test('update feed: Linux apps get the .deb and .rpm of linux.json', { skip: !pro
     assert.equal((await (await fetch(`${BASE}/api/downloads`)).json()).rpm.version, '1.2.3');
   } finally {
     fs.rmSync(path.join(dir, 'linux.json'));
+  }
+});
+
+test('update feed: the Android app gets android.json by version code, and every app hears of it', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const dir = path.join(process.env.LINKORD_TEST_DATA_DIR, 'updates');
+  fs.mkdirSync(dir, { recursive: true });
+  const u = await login('androidfeed');
+  const gw = await gateway(u.token);
+  fs.writeFileSync(path.join(dir, 'Linkord-0.2.0.apk'), Buffer.alloc(1234));
+  fs.writeFileSync(path.join(dir, 'android.json'), JSON.stringify({
+    version: '0.2.0', version_code: 5, notes: 'n', pub_date: '2026-11-15T00:00:00.000Z', file: 'Linkord-0.2.0.apk', sha256: 'ab'.repeat(32),
+  }));
+  try {
+    const r = await fetch(`${BASE}/api/updates/android/arm64-v8a/4`);
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.version, '0.2.0');
+    assert.equal(body.version_code, 5);
+    assert.equal(body.sha256, 'ab'.repeat(32));
+    assert.equal(body.size, 1234);
+    assert.match(body.url, /\/api\/updates\/download\/Linkord-0\.2\.0\.apk$/);
+    assert.equal((await fetch(body.url)).status, 200);
+    assert.equal((await fetch(`${BASE}/api/updates/android/arm64-v8a/5`)).status, 204, 'not newer');
+    assert.equal((await fetch(`${BASE}/api/updates/android/x86_64/4`)).status, 204, 'arm64 only');
+    assert.equal((await (await fetch(`${BASE}/api/downloads`)).json()).android.version, '0.2.0');
+    const ev = await until(() => gw.events.find((e) => e.t === 'APP_UPDATE' && e.d.version === '0.2.0'), 10000);
+    assert.equal(ev.d.android, true);
+  } finally {
+    gw.ws.close();
+    fs.rmSync(path.join(dir, 'android.json'));
+    fs.rmSync(path.join(dir, 'Linkord-0.2.0.apk'));
   }
 });
 
@@ -1857,6 +1889,37 @@ test('uploads that are really playlists never reach ffmpeg as playlists', async 
   }
 });
 
+test('App Links: assetlinks.json names the Android app and its release certificate', async () => {
+  const res = await fetch(`${BASE}/.well-known/assetlinks.json`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /application\/json/);
+  const [link] = await res.json();
+  assert.deepEqual(link.relation, ['delegate_permission/common.handle_all_urls']);
+  assert.equal(link.target.package_name, 'com.linkord.app');
+  assert.deepEqual(link.target.sha256_cert_fingerprints, [Array(32).fill('AB').join(':')]);
+});
+
+test('a voice message recorded on Android (Ogg/Opus) is kept as it is, with its waveform', async () => {
+  const u = await login('phonevoice');
+  const { text } = await serverWithVoice(u);
+  // What Android's MediaRecorder writes (OutputFormat.OGG + AudioEncoder.OPUS): a second of Opus in Ogg.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'linkord-voice-'));
+  const file = path.join(dir, 'note.ogg');
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'libopus', '-b:a', '32k', file]);
+  const note = new FormData();
+  note.append('payload_json', JSON.stringify({ voice: { duration_secs: 1.02, waveform: 'AAECAwQ=' } }));
+  note.append('files[0]', new Blob([fs.readFileSync(file)], { type: 'audio/ogg' }), 'voice-message.ogg');
+  const m = await ok(u.token, 'POST', `/channels/${text.id}/messages`, note);
+  const a = m.attachments[0];
+  assert.equal(a.content_type, 'audio/ogg');
+  assert.equal(a.duration_secs, 1.02);
+  assert.equal(a.waveform, 'AAECAwQ=');
+  const res = await fetch(BASE + a.url);
+  assert.equal(res.status, 200);
+  assert.equal(Buffer.from(await res.arrayBuffer()).subarray(0, 4).toString(), 'OggS');
+  fs.rmSync(dir, { recursive: true });
+});
+
 test('a GIF that declares enormous frames is refused before ffmpeg', async () => {
   const u = await login('secgif');
   const gif = new Uint8Array(32);
@@ -2089,6 +2152,52 @@ test('Discord sign-in: anyone can sign up, from the browser that started it, and
   assert.equal((await call(null, 'POST', '/auth/exchange', { code: code2, verifier })).status, 401, 'one time');
 
   for (const bad of ['?port=80&state=' + clientState + '&challenge=' + challenge, '?port=45123&state=short&challenge=' + challenge, `?port=45123&state=${clientState}`]) {
+    assert.equal((await start(bad)).status, 400, bad);
+  }
+});
+
+test('Discord sign-in from the Android app: the code goes to its own scheme and needs the verifier', async () => {
+  let address = 0;
+  const from = () => ({ 'cf-connecting-ip': `198.51.101.${++address}` });
+  const start = (query) => fetch(`${BASE}/api/auth/discord/start${query}`, { redirect: 'manual', headers: from() });
+  const stateOf = (res) => new URL(res.headers.get('location')).searchParams.get('state');
+  const cookieOf = (res) => res.headers.get('set-cookie').split(';')[0];
+  const callback = (state, name, cookie) =>
+    fetch(`${BASE}/api/auth/discord/callback?code=user-${name}&state=${state}`, { redirect: 'manual', headers: { ...from(), cookie } });
+  const name = `phone${run}`;
+  const verifier = 'p'.repeat(43);
+  const challenge = (await import('node:crypto')).createHash('sha256').update(verifier).digest('base64url');
+  const clientState = 'a'.repeat(40);
+  for (const [client, scheme] of [['android', 'linkord:'], ['android-dev', 'linkord-dev:']]) {
+    const s = await start(`?client=${client}&state=${clientState}&challenge=${challenge}`);
+    assert.ok(!s.headers.get('location').includes('prompt=none'), 'the app always asks');
+    const res = await callback(stateOf(s), name, cookieOf(s));
+    const back = new URL(res.headers.get('location'));
+    assert.equal(back.protocol, scheme);
+    assert.equal(back.host, 'auth');
+    assert.equal(back.searchParams.get('state'), clientState);
+    const code = back.searchParams.get('code');
+    assert.equal((await call(null, 'POST', '/auth/exchange', { code, verifier: 'wrong' })).status, 401);
+  }
+  const s = await start(`?client=android&state=${clientState}&challenge=${challenge}`);
+  const code = new URL((await callback(stateOf(s), name, cookieOf(s))).headers.get('location')).searchParams.get('code');
+  const { token } = await ok(null, 'POST', '/auth/exchange', { code, verifier });
+  assert.equal((await ok(token, 'GET', '/users/@me')).username, name.toLowerCase());
+  // The phone's gateway says it's the Android app, and Settings -> Sessions shows it so.
+  const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/gateway`);
+  await new Promise((r) => ws.addEventListener('open', r));
+  ws.send(JSON.stringify({ op: 'identify', token, client: 'android' }));
+  await new Promise((r) => ws.addEventListener('message', r, { once: true }));
+  const sessions = await ok(token, 'GET', '/auth/sessions');
+  assert.equal(sessions.find((x) => x.current).client, 'android');
+  ws.close();
+
+  for (const bad of [
+    `?client=ios&state=${clientState}&challenge=${challenge}`,
+    `?client=android&state=short&challenge=${challenge}`,
+    `?client=android&state=${clientState}`,
+    `?client=android&port=45123&state=${clientState}&challenge=${challenge}`,
+  ]) {
     assert.equal((await start(bad)).status, 400, bad);
   }
 });
@@ -2501,6 +2610,93 @@ test('voice: a dropped connection keeps the seat for a reconnect, quietly; leavi
   old.close();
   await until(() => left(mark3), 1500);
   watcher.ws.close();
+});
+
+test('push: the Android app gets the same sealed notifications through FCM', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  const http = await import('node:http');
+  const crypto = await import('node:crypto');
+  const dir = process.env.LINKORD_TEST_DATA_DIR;
+  const publicKey = fs.readFileSync(path.join(dir, 'fcm-public.pem'));
+  // Google: the OAuth token endpoint and FCM's send, on :7709 (LINKORD_FCM_URL and the credentials' token_uri).
+  const sends = [];
+  let tokens = 0;
+  const google = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks).toString();
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/token') {
+        const assertion = new URLSearchParams(body).get('assertion');
+        const [h, c, sig] = assertion.split('.');
+        const ok = crypto.verify('sha256', Buffer.from(`${h}.${c}`), publicKey, Buffer.from(sig, 'base64url'));
+        const claims = JSON.parse(Buffer.from(c, 'base64url'));
+        tokens++;
+        if (!ok || claims.scope !== 'https://www.googleapis.com/auth/firebase.messaging') return res.writeHead(401).end('{}');
+        return res.end(JSON.stringify({ access_token: 'tok-1', expires_in: 3600 }));
+      }
+      const msg = JSON.parse(body).message;
+      sends.push({ url: req.url, auth: req.headers.authorization, msg });
+      if (msg.token.startsWith('gone')) return res.writeHead(404).end(JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }));
+      res.end(JSON.stringify({ name: 'projects/linkord-test/messages/1' }));
+    });
+  });
+  await new Promise((r) => google.listen(7709, '127.0.0.1', r));
+  try {
+    // The app starts Firebase with the server's public settings for its package.
+    assert.deepEqual(await ok(null, 'GET', '/push/fcm?package=com.linkord.app'), { project_id: 'linkord-test', app_id: '1:123456789:android:abc', api_key: 'test-api-key', sender_id: '123456789' });
+    assert.equal((await call(null, 'GET', '/push/fcm?package=com.other.app')).status, 404);
+
+    const ecdh = crypto.createECDH('prime256v1');
+    ecdh.generateKeys();
+    const auth = crypto.randomBytes(16);
+    const keys = { p256dh: ecdh.getPublicKey().toString('base64url'), auth: auth.toString('base64url') };
+    const [a, b] = await Promise.all([login('fcma'), login('fcmb')]);
+    await ok(a.token, 'PUT', `/users/@me/relationships/${b.id}`);
+    await ok(b.token, 'PUT', `/users/@me/relationships/${a.id}`);
+    const dm = await ok(b.token, 'POST', '/users/@me/channels', { recipient_id: a.id });
+    assert.equal((await call(a.token, 'POST', '/push/subscriptions', { endpoint: 'fcm:bad/token', keys })).status, 400);
+    await ok(a.token, 'POST', '/push/subscriptions', { endpoint: 'fcm:phone-token_1', keys, lang: 'pt-BR' });
+
+    await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'oi do celular' });
+    await until(() => sends.length === 1);
+    const s = sends[0];
+    assert.equal(s.url, '/v1/projects/linkord-test/messages:send');
+    assert.equal(s.auth, 'Bearer tok-1');
+    assert.equal(s.msg.token, 'phone-token_1');
+    assert.equal(s.msg.android.priority, 'HIGH');
+    assert.equal(s.msg.android.collapse_key, undefined, 'no collapse key: an offline phone gets every message to stack');
+    assert.equal(s.msg.notification, undefined, 'a data message only: Google never sees the text');
+    // Opened like the phone does it (RFC 8291), with Node's own crypto.
+    const body = Buffer.from(s.msg.data.p, 'base64');
+    const salt = body.subarray(0, 16);
+    const keyid = body.subarray(21, 21 + body[20]);
+    const ct = body.subarray(21 + body[20]);
+    const ikm = Buffer.from(crypto.hkdfSync('sha256', ecdh.computeSecret(keyid), auth, Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), keyid]), 32));
+    const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16));
+    const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
+    const d = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+    d.setAuthTag(ct.subarray(ct.length - 16));
+    const plain = Buffer.concat([d.update(ct.subarray(0, -16)), d.final()]);
+    const note = JSON.parse(plain.subarray(0, -1));
+    assert.equal(note.body, 'oi do celular');
+    assert.equal(note.channel_id, dm.id);
+    assert.equal(note.author_id, b.id);
+    assert.ok(note.author, 'the author on its own, for the stacked notification');
+    assert.equal(note.conversation, null, 'a DM has no conversation title');
+
+    // A second send reuses the access token; a token FCM says is gone is forgotten.
+    await ok(a.token, 'POST', '/push/subscriptions', { endpoint: 'fcm:gone-token', keys });
+    await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'de novo' });
+    await until(() => sends.length === 3);
+    assert.equal(tokens, 1, 'one access token for both');
+    await ok(b.token, 'POST', `/channels/${dm.id}/messages`, { content: 'e mais uma' });
+    await until(() => sends.filter((x) => x.msg.token === 'phone-token_1').length === 3);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(sends.filter((x) => x.msg.token === 'gone-token').length, 1, 'the gone token got nothing more');
+  } finally {
+    google.close();
+  }
 });
 
 test('push: encrypted notifications reach a phone when it should, and only then', async () => {

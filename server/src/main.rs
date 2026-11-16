@@ -1,4 +1,5 @@
 mod activities;
+mod android;
 mod api;
 mod badges;
 mod clips;
@@ -19,6 +20,7 @@ mod music;
 mod perms;
 mod previews;
 mod push;
+mod fcm;
 mod ratelimit;
 mod security;
 mod snowball;
@@ -120,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
         cfg: cfg.clone(),
     }));
     push::init(&st).context("setting up push notifications")?;
+    fcm::init();
     music::init(&st).await.context("creating the music bot")?;
     steve::init(&st).await.context("creating steve")?;
 
@@ -169,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(watch::routes())
         .merge(previews::routes())
         .merge(push::routes())
+        .merge(fcm::routes())
         .merge(badges::routes())
         .merge(clips::routes())
         .route("/gateway", get(gateway::ws_handler))
@@ -182,6 +186,8 @@ async fn main() -> anyhow::Result<()> {
         .nest("/api", api)
         // REC's shared clips: a plain page anyone with the link can open (clips.rs).
         .merge(clips::page_routes())
+        // The Android app's App Links (android.rs).
+        .merge(android::page_routes())
         // Uploads live under random paths and nameplates rarely change: let browsers keep them, so long lists
         // (member list, nameplate picker) don't fetch every file again.
         .nest_service("/uploads", from_fn(security::upload_headers).layer(cached(ServeDir::new(cfg.uploads_dir()), "public, max-age=604800")))

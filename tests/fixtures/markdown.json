@@ -1,0 +1,173 @@
+{
+ "_about": "Chat markdown cases checked by tests/markdown.test.mjs (web client) and android/core MarkdownTest (Android). Options: userName = \"me\" for 7 (meId) else \"someone\"; role 5 = mods #ff0000; emojiUrl /e/<id>.<gif|png>; channel 42 = geral; time = \"<style>:<unix>\". Time titles are left out (they depend on the locale).",
+ "cases": [
+  {
+   "input": "hello",
+   "html": "hello"
+  },
+  {
+   "input": "**bold** and *it* and _it2_ and __under__ ~~gone~~ ||secret||",
+   "html": "<strong>bold</strong> and <em>it</em> and <em>it2</em> and <u>under</u> <s>gone</s> <span class=\"spoiler\">secret</span>"
+  },
+  {
+   "input": "a\nb",
+   "html": "a<br>b"
+  },
+  {
+   "input": "a\n\nb",
+   "html": "a<br><br>b"
+  },
+  {
+   "input": "> quoted\n> more\nafter",
+   "html": "<blockquote>quoted<br>more</blockquote>after"
+  },
+  {
+   "input": "before\n> q",
+   "html": "before<br><blockquote>q</blockquote>"
+  },
+  {
+   "input": "# Big\n## Mid\n### Small",
+   "html": "<div class=\"md-h1\">Big</div><div class=\"md-h2\">Mid</div><div class=\"md-h3\">Small</div>"
+  },
+  {
+   "input": "- one\n* two\n  - nested",
+   "html": "<div class=\"md-li\">one</div><div class=\"md-li\">two</div><div class=\"md-li\">nested</div>"
+  },
+  {
+   "input": "-# small print",
+   "html": "<div class=\"md-sub\">small print</div>"
+  },
+  {
+   "input": "`code` and ```\nblock\nlines\n```",
+   "html": "<code class=\"md-inline\">code</code> and <pre class=\"md-code\"><code>block\nlines</code></pre>"
+  },
+  {
+   "input": "```js\nconst a = 1 < 2;\n```",
+   "html": "<pre class=\"md-code\"><code>const a = 1 &lt; 2;</code></pre>"
+  },
+  {
+   "input": "see <@123> and <@7>",
+   "html": "see <span class=\"mention\" data-user=\"123\">@someone</span> and <span class=\"mention me\" data-user=\"7\">@me</span>"
+  },
+  {
+   "input": "role <@&5> and <@&9>",
+   "html": "role <span class=\"mention role\" style=\"--role:#ff0000\">@mods</span> and <span class=\"mention role\">@deleted-role</span>"
+  },
+  {
+   "input": "@everyone hi @here",
+   "html": "<span class=\"mention everyone\">@everyone</span> hi <span class=\"mention everyone\">@here</span>"
+  },
+  {
+   "input": "mail@everyone",
+   "html": "mail@everyone"
+  },
+  {
+   "input": "emoji <:blob:42> <a:party:43>",
+   "html": "emoji <img class=\"emoji custom\" src=\"/e/42.png\" alt=\":blob:\" title=\":blob:\" draggable=\"false\"> <img class=\"emoji custom\" src=\"/e/43.gif\" alt=\":party:\" title=\":party:\" draggable=\"false\">"
+  },
+  {
+   "input": "in <#42> and <#99>",
+   "html": "in <span class=\"mention channel\">#geral</span> and <span class=\"mention channel\">#unknown</span>"
+  },
+  {
+   "input": "at <t:1700000000:R> <t:1700000000>",
+   "html": "at <span class=\"md-time\">R:1700000000</span> <span class=\"md-time\">f:1700000000</span>"
+  },
+  {
+   "input": "<t:abc>",
+   "html": "&lt;t:abc&gt;"
+  },
+  {
+   "input": "[Docs](https://example.com/a)",
+   "html": "<a href=\"https://example.com/a\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://example.com/a\">Docs</a>"
+  },
+  {
+   "input": "see [**this**](<https://example.com/a?b=1&c=2>)",
+   "html": "see <a href=\"https://example.com/a?b=1&amp;c=2\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://example.com/a?b=1&amp;c=2\"><strong>this</strong></a>"
+  },
+  {
+   "input": "[x](javascript:alert(1))",
+   "html": "[x](javascript:alert(1))"
+  },
+  {
+   "input": "<https://example.com/x>",
+   "html": "<a href=\"https://example.com/x\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://example.com/x\">https://example.com/x</a>"
+  },
+  {
+   "input": "https://example.com/x.",
+   "html": "<a href=\"https://example.com/x\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://example.com/x\">https://example.com/x</a>."
+  },
+  {
+   "input": "https://example.com/x?a=1&b=\"2\"",
+   "html": "<a href=\"https://example.com/x?a=1&amp;b=&quot;2&quot\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://example.com/x?a=1&amp;b=&quot;2&quot\">https://example.com/x?a=1&amp;b=&quot;2&quot</a>;"
+  },
+  {
+   "input": "\\*not bold\\*",
+   "html": "*not bold*"
+  },
+  {
+   "input": "a\\_b\\_c",
+   "html": "a_b_c"
+  },
+  {
+   "input": "`\\*code\\*`",
+   "html": "<code class=\"md-inline\">\\*code\\*</code>"
+  },
+  {
+   "input": "**Now playing:** [Gerudo Valley](<https://www.youtube.com/watch?v=abc>) `3:09`\n`1.` [Lost Woods \\(Saria's Song\\)](<https://www.youtube.com/watch?v=def>) `3:45`",
+   "html": "<strong>Now playing:</strong> <a href=\"https://www.youtube.com/watch?v=abc\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://www.youtube.com/watch?v=abc\">Gerudo Valley</a> <code class=\"md-inline\">3:09</code><br><code class=\"md-inline\">1.</code> <a href=\"https://www.youtube.com/watch?v=def\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://www.youtube.com/watch?v=def\">Lost Woods (Saria&#39;s Song)</a> <code class=\"md-inline\">3:45</code>"
+  },
+  {
+   "input": "https://a.b/`c`",
+   "html": "<a href=\"https://a.b/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://a.b/\">https://a.b/</a><code class=\"md-inline\">c</code>"
+  },
+  {
+   "input": "https://a.b/[link](<https://x/autofocus/onfocus=alert(1)//>)",
+   "html": "<a href=\"https://a.b/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://a.b/\">https://a.b/</a><a href=\"https://x/autofocus/onfocus=alert(1)//\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://x/autofocus/onfocus=alert(1)//\">link</a>"
+  },
+  {
+   "input": "<https://a.b/\\\" onfocus=alert(1)>",
+   "html": "&lt;<a href=\"https://a.b/\\&quot\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://a.b/\\&quot\">https://a.b/\\&quot</a>; onfocus=alert(1)&gt;"
+  },
+  {
+   "input": "https://a.b/<@1>",
+   "html": "<a href=\"https://a.b/\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://a.b/\">https://a.b/</a><span class=\"mention\" data-user=\"1\">@someone</span>"
+  },
+  {
+   "input": "x < y > z & \"q\" 's",
+   "html": "x &lt; y &gt; z &amp; &quot;q&quot; &#39;s"
+  },
+  {
+   "input": "**a *b** c*",
+   "html": "<strong>a <em>b</strong> c</em>"
+  },
+  {
+   "input": "snake_case_name and 2*3*4",
+   "html": "snake_case_name and 2*3*4"
+  },
+  {
+   "input": "***both***",
+   "html": "<strong><em>both</strong></em>"
+  },
+  {
+   "input": "|| spoiler with **bold** ||",
+   "html": "<span class=\"spoiler\"> spoiler with <strong>bold</strong> </span>"
+  },
+  {
+   "input": "> **quoted bold** with <@123>",
+   "html": "<blockquote><strong>quoted bold</strong> with <span class=\"mention\" data-user=\"123\">@someone</span></blockquote>"
+  },
+  {
+   "input": "[link with `code`](https://e.com)",
+   "html": "<a href=\"https://e.com\" target=\"_blank\" rel=\"noopener noreferrer\" title=\"https://e.com\">link with <code class=\"md-inline\">code</code></a>"
+  },
+  {
+   "input": "trailing\n",
+   "html": "trailing<br>"
+  },
+  {
+   "input": "\u0000 sneaky \u0000",
+   "html": " sneaky "
+  }
+ ]
+}

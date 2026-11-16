@@ -1412,7 +1412,12 @@ function timeAgo(date: string): string {
 
 function SessionRow(p: { session: Session; onEnd: () => void }) {
   const device = () => describeDevice(p.session.client, p.session.user_agent);
-  const name = () => (device().app ? t('Linkord app') : (device().browser ?? t('Unknown device')));
+  const name = () =>
+    device().app
+      ? p.session.client === 'android'
+        ? t('Linkord for Android')
+        : t('Linkord app')
+      : (device().browser ?? t('Unknown device'));
   const lastUsed = () => {
     if (p.session.current || p.session.online) return t('Active now');
     return t('Last active {when}', { when: timeAgo(p.session.last_seen_at ?? p.session.created_at) });

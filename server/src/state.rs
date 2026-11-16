@@ -18,7 +18,8 @@ pub struct PendingLogin {
     pub created: Instant,
 }
 
-/// Where a desktop sign-in ends: the local address of the app that started it.
+/// Where an app sign-in ends: the local address of the desktop app that started it, or the Android app (auth.rs
+/// ANDROID_PORT / ANDROID_DEV_PORT).
 pub struct DesktopLogin {
     pub port: u16,
     pub state: String,

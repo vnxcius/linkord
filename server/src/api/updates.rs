@@ -3,7 +3,9 @@
 //! `app/publish-linux.sh` adds the signed Linux packages and `linux.json`; Linux apps get both as one static
 //! manifest (`linux-x86_64-deb` / `-rpm`) and the updater picks the one it was installed from. /api/downloads
 //! lists what the web client's download page offers. `changelog.json` (newest first, appended by publish-windows.sh)
-//! feeds the patch notes page.
+//! feeds the patch notes page. `android/publish.sh` writes the Android app's APK and `android.json` (version, version_code,
+//! sha256); Android apps ask /api/updates/android/<abi>/<their version code>, download the APK and check its sha256
+//! before installing (Android itself checks it's signed with the same key).
 //!
 //! Releases reach apps at once (owner, 2026-11-12): `watch` notices a new version in latest.json / linux.json and
 //! sends APP_UPDATE {version} to everyone connected; desktop apps check the feed then and show the banner. Apps also
@@ -50,6 +52,9 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
 async fn check(State(st): State<AppState>, base: PublicBase, Path((target, arch, current)): Path<(String, String, String)>) -> Response {
     if target == "linux" {
         return check_linux(&st, &base, &arch, &current).await;
+    }
+    if target == "android" {
+        return check_android(&st, &base, &arch, &current).await;
     }
     let Ok(raw) = tokio::fs::read(st.cfg.data_dir.join("updates/latest.json")).await else {
         return StatusCode::NO_CONTENT.into_response();
@@ -107,6 +112,44 @@ async fn check_linux(st: &AppState, base: &PublicBase, arch: &str, current: &str
     Json(out).into_response()
 }
 
+/// The Android app's release (android.json, written by android/publish.sh): arm64 only.
+#[derive(Deserialize)]
+struct AndroidRelease {
+    version: String,
+    version_code: u64,
+    #[serde(default)]
+    notes: String,
+    #[serde(default)]
+    pub_date: Option<String>,
+    file: String,
+    sha256: String,
+}
+
+async fn android_release(st: &AppState) -> Option<AndroidRelease> {
+    let raw = tokio::fs::read(st.cfg.data_dir.join("updates/android.json")).await.ok()?;
+    serde_json::from_slice(&raw).inspect_err(|_| tracing::warn!("updates/android.json is malformed")).ok()
+}
+
+/// `current` is the installed app's version code (increasing with every release, unlike the version name).
+async fn check_android(st: &AppState, base: &PublicBase, abi: &str, current: &str) -> Response {
+    let Some(r) = android_release(st).await else { return StatusCode::NO_CONTENT.into_response() };
+    let newer = current.parse::<u64>().is_ok_and(|c| r.version_code > c);
+    if !newer || abi != "arm64-v8a" {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    let size = tokio::fs::metadata(st.cfg.data_dir.join("updates").join(&r.file)).await.ok().map(|m| m.len());
+    Json(json!({
+        "version": r.version,
+        "version_code": r.version_code,
+        "notes": r.notes,
+        "pub_date": r.pub_date,
+        "url": format!("{base}/api/updates/download/{}", urlencoding::encode(&r.file)),
+        "sha256": r.sha256,
+        "size": size,
+    }))
+    .into_response()
+}
+
 /// Latest installers per platform, for the web client's download page: version, link, size, release date and
 /// notes. Missing ones are omitted.
 async fn downloads(State(st): State<AppState>, base: PublicBase) -> Json<serde_json::Value> {
@@ -132,6 +175,9 @@ async fn downloads(State(st): State<AppState>, base: PublicBase) -> Json<serde_j
                 out.insert(kind.into(), entry(file, &linux.version, &linux.notes, linux.pub_date.as_deref()).await);
             }
         }
+    }
+    if let Some(r) = android_release(&st).await {
+        out.insert("android".into(), entry(&r.file, &r.version, &r.notes, r.pub_date.as_deref()).await);
     }
     Json(out.into())
 }
@@ -164,10 +210,10 @@ async fn changelog(State(st): State<AppState>) -> Json<Vec<Release>> {
 }
 
 /// The versions the feeds offer now ("" when a feed is missing or being written).
-async fn feed_versions(st: &AppState) -> [String; 2] {
+async fn feed_versions(st: &AppState) -> [String; 3] {
     let dir = st.cfg.data_dir.join("updates");
-    let mut out = [String::new(), String::new()];
-    for (i, name) in ["latest.json", "linux.json"].iter().enumerate() {
+    let mut out = [String::new(), String::new(), String::new()];
+    for (i, name) in ["latest.json", "linux.json", "android.json"].iter().enumerate() {
         if let Ok(raw) = tokio::fs::read(dir.join(name)).await {
             if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) {
                 out[i] = v["version"].as_str().unwrap_or_default().to_string();
@@ -183,14 +229,14 @@ pub async fn watch(st: AppState) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let now = feed_versions(&st).await;
-        for i in 0..2 {
+        for i in 0..3 {
             // A feed caught mid-write reads as "": wait for it to be whole rather than announce nothing.
             if now[i].is_empty() || now[i] == last[i] {
                 continue;
             }
             let users = st.hub.users();
             tracing::info!(version = %now[i], feed = i, users = users.len(), "updates: new release, telling every app");
-            st.hub.send(&users, "APP_UPDATE", &json!({ "version": now[i], "linux": i == 1 }));
+            st.hub.send(&users, "APP_UPDATE", &json!({ "version": now[i], "linux": i == 1, "android": i == 2 }));
             last[i] = now[i].clone();
         }
     }

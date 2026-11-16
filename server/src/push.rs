@@ -132,8 +132,13 @@ fn allowed_endpoint(endpoint: &str) -> bool {
 }
 
 async fn subscribe(State(st): State<AppState>, AuthUser(me): AuthUser, headers: HeaderMap, Json(b): Json<Subscribe>) -> ApiResult<StatusCode> {
-    if b.endpoint.len() > 1024 || !allowed_endpoint(&b.endpoint) {
-        return Err(bad("this browser's push service isn't supported"));
+    // The Android app (fcm.rs): `fcm:<registration token>`, when this server has FCM set up.
+    let android = b.endpoint.strip_prefix(crate::fcm::PREFIX).map(|t| crate::fcm::enabled() && crate::fcm::valid_token(t));
+    match android {
+        Some(true) => {}
+        Some(false) => return Err(bad("this browser's push service isn't supported")),
+        None if b.endpoint.len() > 1024 || !allowed_endpoint(&b.endpoint) => return Err(bad("this browser's push service isn't supported")),
+        None => {}
     }
     let p256dh = B64.decode(b.keys.p256dh.trim_end_matches('=')).map_err(|_| bad("bad subscription keys"))?;
     let auth = B64.decode(b.keys.auth.trim_end_matches('=')).map_err(|_| bad("bad subscription keys"))?;
@@ -366,7 +371,7 @@ async fn message_pushes(st: &AppState, ch: &Channel, msg: &Message, audience: &[
     if reach.is_empty() {
         return Ok(());
     }
-    let (title, body, icon, url) = describe(st, ch, msg).await?;
+    let Described { title, body, icon, url, author, conversation } = describe(st, ch, msg).await?;
     for (user, mentioned) in reach {
         for s in subs.iter().filter(|s| s.user_id == user) {
             let body = if body.is_empty() {
@@ -374,7 +379,11 @@ async fn message_pushes(st: &AppState, ch: &Channel, msg: &Message, audience: &[
             } else {
                 body.clone()
             };
-            let payload = json!({ "title": title, "body": body, "icon": icon, "tag": ch.id, "url": url, "channel_id": ch.id, "message_id": msg.id });
+            // author / author_id / conversation: the Android app stacks a conversation's messages (MessagingStyle).
+            let payload = json!({
+                "title": title, "body": body, "icon": icon, "tag": ch.id, "url": url, "channel_id": ch.id, "message_id": msg.id,
+                "mentioned": mentioned, "private": private, "author": author, "author_id": msg.author.id, "conversation": conversation,
+            });
             send(st, s, &payload, MESSAGE_TTL, if mentioned { "high" } else { "normal" }, Some(&ch.id.to_string())).await;
         }
     }
@@ -414,15 +423,26 @@ fn mention_ids(content: &str, prefix: &str) -> Vec<Id> {
 }
 
 /// Title, text (mentions and emoji written out), icon and where a click goes.
-async fn describe(st: &AppState, ch: &Channel, msg: &Message) -> ApiResult<(String, String, String, String)> {
+struct Described {
+    title: String,
+    body: String,
+    icon: String,
+    url: String,
+    /// Who wrote it, as the app calls them there.
+    author: String,
+    /// Where, for a notification that holds several people: "#general · Server", a group DM's name; none for a DM.
+    conversation: Option<String>,
+}
+
+async fn describe(st: &AppState, ch: &Channel, msg: &Message) -> ApiResult<Described> {
     let author = name_in(st, msg.author.id, ch.guild_id).await;
-    let title = match ch.guild_id {
+    let (title, conversation) = match ch.guild_id {
         Some(g) => {
             let server: String = sqlx::query_scalar("SELECT name FROM guilds WHERE id = $1").bind(g).fetch_optional(&st.db).await?.unwrap_or_default();
-            format!("{author} (#{}, {server})", ch.name)
+            (format!("{author} (#{}, {server})", ch.name), Some(format!("#{} · {server}", ch.name)))
         }
-        None if ch.kind == kind::GROUP_DM && !ch.name.is_empty() => format!("{author} ({})", ch.name),
-        None => author,
+        None if ch.kind == kind::GROUP_DM && !ch.name.is_empty() => (format!("{author} ({})", ch.name), Some(ch.name.clone())),
+        None => (author.clone(), None),
     };
     let mut body = msg.content.clone();
     for id in mention_ids(&msg.content, "<@") {
@@ -440,7 +460,7 @@ async fn describe(st: &AppState, ch: &Channel, msg: &Message) -> ApiResult<(Stri
     let body: String = body.trim().chars().take(BODY_CHARS).collect();
     let icon = msg.author.avatar.clone().unwrap_or_else(|| "/icon.png".into());
     let url = format!("/channels/{}/{}", ch.guild_id.map_or("@me".to_string(), |g| g.to_string()), ch.id);
-    Ok((title, body, icon, url))
+    Ok(Described { title, body, icon, url, author, conversation })
 }
 
 /// `<:name:123>` / `<a:name:123>` -> `:name:`.
@@ -501,6 +521,22 @@ async fn send(st: &AppState, s: &Sub, payload: &Value, ttl: u32, urgency: &str, 
         tracing::warn!(user = %s.user_id, "push: couldn't encrypt for a subscription");
         return false;
     };
+    // The Android app: the same sealed notification, carried by FCM.
+    if let Some(token) = s.endpoint.strip_prefix(crate::fcm::PREFIX) {
+        return match crate::fcm::send(st, token, &body, ttl, urgency == "high").await {
+            crate::fcm::Sent::Ok => {
+                tracing::info!(user = %s.user_id, service = "fcm", "push: sent");
+                let _ = sqlx::query("UPDATE push_subscriptions SET last_ok_at = now() WHERE endpoint = $1").bind(&s.endpoint).execute(&st.db).await;
+                true
+            }
+            crate::fcm::Sent::Gone => {
+                tracing::info!(user = %s.user_id, "push: subscription expired, removed");
+                let _ = sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = $1").bind(&s.endpoint).execute(&st.db).await;
+                false
+            }
+            crate::fcm::Sent::Failed => false,
+        };
+    }
     let Ok(url) = reqwest::Url::parse(&s.endpoint) else { return false };
     let audience = url.origin().ascii_serialization();
     let jwt = vapid_jwt(vapid, &audience, &st.cfg.public_url);
@@ -545,6 +581,9 @@ async fn send(st: &AppState, s: &Sub, payload: &Value, ttl: u32, urgency: &str, 
 
 /// Which push service an endpoint is at (its host), for logs: never the endpoint itself, which works like a password.
 fn service_of(endpoint: &str) -> String {
+    if endpoint.starts_with(crate::fcm::PREFIX) {
+        return "fcm".into();
+    }
     reqwest::Url::parse(endpoint).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default()
 }
 

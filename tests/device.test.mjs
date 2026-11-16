@@ -31,6 +31,11 @@ test('the desktop app is the app, not the Edge it runs on', () => {
   assert.deepEqual(describeDevice('desktop', EDGE), { app: true, browser: null, os: 'Windows', mobile: false });
 });
 
+test('the Android app is an app on a phone', () => {
+  const ua = 'Linkord/0.1.0 (Android 16; Pixel 8)';
+  assert.deepEqual(describeDevice('android', ua), { app: true, browser: null, os: 'Android', mobile: true });
+});
+
 test('a login that never connected says nothing', () => {
   assert.deepEqual(describeDevice(null, null), { app: false, browser: null, os: null, mobile: false });
 });

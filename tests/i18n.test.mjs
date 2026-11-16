@@ -13,7 +13,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 function files(dir, ext) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
     const p = join(dir, d.name);
-    if (d.isDirectory()) return d.name === 'locales' ? [] : files(p, ext);
+    if (d.isDirectory()) return ['locales', 'build', '.gradle', 'node_modules'].includes(d.name) ? [] : files(p, ext);
     return ext.some((e) => d.name.endsWith(e)) ? [p] : [];
   });
 }
@@ -34,7 +34,8 @@ export function extractKeys(src) {
         while (src[j] !== c) j += src[j] === '\\' ? 2 : 1;
         const lit = src.slice(i, j + 1);
         const after = src.slice(j + 1).trimStart();
-        if (depth === 0 && '(?:,'.includes(prev) && !/^(===|!==|\?)/.test(after) && !(c === '`' && lit.includes('${'))) {
+        // `"name" to value` is a Kotlin placeholder value (android/), not a key.
+        if (depth === 0 && '(?:,'.includes(prev) && !/^(===|!==|\?|to\b)/.test(after) && !(c === '`' && lit.includes('${'))) {
           keys.push(Function(`return ${lit}`)());
         }
         prev = 'x';
@@ -55,6 +56,10 @@ export function extractKeys(src) {
 
 const used = new Map();
 for (const f of files(join(root, 'app/src'), ['.ts', '.tsx'])) {
+  for (const k of extractKeys(readFileSync(f, 'utf8'))) used.set(k, f.slice(root.length));
+}
+// The Android app shares the dictionary: t("...") / plural(n, "...", "...") in its Kotlin.
+for (const f of files(join(root, 'android'), ['.kt'])) {
   for (const k of extractKeys(readFileSync(f, 'utf8'))) used.set(k, f.slice(root.length));
 }
 const placeholders = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort().join();

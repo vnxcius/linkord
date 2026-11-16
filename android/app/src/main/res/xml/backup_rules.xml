@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The session token is encrypted with a Keystore key that never leaves this phone: a restored copy is useless, so
+     it isn't backed up at all. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="linkord.vault.xml" />
+    <exclude domain="sharedpref" path="linkord.signin.xml" />
+</full-backup-content>

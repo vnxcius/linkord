@@ -613,7 +613,7 @@ async fn run(st: AppState, mut socket: WebSocket, agent: Option<String>) {
     };
     // Only these two, so a client can't write whatever it likes into its sessions list.
     let client = match &op {
-        ClientOp::Identify { client, .. } | ClientOp::Resume { client, .. } => client.as_deref().filter(|c| matches!(*c, "desktop" | "web")),
+        ClientOp::Identify { client, .. } | ClientOp::Resume { client, .. } => client.as_deref().filter(|c| matches!(*c, "desktop" | "web" | "android")),
     };
     let user_id = match auth::user_from_token(&st, &token).await {
         Ok(Some(u)) => u,

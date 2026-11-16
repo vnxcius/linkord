@@ -153,7 +153,9 @@ function handle(t: string, d: any) {
       void import('./desktop').then((m) => m.checkForUpdates());
       return onReady(d as Ready);
     case 'APP_UPDATE':
-      // A release just went out: the banner shows now, not at the next periodic check.
+      // A release just went out: the banner shows now, not at the next periodic check. Android releases are the
+      // Android app's business.
+      if (d.android) return;
       return void import('./desktop').then((m) => m.checkForUpdates(d.version));
     case 'RESUMED':
       retry = 0;

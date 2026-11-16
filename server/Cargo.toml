@@ -43,6 +43,8 @@ imagesize = "0.15.0"
 p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 hkdf = "0.12"
 aes-gcm = "0.10"
+# FCM (fcm.rs): the service account signs its token requests with RS256.
+rsa = { version = "0.9", features = ["sha2", "pem"] }
 
 [profile.release]
 lto = "thin"

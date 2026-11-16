@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="linkord.vault.xml" />
+        <exclude domain="sharedpref" path="linkord.signin.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="linkord.vault.xml" />
+        <exclude domain="sharedpref" path="linkord.signin.xml" />
+    </device-transfer>
+</data-extraction-rules>

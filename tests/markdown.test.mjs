@@ -73,3 +73,21 @@ test("Discord's extras in bot cards: <t:…>, -# subtext and <#channel>", () => 
   // Not a timestamp: left as text.
   assert.equal(render('<t:abc>'), '&lt;t:abc&gt;');
 });
+
+// Shared with the Android app (android/core MarkdownTest): both renderers must give exactly this HTML.
+test('shared fixtures (tests/fixtures/markdown.json)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { cases } = JSON.parse(readFileSync(new URL('./fixtures/markdown.json', import.meta.url), 'utf8'));
+  const opts = {
+    userName: (id) => (id === '7' ? 'me' : 'someone'),
+    meId: '7',
+    role: (id) => (id === '5' ? { name: 'mods', color: '#ff0000' } : undefined),
+    emojiUrl: (id, a) => `/e/${id}.${a ? 'gif' : 'png'}`,
+    channelName: (id) => (id === '42' ? 'geral' : undefined),
+    time: (unix, style) => `${style}:${unix}`,
+  };
+  for (const c of cases) {
+    const html = renderMarkdown(c.input, opts).replace(/<span class="md-time" title="[^"]*">/g, '<span class="md-time">');
+    assert.equal(html, c.html, JSON.stringify(c.input));
+  }
+});
