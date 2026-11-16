@@ -69,6 +69,7 @@ import com.linkord.core.State
 import com.linkord.core.memberRoles
 import com.linkord.core.nameOf
 import com.linkord.core.presenceOf
+import com.linkord.core.memberGroups
 import com.linkord.core.t
 import com.linkord.designsystem.Linkord
 import com.linkord.designsystem.LinkordIcons
@@ -189,14 +190,17 @@ fun MembersPane(channelId: String) {
     val ch = st.channels[channelId] ?: return
     val people = if (ch.guildId != null) st.members[ch.guildId]?.keys?.mapNotNull { st.users[it] } ?: emptyList()
     else ch.recipients?.map { st.users[it.id] ?: it } ?: emptyList()
-    val online = people.filter { st.presenceOf(it.id) != "offline" }.sortedBy { st.nameOf(it.id, ch.guildId, "").lowercase() }
-    val offline = people.filter { st.presenceOf(it.id) == "offline" }.sortedBy { st.nameOf(it.id, ch.guildId, "").lowercase() }
+    // Hoisted roles get their own group, like on the web (core memberGroups).
+    val byId = people.associateBy { it.id }
+    val groups = st.memberGroups(ch.guildId, byId.keys)
     LazyColumn(Modifier.fillMaxSize().background(c.panel).statusBarsPadding(), contentPadding = PaddingValues(vertical = 12.dp)) {
         item { Text(if (ch.guildId != null) t("People") else st.channels[channelId]?.let { if (it.kind == Kind.GROUP_DM) t("Members") else t("People") } ?: "", style = Linkord.type.title, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-        for ((title, list) in listOf(t("Online") to online, t("Offline") to offline)) {
+        for (g in groups) {
+            val list = g.ids.mapNotNull { byId[it] }
             if (list.isEmpty()) continue
-            item { Kicker("$title — ${list.size}", Modifier.padding(start = 16.dp, top = 12.dp, bottom = 6.dp)) }
-            items(list, key = { title + it.id }) { u ->
+            val title = g.title
+            item(key = "group-" + (g.roleId ?: title)) { Kicker("$title — ${list.size}", Modifier.padding(start = 16.dp, top = 12.dp, bottom = 6.dp)) }
+            items(list, key = { (g.roleId ?: title) + it.id }) { u ->
                 Row(
                     Modifier.fillMaxWidth().clickable { nav.push(Screen.Profile(u.id, ch.guildId)) }.padding(horizontal = 16.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,

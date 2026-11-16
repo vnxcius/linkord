@@ -595,6 +595,35 @@ fun State.memberRoles(guildId: String, userId: String): List<Role> {
     return (members[guildId]?.get(userId)?.roles ?: emptyList()).mapNotNull { rs[it] }.sortedByDescending { it.position }
 }
 
+/** A heading in the member list and who's under it. */
+data class MemberGroup(val title: String, val ids: List<String>, val roleId: String? = null)
+
+/**
+ * The member list, like the web's (Members.tsx): online members under their highest hoisted role ("Display role
+ * members separately"), highest role first, then the other online members, then everyone offline. [ids] are the
+ * people to list; names sort within each group.
+ */
+fun State.memberGroups(guildId: String?, ids: Collection<String>): List<MemberGroup> {
+    val sorted = ids.sortedBy { nameOf(it, guildId, "").lowercase() }
+    val out = ArrayList<MemberGroup>()
+    val placed = HashSet<String>()
+    if (guildId != null) {
+        val hoisted = roles[guildId]?.values.orEmpty().filter { it.hoist && it.id != guildId }.sortedByDescending { it.position }
+        for (role in hoisted) {
+            val inRole = sorted.filter { id ->
+                id !in placed && presenceOf(id) != "offline" && memberRoles(guildId, id).firstOrNull { it.hoist }?.id == role.id
+            }
+            placed += inRole
+            if (inRole.isNotEmpty()) out += MemberGroup(role.name, inRole, role.id)
+        }
+    }
+    val online = sorted.filter { it !in placed && presenceOf(it) != "offline" }
+    val offline = sorted.filter { presenceOf(it) == "offline" }
+    if (online.isNotEmpty()) out += MemberGroup(t("Online"), online)
+    if (offline.isNotEmpty()) out += MemberGroup(t("Offline"), offline)
+    return out
+}
+
 /** Name colour (0xRRGGBB) from the member's highest coloured role. */
 fun State.nameColor(guildId: String?, userId: String): Int? =
     guildId?.let { g -> memberRoles(g, userId).firstOrNull { (it.color ?: 0) != 0 }?.color }
