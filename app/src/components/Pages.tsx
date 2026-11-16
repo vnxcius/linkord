@@ -185,23 +185,9 @@ const REC_POINTS = [
 
 /** What the Android app is about, beside the phone. */
 const MOBILE_POINTS = [
-  {
-    icon: I.Phone,
-    text: msg('Calls ring like phone calls, even with the app closed, and you can answer from the lock screen.'),
-  },
-  {
-    icon: I.Bell,
-    text: msg(
-      "Notifications arrive sealed, so Google only carries text it can't read. Reply or mark as read right from them.",
-    ),
-  },
-  { icon: I.Mic, text: msg('Voice messages: hold to record, slide to cancel, lock to keep talking.') },
-  {
-    icon: I.Tv,
-    text: msg(
-      'Join voice, watch streams and videos together, and keep the call in a small window when you leave the app.',
-    ),
-  },
+  { icon: I.Phone, text: msg('Calls ring like a phone call, even with the app closed.') },
+  { icon: I.Mic, text: msg('Voice messages: hold to record, slide to cancel.') },
+  { icon: I.Tv, text: msg('Watch streams and videos with your friends.') },
 ];
 
 const onAndroid = /Android/.test(ua);
@@ -509,8 +495,7 @@ function MobileSection(p: { android?: Download }) {
     <section class="dl-mobile" id="mobile">
       <div class="dl-mobile-text">
         <p class="showcase-kicker">{t('Linkord for Android')}</p>
-        <h2>{t('Linkord in your pocket')}</h2>
-        <p class="dl-lead">{t('A native app made for one hand, not a website in a frame.')}</p>
+        <h2>{t('Linkord on your phone')}</h2>
         <ul class="dl-rec-points">
           <For each={MOBILE_POINTS}>
             {(p) => (
@@ -525,9 +510,7 @@ function MobileSection(p: { android?: Download }) {
           <Show
             when={p.android}
             fallback={
-              <p class="muted">
-                {t("The Android app is almost here. Until then, Linkord works in your phone's browser.")}
-              </p>
+              <p class="muted">{t("The Android app is coming soon. Linkord already works in your phone's browser.")}</p>
             }
           >
             {(a) => (
@@ -538,16 +521,12 @@ function MobileSection(p: { android?: Download }) {
                 </a>
                 <span class="dl-meta">{meta(a(), 'Android 10+')}</span>
                 <Show when={!onAndroid}>
-                  <p class="dl-fine">
-                    {t('On your computer? Open linkord.app on your Android phone and download it there.')}
-                  </p>
+                  <p class="dl-fine">{t('On a computer? Open this page on your phone.')}</p>
                 </Show>
               </>
             )}
           </Show>
-          <p class="dl-fine">
-            {t('On iPhone there is no app yet: in Safari, add Linkord to your Home Screen to get notifications.')}
-          </p>
+          <p class="dl-fine">{t('No iPhone app yet. In Safari, add Linkord to your Home Screen.')}</p>
         </div>
       </div>
       <div class="dl-mobile-phone">
@@ -556,16 +535,16 @@ function MobileSection(p: { android?: Download }) {
       <Show when={p.android}>
         <ol class="dl-steps dl-mobile-steps">
           <li>
-            <strong>{t('Download it on your phone')}</strong>
-            <p>{t('Tap Download for Android on this page, on the phone itself.')}</p>
+            <strong>{t('Download')}</strong>
+            <p>{t('Open this page on your phone and tap Download for Android.')}</p>
           </li>
           <li>
-            <strong>{t('Allow the install')}</strong>
-            <p>{t('Android asks once to let your browser install apps. Allow it, then tap Install.')}</p>
+            <strong>{t('Install')}</strong>
+            <p>{t('Let your browser install apps when Android asks.')}</p>
           </li>
           <li>
             <strong>{t('Sign in with Discord')}</strong>
-            <p>{t('Open Linkord and sign in. New versions install from inside the app.')}</p>
+            <p>{t('Updates install from inside the app.')}</p>
           </li>
         </ol>
       </Show>

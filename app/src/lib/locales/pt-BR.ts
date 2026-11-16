@@ -458,30 +458,19 @@ export const UI: Record<string, string> = {
   'is calling you': 'está te ligando',
   'anyone up for a match tonight?': 'alguém topa uma partida hoje à noite?',
   "I'm in, calling you now": 'tô dentro, te ligando agora',
-  'Calls ring like phone calls, even with the app closed, and you can answer from the lock screen.':
-    'As chamadas tocam como ligações do celular, mesmo com o app fechado, e dá para atender na tela de bloqueio.',
-  "Notifications arrive sealed, so Google only carries text it can't read. Reply or mark as read right from them.":
-    'As notificações chegam lacradas, então o Google só transporta um texto que não consegue ler. Responda ou marque como lida direto nelas.',
-  'Voice messages: hold to record, slide to cancel, lock to keep talking.':
-    'Mensagens de voz: segure para gravar, deslize para cancelar, trave para continuar falando.',
-  'Join voice, watch streams and videos together, and keep the call in a small window when you leave the app.':
-    'Entre na call, assista transmissões e vídeos juntos, e mantenha a chamada numa janelinha quando sair do app.',
-  'Linkord in your pocket': 'O Linkord no seu bolso',
-  'A native app made for one hand, not a website in a frame.': 'Um app nativo feito para usar com uma mão, não um site dentro de uma moldura.',
-  "The Android app is almost here. Until then, Linkord works in your phone's browser.":
-    'O app para Android está quase pronto. Até lá, o Linkord funciona no navegador do celular.',
   'Download for Android': 'Baixar para Android',
-  'On your computer? Open linkord.app on your Android phone and download it there.':
-    'Está no computador? Abra linkord.app no seu celular Android e baixe por lá.',
-  'On iPhone there is no app yet: in Safari, add Linkord to your Home Screen to get notifications.':
-    'No iPhone ainda não há app: no Safari, adicione o Linkord à Tela de Início para receber notificações.',
-  'Download it on your phone': 'Baixe no celular',
-  'Tap Download for Android on this page, on the phone itself.': 'Toque em Baixar para Android nesta página, no próprio celular.',
-  'Allow the install': 'Permita a instalação',
-  'Android asks once to let your browser install apps. Allow it, then tap Install.':
-    'O Android pergunta uma vez se o navegador pode instalar apps. Permita e toque em Instalar.',
-  'Open Linkord and sign in. New versions install from inside the app.':
-    'Abra o Linkord e entre. As novas versões são instaladas de dentro do app.',
+  Install: 'Instalar',
+  'Calls ring like a phone call, even with the app closed.': 'As chamadas tocam como uma ligação, mesmo com o app fechado.',
+  'Voice messages: hold to record, slide to cancel.': 'Mensagens de voz: segure para gravar, deslize para cancelar.',
+  'Watch streams and videos with your friends.': 'Assista transmissões e vídeos com seus amigos.',
+  'Linkord on your phone': 'O Linkord no celular',
+  "The Android app is coming soon. Linkord already works in your phone's browser.":
+    'O app para Android chega em breve. O Linkord já funciona no navegador do celular.',
+  'On a computer? Open this page on your phone.': 'No computador? Abra esta página no celular.',
+  'No iPhone app yet. In Safari, add Linkord to your Home Screen.': 'Ainda não há app para iPhone. No Safari, adicione o Linkord à Tela de Início.',
+  'Open this page on your phone and tap Download for Android.': 'Abra esta página no celular e toque em Baixar para Android.',
+  'Let your browser install apps when Android asks.': 'Deixe o navegador instalar apps quando o Android pedir.',
+  'Updates install from inside the app.': 'As atualizações são instaladas de dentro do app.',
   "Your reply couldn't be sent.": 'Não foi possível enviar sua resposta.',
   'Emoji and sounds are managed in the desktop or web app.': 'Emojis e sons são gerenciados no app para computador ou na web.',
   'All photos and videos': 'Todas as fotos e vídeos',
