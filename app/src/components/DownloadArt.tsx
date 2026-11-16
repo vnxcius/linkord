@@ -144,3 +144,77 @@ export function DesktopMock() {
     </div>
   );
 }
+
+/**
+ * The Android app on a phone, for the download page's mobile section: a chat with a voice message, and an incoming
+ * call ringing over it the way the app's call notification does. Same tokens and em stage as DesktopMock (here
+ * 100 x 205 em), made-up people. aria-hidden: the section's text says it in words.
+ */
+export function PhoneMock() {
+  const bars = [3, 6, 9, 5, 8, 12, 7, 4, 9, 11, 6, 3, 7, 10, 5, 8, 4, 6, 9, 5];
+  return (
+    <div class="mk-phone" aria-hidden="true">
+      <div class="mkp-screen">
+        <div class="mkp-status">
+          <span>9:41</span>
+          <span class="mkp-notch" />
+          <I.SignalGood size={10} />
+        </div>
+        <div class="mkp-call">
+          <Face name="ana" tone={1} />
+          <div class="mkp-call-text">
+            <strong>ana</strong>
+            <span>{t('is calling you')}</span>
+          </div>
+          <span class="mkp-btn decline">
+            <I.Hangup size={12} />
+          </span>
+          <span class="mkp-btn answer">
+            <I.Phone size={12} />
+          </span>
+        </div>
+        <div class="mkp-head">
+          <I.Back size={12} />
+          <div>
+            <small>No. 01 · Lost Woods</small>
+            <strong>general</strong>
+          </div>
+        </div>
+        <div class="mkp-chat">
+          <div class="mkp-msg">
+            <Face name="theo" tone={2} />
+            <div>
+              <b>theo</b>
+              <p>{t('anyone up for a match tonight?')}</p>
+            </div>
+          </div>
+          <div class="mkp-msg">
+            <Face name="bia" tone={3} />
+            <div>
+              <b>bia</b>
+              <div class="mkp-voice">
+                <span class="mkp-play">
+                  <I.Play size={10} />
+                </span>
+                <For each={bars}>{(h) => <i style={{ height: `${h * 0.45}em` }} />}</For>
+                <small>0:07</small>
+              </div>
+            </div>
+          </div>
+          <div class="mkp-msg">
+            <Face name="ana" tone={1} />
+            <div>
+              <b>ana</b>
+              <p>{t("I'm in, calling you now")}</p>
+            </div>
+          </div>
+        </div>
+        <div class="mkp-composer">
+          <I.Plus size={12} />
+          <span>{t('Message {name}', { name: '#general' })}</span>
+          <I.Mic size={12} />
+        </div>
+      </div>
+    </div>
+  );
+}

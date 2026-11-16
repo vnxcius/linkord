@@ -821,7 +821,8 @@ test('games: detectable list for the desktop app; "Playing" reaches friends with
   }
 });
 
-test('custom status: friends see emoji + text, your own sessions get it, it survives in READY, clears itself when it expires', async () => {
+// Its own time limit: the expiry sweep runs every 15 s, so waiting for it alone can take most of the default 20 s.
+test('custom status: friends see emoji + text, your own sessions get it, it survives in READY, clears itself when it expires', { timeout: 45_000 }, async () => {
   const me = await login('statusy');
   const pal = await login('statuspal');
   await ok(me.token, 'POST', '/users/@me/relationships', { username: pal.username });

@@ -3388,10 +3388,68 @@ body:has(.incoming-call) .league-prompts { top: 330px; }
 .settings-link { padding: 0; color: var(--text-2); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .settings-link:hover { color: var(--brand); }
 
+/* Linkord for Android: the pitch and the download beside a phone, then the install steps. */
+.dl-mobile {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 40px 56px; align-items: center;
+  margin-top: 96px; padding: 48px; border-radius: 20px; background: var(--bg-1); border: 1px solid var(--line);
+}
+.dl-mobile h2 { font: 400 44px/1.05 var(--font-display); margin: 12px 0 14px; }
+.dl-mobile .dl-lead { margin-bottom: 24px; }
+.dl-mobile-get { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 28px; }
+.dl-mobile-get a.btn { text-decoration: none; }
+.dl-mobile-get .dl-fine { margin: 6px 0 0; }
+.dl-mobile-get .muted { margin: 0; }
+.dl-mobile-phone { container-type: inline-size; width: 100%; max-width: 280px; justify-self: center; }
+.dl-mobile-steps { grid-column: 1 / -1; }
+
+/* The phone (PhoneMock): 1em = 1% of its width, so it scales with its column. */
+.mk-phone {
+  font-size: calc(100cqw / 100); width: 100%; aspect-ratio: 100 / 205; box-sizing: border-box; padding: 3em;
+  border-radius: 14em; background: var(--bg-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow); user-select: none;
+}
+.mkp-screen { position: relative; height: 100%; border-radius: 11em; background: var(--bg-0); overflow: hidden; display: flex; flex-direction: column; color: var(--text); }
+.mkp-status { display: flex; align-items: center; justify-content: space-between; padding: 4em 9em 2em; color: var(--text-2); }
+.mkp-status > span:first-child { font: 600 4.2em var(--font); }
+.mkp-status svg { width: 4.5em; height: 4.5em; }
+.mkp-notch { width: 22em; height: 6.5em; border-radius: 4em; background: var(--bg-3); }
+.mkp-head { display: flex; align-items: center; gap: 4em; margin-top: 26em; padding: 4em 6em; border-bottom: 1px solid var(--line); }
+.mkp-head > svg { width: 5em; height: 5em; color: var(--text-2); }
+.mkp-head small { display: block; font: 400 3.1em var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.mkp-head strong { display: block; font: 400 7.5em/1.1 var(--font-display); }
+.mkp-chat { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 6em; padding: 6em; }
+.mkp-msg { display: flex; gap: 4em; align-items: flex-start; }
+.mk-phone .mk-face { font: 600 4.5em var(--font); width: 2.4em; height: 2.4em; border-radius: 0.7em; }
+.mkp-msg b { display: block; font: 600 4.2em var(--font); }
+.mkp-msg p { margin: 0.25em 0 0; font: 400 4.4em/1.35 var(--font); color: var(--text-2); }
+.mkp-voice { display: flex; align-items: center; gap: 1em; width: fit-content; margin-top: 1.5em; padding: 2.5em 4em 2.5em 2.5em; border-radius: 7em; background: var(--bg-2); border: 1px solid var(--line); }
+.mkp-voice i { width: 1.2em; border-radius: 1em; background: var(--text-2); }
+.mkp-voice small { margin-left: 0.6em; font: 400 3.4em var(--font-mono); color: var(--text-3); }
+.mkp-play { display: grid; place-items: center; width: 7em; height: 7em; margin-right: 1.5em; border-radius: 50%; background: var(--brand); color: var(--on-brand); }
+.mkp-play svg { width: 3.4em; height: 3.4em; }
+.mkp-composer { display: flex; align-items: center; gap: 4em; margin: 0 5em 6em; padding: 4em 5em; border-radius: 8em; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-3); }
+.mkp-composer span { flex: 1; font: 400 4.2em var(--font); }
+.mkp-composer svg { width: 5em; height: 5em; }
+/* The incoming call, ringing over the chat like the app's call notification. */
+.mkp-call {
+  position: absolute; left: 4em; right: 4em; top: 13em; z-index: 1; display: flex; align-items: center; gap: 3.5em;
+  padding: 4.5em; border-radius: 8em; background: var(--bg-2); border: 1px solid var(--line-strong); box-shadow: var(--shadow);
+  animation: mkp-ring 2.4s ease-in-out infinite;
+}
+.mkp-call-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mkp-call-text strong { font: 600 4.4em var(--font); }
+.mkp-call-text span { font: 400 3.8em var(--font); color: var(--text-2); }
+.mkp-btn { display: grid; place-items: center; width: 11em; height: 11em; border-radius: 50%; color: #fff; flex: none; }
+.mkp-btn svg { width: 5em; height: 5em; }
+.mkp-btn.decline { background: var(--danger); }
+.mkp-btn.answer { background: var(--online); }
+@keyframes mkp-ring { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-0.8em); } }
+@media (prefers-reduced-motion: reduce) { .mkp-call { animation: none; } }
+
 @media (max-width: 1000px) {
   .dl-hero { grid-template-columns: 1fr; gap: 40px; }
   .dl-rec { grid-template-columns: 1fr; padding: 32px; }
   .dl-toc, .dl-platforms, .dl-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dl-mobile { grid-template-columns: 1fr; padding: 32px; }
 }
 @media (max-width: 760px) {
   .site-nav { gap: 10px; }
@@ -3403,6 +3461,9 @@ body:has(.incoming-call) .league-prompts { top: 330px; }
   .dl-rec { margin-top: 56px; padding: 22px 18px; gap: 28px; border-radius: 16px; }
   .dl-rec-row { grid-template-columns: 1fr; gap: 28px; }
   .dl-rec h2 { font-size: 32px; }
+  .dl-mobile { margin-top: 56px; padding: 22px 18px; gap: 28px; border-radius: 16px; }
+  .dl-mobile h2 { font-size: 32px; }
+  .dl-mobile-phone { max-width: 230px; }
   .dl-toc, .dl-platforms, .dl-steps { grid-template-columns: 1fr; }
   .dl-section, .dl-foot { margin-top: 56px; }
   .dl-section h2 { font-size: 32px; }

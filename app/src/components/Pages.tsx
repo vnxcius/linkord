@@ -22,7 +22,7 @@ import { closePage, openPage, page } from '../lib/route';
 import { isMobile } from '../lib/ui';
 import * as I from './Icons';
 import { Emblem } from './Icons';
-import { DesktopMock } from './DownloadArt';
+import { DesktopMock, PhoneMock } from './DownloadArt';
 import { OverlayArt, RecArt, StudioArt } from './ReleaseArt';
 
 interface Download {
@@ -183,6 +183,29 @@ const REC_POINTS = [
   { icon: I.Link, text: msg('Share a clip with a link that anyone can watch, even without an account.') },
 ];
 
+/** What the Android app is about, beside the phone. */
+const MOBILE_POINTS = [
+  {
+    icon: I.Phone,
+    text: msg('Calls ring like phone calls, even with the app closed, and you can answer from the lock screen.'),
+  },
+  {
+    icon: I.Bell,
+    text: msg(
+      "Notifications arrive sealed, so Google only carries text it can't read. Reply or mark as read right from them.",
+    ),
+  },
+  { icon: I.Mic, text: msg('Voice messages: hold to record, slide to cancel, lock to keep talking.') },
+  {
+    icon: I.Tv,
+    text: msg(
+      'Join voice, watch streams and videos together, and keep the call in a small window when you leave the app.',
+    ),
+  },
+];
+
+const onAndroid = /Android/.test(ua);
+
 /** A file's name from its download URL: what the terminal commands install. */
 const fileName = (d?: Download) => (d ? decodeURIComponent(d.url.split('/').pop() ?? '') : '');
 const meta = (f: Download, platform?: string) =>
@@ -195,14 +218,15 @@ function DownloadPage() {
   const rpm = () => downloads()?.rpm;
   const linux = () => rpm() ?? deb();
   const latest = () => win() ?? linux();
-  const none = () => downloads() && !win() && !linux();
+  const android = () => downloads()?.android;
+  const none = () => downloads() && !win() && !linux() && !(onAndroid && android());
   const onLinux = os === 'linux';
 
   return (
     <div class="dl">
       <section class="dl-hero">
         <div class="dl-hero-text">
-          <p class="showcase-kicker">{t('Linkord for desktop')}</p>
+          <p class="showcase-kicker">{onAndroid && android() ? t('Linkord for Android') : t('Linkord for desktop')}</p>
           <h1>{t('Talk, stream, play. And now, record.')}</h1>
           <p class="dl-lead">
             {t(
@@ -211,7 +235,7 @@ function DownloadPage() {
           </p>
           <Show when={downloads()} fallback={<div class="spinner" />}>
             <Show when={!none()} fallback={<p class="muted">{t('No downloads are available yet.')}</p>}>
-              <PrimaryDownload win={win()} deb={deb()} rpm={rpm()} />
+              <PrimaryDownload win={win()} deb={deb()} rpm={rpm()} android={android()} />
             </Show>
           </Show>
           <Show when={latest()}>
@@ -228,6 +252,11 @@ function DownloadPage() {
           <DesktopMock />
         </div>
       </section>
+
+      {/* An Android phone sees its app first, the desktop pitch after. */}
+      <Show when={onAndroid}>
+        <MobileSection android={android()} />
+      </Show>
 
       <section class="dl-rec">
         <div class="dl-rec-text">
@@ -278,6 +307,10 @@ function DownloadPage() {
           </figure>
         </div>
       </section>
+
+      <Show when={!onAndroid}>
+        <MobileSection android={android()} />
+      </Show>
 
       <section class="dl-section">
         <div class="dl-section-head">
@@ -378,7 +411,9 @@ function DownloadPage() {
                   <strong>{t('Android')}</strong>
                 </div>
                 <p class="muted">
-                  {t('The Linkord app for Android phones. Allow your browser to install apps when Android asks; it updates itself after that.')}
+                  {t(
+                    'The Linkord app for Android phones. Allow your browser to install apps when Android asks; it updates itself after that.',
+                  )}
                 </p>
                 <div class="row">
                   <a class="btn primary" href={a().url} download="">
@@ -468,7 +503,90 @@ function DownloadPage() {
 }
 
 /** The big button for this computer (both Linux packages on Linux; Windows anywhere else). */
-function PrimaryDownload(p: { win?: Download; deb?: Download; rpm?: Download }) {
+/** Linkord for Android: what the app does, the APK (once one is published), install steps and the phone. */
+function MobileSection(p: { android?: Download }) {
+  return (
+    <section class="dl-mobile" id="mobile">
+      <div class="dl-mobile-text">
+        <p class="showcase-kicker">{t('Linkord for Android')}</p>
+        <h2>{t('Linkord in your pocket')}</h2>
+        <p class="dl-lead">{t('A native app made for one hand, not a website in a frame.')}</p>
+        <ul class="dl-rec-points">
+          <For each={MOBILE_POINTS}>
+            {(p) => (
+              <li>
+                <p.icon size={18} />
+                <span>{t(p.text)}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+        <div class="dl-mobile-get">
+          <Show
+            when={p.android}
+            fallback={
+              <p class="muted">
+                {t("The Android app is almost here. Until then, Linkord works in your phone's browser.")}
+              </p>
+            }
+          >
+            {(a) => (
+              <>
+                <a class="btn dl-big" classList={{ primary: onAndroid }} href={a().url} download="">
+                  <I.MobileDevice size={18} />
+                  {t('Download for Android')}
+                </a>
+                <span class="dl-meta">{meta(a(), 'Android 10+')}</span>
+                <Show when={!onAndroid}>
+                  <p class="dl-fine">
+                    {t('On your computer? Open linkord.app on your Android phone and download it there.')}
+                  </p>
+                </Show>
+              </>
+            )}
+          </Show>
+          <p class="dl-fine">
+            {t('On iPhone there is no app yet: in Safari, add Linkord to your Home Screen to get notifications.')}
+          </p>
+        </div>
+      </div>
+      <div class="dl-mobile-phone">
+        <PhoneMock />
+      </div>
+      <Show when={p.android}>
+        <ol class="dl-steps dl-mobile-steps">
+          <li>
+            <strong>{t('Download it on your phone')}</strong>
+            <p>{t('Tap Download for Android on this page, on the phone itself.')}</p>
+          </li>
+          <li>
+            <strong>{t('Allow the install')}</strong>
+            <p>{t('Android asks once to let your browser install apps. Allow it, then tap Install.')}</p>
+          </li>
+          <li>
+            <strong>{t('Sign in with Discord')}</strong>
+            <p>{t('Open Linkord and sign in. New versions install from inside the app.')}</p>
+          </li>
+        </ol>
+      </Show>
+    </section>
+  );
+}
+
+function PrimaryDownload(p: { win?: Download; deb?: Download; rpm?: Download; android?: Download }) {
+  // On an Android phone the app for it comes first; the desktop downloads stay below on the page.
+  if (onAndroid && p.android) {
+    const a = p.android;
+    return (
+      <div class="dl-primary">
+        <a class="btn primary dl-big" href={a.url} download="">
+          <I.MobileDevice size={18} />
+          {t('Download for Android')}
+        </a>
+        <span class="dl-meta">{meta(a, 'Android 10+')}</span>
+      </div>
+    );
+  }
   return (
     <div class="dl-primary">
       <Show
