@@ -412,17 +412,14 @@ fn watch_chat_close(app: AppHandle) {
     }
 }
 
-/// Linkord had the identifier dev.linkord.app until 1.x and com.pottira.app in 2.0.0 (when it was called Pottira),
-/// and Tauri keeps everything (WebView2 or WebKitGTK storage with the sign-in and prefs, the window position, the
-/// Christmas icon marker) in folders named after the identifier. Before anything opens them, the old folders become
-/// the new ones: moved when possible, copied (without the browser caches) when the old app's webview processes still
-/// hold them. The 2.0 folders go first, being the newest; folders already there under the new name win. Safe to
-/// delete once every installed app has started a build with this.
+/// Linkord had the identifier dev.linkord.app until 1.x, and Tauri keeps everything (WebView2 or WebKitGTK storage
+/// with the sign-in and prefs, the window position, the Christmas icon marker) in folders named after the identifier.
+/// Before anything opens them, the old folders become the new ones: moved when possible, copied (without the browser
+/// caches) when the old app's webview processes still hold them; folders already there under the new name win. Safe
+/// to delete once every installed app has started a build with this.
 fn move_old_app_data(identifier: &str) {
     let Some(rest) = identifier.strip_prefix("com.linkord.app") else { return };
-    for old in [format!("com.pottira.app{rest}"), format!("dev.linkord.app{rest}")] {
-        move_app_data(&old, identifier);
-    }
+    move_app_data(&format!("dev.linkord.app{rest}"), identifier);
 }
 
 fn move_app_data(old: &str, identifier: &str) {

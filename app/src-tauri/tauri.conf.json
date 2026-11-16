@@ -50,31 +50,12 @@
     "publisher": "Linkord",
     "category": "SocialNetworking",
     "shortDescription": "Voice, video and text chat for your party",
-    "linux": {
-      "deb": {
-        "conflicts": [
-          "pottira"
-        ],
-        "replaces": [
-          "pottira"
-        ]
-      },
-      "rpm": {
-        "conflicts": [
-          "pottira"
-        ],
-        "obsoletes": [
-          "pottira"
-        ]
-      }
-    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
       "nsis": {
-        "installMode": "currentUser",
-        "installerHooks": "windows/hooks.nsh"
+        "installMode": "currentUser"
       }
     },
     "createUpdaterArtifacts": true

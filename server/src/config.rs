@@ -8,7 +8,7 @@ pub struct Config {
     pub bind: String,
     /// Externally reachable base URL, e.g. https://linkord.example.com
     pub public_url: String,
-    /// Older public origins still routed here (LINKORD_FORMER_URLS, comma-separated, e.g. https://pottira.com): a
+    /// Older public origins still routed here (LINKORD_FORMER_URLS, comma-separated): a
     /// request that came in on one gets it as its PublicBase, so sign-in started there comes back there.
     pub former_urls: Vec<String>,
     pub database_url: String,

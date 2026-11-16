@@ -31,7 +31,7 @@ android {
         buildConfigField("String", "DEFAULT_SERVER", "\"https://linkord.app\"")
         buildConfigField("String", "DIRECT_SERVER", "\"https://direct.example.com:8443\"")
         // Addresses this server had before: links to them in old messages still open here.
-        buildConfigField("String", "FORMER_SERVERS", "\"https://pottira.com,https://old.example.com\"")
+        buildConfigField("String", "FORMER_SERVERS", "\"https://old.example.com\"")
         resValue("string", "app_name", "Linkord")
         manifestPlaceholders["authScheme"] = "linkord"
     }

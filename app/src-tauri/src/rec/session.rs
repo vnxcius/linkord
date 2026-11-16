@@ -1,8 +1,7 @@
 //! REC's session engine (Windows): one recording at a time, started and stopped by the app (lib/rec.ts) when a game
 //! starts and ends, and everything around it.
 //!
-//! The folder (`Videos\Linkord` unless the user picked one; `Videos\Linkord Dev` for the dev app; 2.0.0 used
-//! `Videos\Pottira`, moved over by `root`):
+//! The folder (`Videos\Linkord` unless the user picked one; `Videos\Linkord Dev` for the dev app):
 //! - `VODs/<date> <game>/`: the recording (vod.rs segments), `session.json` (`Meta`: game, times, size, bookmarks,
 //!   events, stems, starred) and `thumbs/<second>.jpg` (a picture every 10 s, for the timeline).
 //! - `Clips/<game> <date>.mp4` and `Screenshots/<game> <date>.png`, each with a `.json` sidecar (`ItemMeta`).
@@ -130,15 +129,7 @@ pub fn root(config: &Config) -> PathBuf {
     };
     let videos = videos.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Videos"));
     // The dev app records into its own folder, so trying REC never mixes with the real library.
-    let (name, old) = if cfg!(debug_assertions) { ("Linkord Dev", "Pottira Dev") } else { ("Linkord", "Pottira") };
-    let folder = videos.join(name);
-    // Linkord was called Pottira in 2.0.0, and REC recorded into Videos\Pottira then: that library moves over once.
-    // If it can't move (a file in use), REC keeps using it where it is.
-    let pottira = videos.join(old);
-    if !folder.exists() && pottira.is_dir() && std::fs::rename(&pottira, &folder).is_err() {
-        return pottira;
-    }
-    folder
+    videos.join(if cfg!(debug_assertions) { "Linkord Dev" } else { "Linkord" })
 }
 
 /// "2026-11-13 21-04-05", local time.
