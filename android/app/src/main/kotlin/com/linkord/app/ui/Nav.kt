@@ -42,6 +42,8 @@ sealed interface Screen {
     data object Stats : Screen
     data class ServerSettings(val guildId: String) : Screen
     data class Roles(val guildId: String) : Screen
+    /** Drag to reorder a server's channels and categories. */
+    data class ChannelOrder(val guildId: String) : Screen
     data class RoleEdit(val guildId: String, val roleId: String) : Screen
     data class ChannelPermissions(val channelId: String) : Screen
     data class Image(val url: String, val name: String) : Screen

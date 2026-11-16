@@ -164,7 +164,7 @@ private fun GuildMenu(open: Boolean, onDismiss: () -> Unit, guildId: String) {
             onDismiss()
             session.launch { com.linkord.app.ui.settings.shareInvite(session, guildId) }
         })
-        if (st.can(guildId, com.linkord.core.Perm.MANAGE_GUILD) || st.can(guildId, com.linkord.core.Perm.MANAGE_ROLES)) DropdownMenuItem(text = { Text(t("Server Settings")) }, onClick = {
+        if (canOpenSettings(st, guildId)) DropdownMenuItem(text = { Text(t("Server Settings")) }, onClick = {
             onDismiss()
             nav.push(Screen.ServerSettings(guildId))
         })
@@ -186,6 +186,10 @@ private fun GuildMenu(open: Boolean, onDismiss: () -> Unit, guildId: String) {
     }
 }
 
+/** Server Settings opens for whoever may change something there: the server itself, roles or the channel order. */
+private fun canOpenSettings(st: State, guildId: String) =
+    st.can(guildId, com.linkord.core.Perm.MANAGE_GUILD) || st.can(guildId, com.linkord.core.Perm.MANAGE_ROLES) || st.can(guildId, com.linkord.core.Perm.MANAGE_CHANNELS)
+
 /** A server's channels: banner and name on top, then channels without a category, then each category. */
 @Composable
 private fun ChannelList(st: State, guildId: String, onOpenChannel: (String) -> Unit) {
@@ -200,7 +204,7 @@ private fun ChannelList(st: State, guildId: String, onOpenChannel: (String) -> U
             val banner = mediaUrl(g.banner)
             // The name/banner opens Server Settings for whoever may change something there (same rule as the server menu).
             val nav = com.linkord.app.ui.LocalNav.current
-            val settings = st.can(guildId, com.linkord.core.Perm.MANAGE_GUILD) || st.can(guildId, com.linkord.core.Perm.MANAGE_ROLES)
+            val settings = canOpenSettings(st, guildId)
             Box(Modifier.fillMaxWidth().height(if (banner != null) 132.dp else 72.dp)
                 .then(if (settings) Modifier.clickable { nav.push(com.linkord.app.ui.Screen.ServerSettings(guildId)) } else Modifier)) {
                 if (banner != null) {
@@ -282,6 +286,7 @@ private fun ChannelRow(st: State, ch: Channel, active: Boolean, onOpenChannel: (
                 DropdownMenuItem(text = { Text(t("Mark as read")) }, onClick = { menu = false; session.actions.markRead(listOf(ch.id)) })
                 DropdownMenuItem(text = { Text(if (muted) t("Unmute channel") else t("Mute channel")) }, onClick = { menu = false; session.actions.toggleMuteChannel(ch.id) })
                 if (st.can(ch.guildId, com.linkord.core.Perm.MANAGE_CHANNELS, ch.id) || st.can(ch.guildId, com.linkord.core.Perm.MANAGE_ROLES, ch.id)) DropdownMenuItem(text = { Text(t("Edit Channel")) }, onClick = { menu = false; editing = true })
+                ch.guildId?.takeIf { st.can(it, com.linkord.core.Perm.MANAGE_CHANNELS) }?.let { gid -> DropdownMenuItem(text = { Text(t("Reorder channels")) }, onClick = { menu = false; nav.push(Screen.ChannelOrder(gid)) }) }
             }
             if (editing) com.linkord.app.ui.settings.EditChannelDialog(ch) { editing = false }
         }

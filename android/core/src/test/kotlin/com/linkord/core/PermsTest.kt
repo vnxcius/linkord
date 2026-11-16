@@ -50,6 +50,15 @@ class PermsTest {
     }
 
     @Test
+    fun privateChannels() {
+        assertFalse(state(emptyList()).isPrivateChannel(ch))
+        val st = state(listOf(Overwrite(g, 0, deny = Perm.VIEW_CHANNEL), Overwrite(mod, 0, allow = Perm.VIEW_CHANNEL)), listOf(mod))
+        // Private even for someone who can see it; a thread follows its channel.
+        assertTrue(st.isPrivateChannel(ch))
+        assertTrue(st.isPrivateChannel(thread))
+    }
+
+    @Test
     fun noViewMeansNothing() {
         val st = state(listOf(Overwrite(g, 0, deny = Perm.VIEW_CHANNEL)))
         assertEquals(0L, st.channelPerms(ch, "5"))

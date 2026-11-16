@@ -740,6 +740,15 @@ fun State.channelPerms(channelId: String, userId: String?): Long {
     return applyOverwrites(base, guildId, userId, members[guildId]?.get(userId)?.roles.orEmpty(), overwritesOf(channelId))
 }
 
+/** A server channel @everyone can't see (lib/perms.ts isPrivateChannel): the lock on its icon. */
+fun State.isPrivateChannel(channelId: String): Boolean {
+    val guildId = channels[channelId]?.guildId ?: return false
+    // Not known yet (roles still loading): no lock rather than a wrong one.
+    val base = roles[guildId]?.get(guildId)?.permissions ?: return false
+    if (base and Perm.ADMINISTRATOR != 0L) return false
+    return applyOverwrites(base, guildId, "", emptyList(), overwritesOf(channelId)) and Perm.VIEW_CHANNEL == 0L
+}
+
 /** Whether you have `perm` in the server, or in the channel when one is given. */
 fun State.can(guildId: String?, perm: Long, channelId: String? = null): Boolean {
     if (guildId == null) return false

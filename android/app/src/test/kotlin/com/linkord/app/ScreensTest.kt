@@ -68,6 +68,10 @@ class ScreensTest {
 
     @Test fun chatDark() = shot("chat", ThemeMode.Dark) { ChatScreen("c1", {}, {}, {}) }
     @Test fun chatLight() = shot("chat", ThemeMode.Light) { ChatScreen("c1", {}, {}, {}) }
+    // A channel and a DM nobody has written in yet: the intro still shows.
+    @Test fun emptyChannelDark() = empty("c3")
+    @Test fun emptyChannelLight() = empty("c3", ThemeMode.Light)
+    @Test fun emptyDmDark() = empty("dm2")
     @Test fun serversDark() = shot("servers", ThemeMode.Dark) { HomePane(Tab.Home, {}, {}) }
     @Test fun serversLight() = shot("servers", ThemeMode.Light) { HomePane(Tab.Home, {}, {}) }
     @Test fun messagesDark() = shot("messages", ThemeMode.Dark) { HomePane(Tab.Messages, {}, {}) }
@@ -75,6 +79,14 @@ class ScreensTest {
     @Test fun profileDark() = shot("profile", ThemeMode.Dark) { ProfileScreen("2", "g1") }
     @Test fun callDark() = shot("call", ThemeMode.Dark) { com.linkord.app.ui.call.CallScreen("v1") {} }
     @Test fun callLight() = shot("call", ThemeMode.Light) { com.linkord.app.ui.call.CallScreen("v1") {} }
+    @Test fun serverSettingsDark() = shot("server-settings", ThemeMode.Dark) { com.linkord.app.ui.settings.ServerSettingsScreen("g1") }
+    @Test fun serverSettingsLight() = shot("server-settings", ThemeMode.Light) { com.linkord.app.ui.settings.ServerSettingsScreen("g1") }
+    @Test fun channelOrderDark() = shot("channel-order", ThemeMode.Dark) { com.linkord.app.ui.settings.ChannelOrderScreen("g1") }
+
+    private fun empty(channelId: String, mode: ThemeMode = ThemeMode.Dark) {
+        session.store.update { it.copy(messages = it.messages.put(channelId, ChannelMessages(loaded = true, hasMore = false))) }
+        shot("empty-$channelId", mode) { ChatScreen(channelId, {}, {}, {}) }
+    }
 
     companion object {
         private val now = Instant.parse("2026-11-15T18:00:00Z")

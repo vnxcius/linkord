@@ -155,7 +155,7 @@ fun ProfileEditScreen() {
                 Box(Modifier.fillMaxWidth().aspectRatio(3f).clickable { choose(ImageKind.Banner) }) {
                     if (bannerShown != null) AsyncImage(bannerShown, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     else Box(Modifier.fillMaxSize().background(me.accentColor?.let { Color(0xFF000000 or it.toLong()) } ?: c.raised2))
-                    Edit(Modifier.align(Alignment.TopEnd).padding(10.dp))
+                    EditBadge(Modifier.align(Alignment.TopEnd).padding(10.dp))
                     if (bannerShown != null) Text(t("Remove"), style = Linkord.type.small, color = Color.White, modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
                         .clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.45f)).clickable { remove(ImageKind.Banner) }.padding(horizontal = 8.dp, vertical = 4.dp))
                 }
@@ -167,7 +167,7 @@ fun ProfileEditScreen() {
                             modifier = Modifier.padding(6.dp).size(84.dp).clip(com.linkord.designsystem.AvatarShape))
                         else -> Avatar(me.copy(avatar = null), 84.dp, Modifier.padding(6.dp))
                     }
-                    Edit(Modifier.align(Alignment.BottomEnd))
+                    EditBadge(Modifier.align(Alignment.BottomEnd))
                 }
             }
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -192,7 +192,8 @@ fun ProfileEditScreen() {
 }
 
 @Composable
-private fun Edit(modifier: Modifier) {
+/** The pencil over a picture that can be changed. */
+fun EditBadge(modifier: Modifier) {
     Box(modifier.size(30.dp).clip(RoundedCornerShape(15.dp)).background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
         LIcon(LinkordIcons.Edit, size = 16.dp, tint = Color.White)
     }

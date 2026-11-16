@@ -97,6 +97,7 @@ private fun AppShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () ->
                         Screen.SharedClips -> com.linkord.app.ui.extras.SharedClipsScreen()
                         Screen.Stats -> com.linkord.app.ui.extras.StatsScreen()
                         is Screen.ServerSettings -> com.linkord.app.ui.settings.ServerSettingsScreen(s.guildId)
+                        is Screen.ChannelOrder -> com.linkord.app.ui.settings.ChannelOrderScreen(s.guildId)
                         is Screen.Roles -> com.linkord.app.ui.settings.RolesScreen(s.guildId)
                         is Screen.RoleEdit -> com.linkord.app.ui.settings.RoleEditScreen(s.guildId, s.roleId)
                         is Screen.ChannelPermissions -> com.linkord.app.ui.settings.ChannelPermissionsScreen(s.channelId)

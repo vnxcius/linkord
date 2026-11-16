@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -43,11 +44,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.linkord.app.session
 import com.linkord.app.ui.LocalNav
 import com.linkord.app.ui.Screen
+import com.linkord.app.ui.components.Avatar
 import com.linkord.app.ui.components.Kicker
 import com.linkord.app.ui.components.LIcon
 import com.linkord.core.Kind
@@ -56,6 +60,7 @@ import com.linkord.core.bucket
 import com.linkord.core.channelNumber
 import com.linkord.core.dmName
 import com.linkord.core.dmRecipient
+import com.linkord.core.isPrivateChannel
 import com.linkord.core.nameOf
 import com.linkord.core.typingIn
 import com.linkord.core.t
@@ -119,7 +124,7 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
 
         Box(Modifier.weight(1f)) {
             MessageList(
-                channelId, guildId, messages, bucket.hasMore, bucket.hasNewer, bucket.loading && !bucket.loaded, highlight,
+                channelId, guildId, messages, bucket.loaded, bucket.hasMore, bucket.hasNewer, bucket.loading && !bucket.loaded, highlight,
                 onReply = { replyTo = it; editing = null },
                 onMenu = { menuFor = it },
                 onOpenChannel = onOpenChannel,
@@ -172,6 +177,7 @@ private fun MessageList(
     channelId: String,
     guildId: String?,
     messages: List<Message>,
+    loaded: Boolean,
     hasMore: Boolean,
     hasNewer: Boolean,
     firstLoad: Boolean,
@@ -216,7 +222,6 @@ private fun MessageList(
                 val older = reversed.getOrNull(i + 1)
                 val grouped = continues(older, m)
                 Column {
-                    if (older == null && !hasMore) ChannelStart(channelId)
                     val day = dayOf(m.createdAt)
                     if (day != null && (older == null || dayOf(older.createdAt) != day)) DaySeparator(day)
                     MessageItem(st, m, guildId, grouped, highlight == m.id, onReply, onMenu,
@@ -227,6 +232,8 @@ private fun MessageList(
             if (hasMore && messages.isNotEmpty()) item(key = "more") {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = c.text3) }
             }
+            // Its own item (the last one = the top), so an empty channel gets it too once its history has loaded.
+            if (!hasMore && (loaded || messages.isNotEmpty())) item(key = "start", contentType = "start") { ChannelStart(channelId, onOpenChannel) }
         }
         // Back to the newest messages after scrolling up, or after a jump into history.
         AnimatedVisibility(!atBottom || hasNewer, enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(), modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
@@ -257,21 +264,72 @@ private fun DaySeparator(day: java.time.LocalDate) {
     }
 }
 
-/** The top of a channel's history: its name big, like the first page of a chapter. */
+/** The top of a channel's history (Chat.tsx ChannelWelcome), like the first page of a chapter: its name big. */
 @Composable
-private fun ChannelStart(channelId: String) {
+private fun ChannelStart(channelId: String, onOpenChannel: (String) -> Unit) {
     val session = LocalContext.current.session
     val st by session.store.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val c = Linkord.colors
     val ch = st.channels[channelId] ?: return
+    val name = st.dmName(ch, t("Empty group"))
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 32.dp, bottom = 12.dp)) {
-        if (ch.guildId != null) {
-            st.channelNumber(ch)?.let { Kicker("No. $it") }
-            Text(t("Welcome to #{name}!", "name" to ch.name), style = Linkord.type.display)
-            Text(t("This is the start of the #{name} channel.", "name" to ch.name), style = Linkord.type.small)
-        } else {
-            Text(st.dmName(ch, t("Empty group")), style = Linkord.type.display)
-            Text(t("This is the beginning of your direct message history with {name}.", "name" to st.dmName(ch, t("Empty group"))), style = Linkord.type.small)
+        when (ch.kind) {
+            Kind.DM -> {
+                Avatar(st.dmRecipient(ch), 72.dp)
+                StartTitle(name)
+                Text(t("This is the beginning of your direct message history with {name}.", "name" to name), style = Linkord.type.small, color = c.text3)
+            }
+            Kind.GROUP_DM -> {
+                StartIcon(LinkordIcons.Users)
+                StartTitle(name)
+                Text(t("Welcome to the beginning of this group."), style = Linkord.type.small, color = c.text3)
+            }
+            Kind.THREAD -> {
+                StartIcon(LinkordIcons.Thread)
+                StartTitle(ch.name)
+                Text(t("Started by {name}.", "name" to st.nameOf(ch.ownerId ?: "", ch.guildId, t("Unknown"))), style = Linkord.type.small, color = c.text3)
+                val parent = ch.parentId
+                val starter = ch.threadMessageId
+                if (parent != null && starter != null) Text(
+                    t("See the original message"),
+                    style = Linkord.type.small.copy(textDecoration = TextDecoration.Underline),
+                    color = c.brand,
+                    modifier = Modifier.padding(top = 2.dp).clickable {
+                        scope.launch {
+                            runCatching { session.actions.jumpToMessage(parent, starter) }
+                            onOpenChannel(parent)
+                        }
+                    },
+                )
+            }
+            else -> {
+                StartIcon(LinkordIcons.Hash, locked = st.isPrivateChannel(channelId))
+                st.channelNumber(ch)?.let { Kicker("No. $it", Modifier.padding(top = 14.dp)) }
+                StartTitle(t("Welcome to #{name}", "name" to ch.name), top = if (st.channelNumber(ch) != null) 4.dp else 14.dp)
+                Text(t("This is the start of the #{name} channel.", "name" to ch.name), style = Linkord.type.small, color = c.text3)
+            }
         }
+    }
+}
+
+@Composable
+private fun StartTitle(text: String, top: androidx.compose.ui.unit.Dp = 14.dp) {
+    Text(text, style = Linkord.type.display.copy(fontSize = 34.sp, lineHeight = 38.sp), modifier = Modifier.padding(top = top, bottom = 6.dp))
+}
+
+/** The channel's glyph on a raised tile (.welcome-icon), with the lock badge for a private channel. */
+@Composable
+private fun StartIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, locked: Boolean = false) {
+    val c = Linkord.colors
+    Box {
+        Box(Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(c.raised), contentAlignment = Alignment.Center) {
+            LIcon(icon, size = 36.dp, tint = c.brand)
+        }
+        if (locked) Box(
+            Modifier.align(Alignment.TopEnd).offset(6.dp, (-6).dp).size(24.dp).clip(RoundedCornerShape(8.dp)).background(c.page),
+            contentAlignment = Alignment.Center,
+        ) { LIcon(LinkordIcons.Lock, size = 14.dp, tint = c.text2) }
     }
 }
 

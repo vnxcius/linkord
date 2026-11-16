@@ -253,14 +253,14 @@ fun PinsScreen(channelId: String) {
     }
 }
 
-/** A title bar with back, over [content]. */
+/** A title bar with back, over [content]. [onBack] replaces the plain pop (pages that guard unsaved changes). */
 @Composable
-fun ScreenScaffold(title: String, actions: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
+fun ScreenScaffold(title: String, actions: @Composable () -> Unit = {}, onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
     val nav = LocalNav.current
     val c = Linkord.colors
     Column(Modifier.fillMaxSize().background(c.page)) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).clickable { nav.pop() }, contentAlignment = Alignment.Center) { LIcon(LinkordIcons.Back, size = 22.dp, tint = c.text) }
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).clickable { onBack?.invoke() ?: nav.pop() }, contentAlignment = Alignment.Center) { LIcon(LinkordIcons.Back, size = 22.dp, tint = c.text) }
             Text(title, style = Linkord.type.title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             actions()
         }
