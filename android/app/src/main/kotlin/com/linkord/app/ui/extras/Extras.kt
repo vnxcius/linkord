@@ -130,6 +130,8 @@ data class SharedClip(
     val video: String = "",
     val thumbnail: String = "",
     val size: Long = 0,
+    val width: Int? = null,
+    val height: Int? = null,
 )
 
 fun duration(ms: Long): String {
@@ -137,9 +139,9 @@ fun duration(ms: Long): String {
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
 }
 
-/** A REC clip shared in chat (embed type `clip`): its picture, title and length; a tap plays it. */
+/** A REC clip shared in chat (embed type `clip`): it plays in place (web ClipCard), with its title, game and length. */
 @Composable
-fun ClipCard(clipJson: JsonObject) {
+fun ClipCard(clipJson: JsonObject, id: String = "clip") {
     val session = LocalContext.current.session
     val nav = LocalNav.current
     val c = Linkord.colors
@@ -147,13 +149,11 @@ fun ClipCard(clipJson: JsonObject) {
     val inCall by session.calls.channel.collectAsState()
     val scope = rememberCoroutineScope()
     Column(Modifier.padding(top = 6.dp).widthIn(max = 320.dp).clip(RoundedCornerShape(12.dp)).background(c.raised)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black).clickable {
-            nav.push(Screen.Video(session.api.media(clip.video) ?: clip.video, clip.title))
-        }, contentAlignment = Alignment.Center) {
-            AsyncImage(mediaUrl(clip.thumbnail), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Box(Modifier.size(46.dp).clip(RoundedCornerShape(23.dp)).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { LIcon(LinkordIcons.Play, tint = Color.White) }
-            Text(duration(clip.durationMs), style = Linkord.type.label, color = Color.White, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 5.dp, vertical = 2.dp))
-        }
+        com.linkord.app.ui.chat.InlineVideo(
+            id, session.api.media(clip.video) ?: clip.video, clip.title.ifEmpty { "clip" },
+            ratio = if (clip.width != null && clip.height != null && clip.height > 0) clip.width.toFloat() / clip.height else 16f / 9f,
+            poster = mediaUrl(clip.thumbnail), durationMs = clip.durationMs,
+        )
         Column(Modifier.padding(10.dp)) {
             Kicker("REC" + (clip.game.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""))
             Text(clip.title.ifEmpty { t("Clip") }, style = Linkord.type.bodyStrong, maxLines = 2, overflow = TextOverflow.Ellipsis)

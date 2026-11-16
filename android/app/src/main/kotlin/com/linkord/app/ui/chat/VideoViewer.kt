@@ -33,7 +33,7 @@ import com.linkord.designsystem.LinkordIcons
 /** A chat video full screen (Media3), streamed with the app's HTTP client; plays at once, stops when closed. */
 @OptIn(UnstableApi::class)
 @Composable
-fun VideoViewer(url: String, name: String) {
+fun VideoViewer(url: String, name: String, startMs: Long = 0) {
     val ctx = LocalContext.current
     val nav = LocalNav.current
     val player = remember(url) {
@@ -41,7 +41,7 @@ fun VideoViewer(url: String, name: String) {
             .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(ctx.session.http)))
             .build()
             .apply {
-                setMediaItem(MediaItem.fromUri(url))
+                setMediaItem(MediaItem.fromUri(url), startMs)
                 prepare()
                 playWhenReady = true
             }

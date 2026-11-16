@@ -101,7 +101,7 @@ private fun AppShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () ->
                         is Screen.RoleEdit -> com.linkord.app.ui.settings.RoleEditScreen(s.guildId, s.roleId)
                         is Screen.ChannelPermissions -> com.linkord.app.ui.settings.ChannelPermissionsScreen(s.channelId)
                         is Screen.Image -> ImageViewer(s.url, s.name)
-                        is Screen.Video -> com.linkord.app.ui.chat.VideoViewer(s.url, s.name)
+                        is Screen.Video -> com.linkord.app.ui.chat.VideoViewer(s.url, s.name, s.startMs)
                         is Screen.Pins -> PinsScreen(s.channelId)
                         is Screen.Search -> com.linkord.app.ui.chat.SearchScreen(s.channelId)
                         is Screen.Call -> com.linkord.app.ui.call.CallScreen(s.channelId, onOpenChat = { nav.openChat(it) })

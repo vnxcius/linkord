@@ -181,6 +181,17 @@ data class Embed(
     @SerialName("resolved_url") val resolvedUrl: String? = null,
     /** For type=clip: the shared REC clip. */
     val clip: JsonObject? = null,
+    /** For type=league_invite (message type 8): the host's lobby when they sent it. */
+    val league: LeagueActivity? = null,
+)
+
+/** GET /invites/{code}: the server an invite leads to. */
+@Serializable
+data class InvitePreview(
+    val code: String = "",
+    val guild: GuildInfo,
+    @SerialName("member_count") val memberCount: Int = 0,
+    @SerialName("online_count") val onlineCount: Int? = null,
 )
 
 @Serializable

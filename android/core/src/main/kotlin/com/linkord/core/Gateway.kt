@@ -63,10 +63,39 @@ class Gateway(
         store.setConnection(Connection.Idle)
     }
 
-    /** The app came back to the front: connect again if it was put to rest, or right away if it was retrying. */
+    /** When the app went to the background (0 = in front). */
+    private var hiddenAt = 0L
+
+    /**
+     * The app came back to the front. In the background Android blocks a cached app's network, so the socket it had is
+     * usually dead (or its retries are stuck behind a long backoff, one maybe hanging on a connect that can't happen)
+     * even when it still looks open. After more than a few seconds away, or whenever it isn't open, drop it and resume
+     * right now (missed events are replayed), quietly like after a server handover: the "Reconnecting" banner only if it
+     * takes longer than that.
+     */
     fun wake() {
         if (token() == null) return
-        if (stopped) connect() else nudge()
+        val cameBack = hiddenAt > 0
+        val away = if (cameBack) System.currentTimeMillis() - hiddenAt else 0L
+        hiddenAt = 0
+        // The first start: its connection is already on the way.
+        if (!stopped && !cameBack && retry == 0) return
+        if (!stopped && store.s.connection == Connection.Open && away < 10_000) return
+        val old = ws
+        ws = null
+        old?.cancel()
+        reconnectJob?.cancel()
+        retry = 0
+        stopped = false
+        quiet = true
+        quietJob?.cancel()
+        quietJob = scope.launch {
+            delay(2500)
+            quiet = false
+            if (store.s.connection != Connection.Open) store.setConnection(Connection.Reconnecting)
+        }
+        if (store.s.connection == Connection.Reconnecting || store.s.connection == Connection.Idle) store.setConnection(Connection.Connecting)
+        open()
     }
 
     /** Reconnect now if the socket is down (the network came back, the app returned to the front). */
@@ -195,6 +224,7 @@ class Gateway(
     fun setForeground(front: Boolean) {
         if (foreground == front) return
         foreground = front
+        if (!front) hiddenAt = System.currentTimeMillis()
         reportActivity(force = true)
     }
 

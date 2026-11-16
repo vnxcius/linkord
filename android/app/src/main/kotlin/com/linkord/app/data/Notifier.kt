@@ -18,7 +18,9 @@ import com.linkord.core.Alert
 import com.linkord.core.Kind
 import com.linkord.core.Markdown
 import com.linkord.core.nameOf
+import com.linkord.core.profileOf
 import com.linkord.core.t
+import kotlinx.coroutines.launch
 
 /**
  * Notifications: from the gateway while the app runs ([alert]) and from FCM while it's closed ([push], data/Push.kt).
@@ -62,6 +64,44 @@ class Notifier(private val session: Session) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?) = size > 200
     }
 
+    /** Senders' pictures for their notifications, kept while the app runs. */
+    private val avatars = android.util.LruCache<String, android.graphics.Bitmap>(64)
+    private val avatarHttp by lazy { session.http.newBuilder().callTimeout(3, java.util.concurrent.TimeUnit.SECONDS).build() }
+
+    /**
+     * Someone's picture for a notification, downloaded once (blocking: call it off the main thread). At most 3 s, so a
+     * slow network never holds a notification back; without it Android shows their initial.
+     */
+    private fun avatar(path: String?): android.graphics.Bitmap? {
+        if (path.isNullOrEmpty() || path == "/icon.png") return null
+        val url = session.api.media(path) ?: path
+        avatars.get(url)?.let { return it }
+        return runCatching {
+            avatarHttp.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { r ->
+                if (!r.isSuccessful) null else android.graphics.BitmapFactory.decodeStream(r.body.byteStream())
+            }
+        }.getOrNull()?.let(::rounded)?.also { avatars.put(url, it) }
+    }
+
+    /**
+     * The picture in the app's avatar shape (designsystem AvatarShape: a square with 30% corners), transparent around
+     * it, so the shade shows it like the app does instead of a hard square.
+     */
+    private fun rounded(src: android.graphics.Bitmap): android.graphics.Bitmap {
+        val side = 192
+        val out = android.graphics.Bitmap.createBitmap(side, side, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+        val r = side * 0.30f
+        canvas.drawRoundRect(0f, 0f, side.toFloat(), side.toFloat(), r, r, paint)
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        // Fill the square from the middle of the picture (crop, like ContentScale.Crop).
+        val crop = minOf(src.width, src.height)
+        val from = android.graphics.Rect((src.width - crop) / 2, (src.height - crop) / 2, (src.width + crop) / 2, (src.height + crop) / 2)
+        canvas.drawBitmap(src, from, android.graphics.Rect(0, 0, side, side), paint)
+        return out
+    }
+
     fun alert(a: Alert) {
         if (!allowed() || session.gateway.foreground && session.actions.viewing.value == a.channel.id) return
         val st = session.store.s
@@ -78,20 +118,25 @@ class Notifier(private val session: Session) {
             ch.kind == Kind.GROUP_DM -> ch.name.ifBlank { null }
             else -> null
         }
-        message(
-            channelId = ch.id,
-            kind = when {
-                Kind.isPrivate(ch.kind) -> DMS
-                a.mentioned -> MENTIONS
-                else -> MESSAGES
-            },
-            conversation = conversation,
-            group = ch.kind != Kind.DM,
-            author = author,
-            authorId = m.author.id,
-            text = body,
-            messageId = m.id,
-        )
+        val picture = st.profileOf(m.author.id, ch.guildId)?.avatar ?: m.author.avatar
+        // The gateway calls this on the main thread: the picture is fetched on IO, then the notification goes up.
+        session.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            message(
+                channelId = ch.id,
+                kind = when {
+                    Kind.isPrivate(ch.kind) -> DMS
+                    a.mentioned -> MENTIONS
+                    else -> MESSAGES
+                },
+                conversation = conversation,
+                group = ch.kind != Kind.DM,
+                author = author,
+                authorId = m.author.id,
+                text = body,
+                messageId = m.id,
+                picture = avatar(picture),
+            )
+        }
     }
 
     /** A notification the server wrote (push.rs payload: title, body, channel_id, message_id?, author?, conversation?, call?). */
@@ -120,13 +165,17 @@ class Notifier(private val session: Session) {
                 authorId = note.optString("author_id").ifEmpty { author },
                 text = body,
                 messageId = note.optString("message_id").ifEmpty { null },
+                // FCM delivers on its own background thread, so the picture can be fetched right here.
+                picture = avatar(note.optString("icon")),
             )
             return
         }
         // In front, the app rings itself (Calls.startRing + the incoming call card).
         if (session.gateway.foreground) return
         val id = "call-$channelId".hashCode()
-        val caller = Person.Builder().setName(note.optString("title")).setImportant(true).build()
+        val face = avatar(note.optString("icon"))
+        val caller = Person.Builder().setName(note.optString("title")).setImportant(true)
+            .apply { face?.let { setIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(it)) } }.build()
         val activity = { request: Int, extra: String ->
             PendingIntent.getActivity(
                 ctx, request,
@@ -140,6 +189,7 @@ class Notifier(private val session: Session) {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(note.optString("title"))
             .setContentText(body)
+            .setLargeIcon(face)
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, NotificationActions.intent(ctx, NotificationActions.DECLINE, channelId, null, id + 2), activity(id + 1, MainActivity.EXTRA_ANSWER_CALL)))
             .setFullScreenIntent(full, true)
             .setContentIntent(full)
@@ -167,6 +217,7 @@ class Notifier(private val session: Session) {
      * come from the notification on screen, so a process FCM just started continues the stack the last one left.
      */
     @android.annotation.SuppressLint("MissingPermission")
+    @Synchronized
     private fun message(
         channelId: String,
         kind: String,
@@ -176,6 +227,7 @@ class Notifier(private val session: Session) {
         authorId: String,
         text: String,
         messageId: String?,
+        picture: android.graphics.Bitmap? = null,
     ) {
         if (messageId != null && shown.put(messageId, Unit) != null) return
         val id = channelId.hashCode()
@@ -184,11 +236,15 @@ class Notifier(private val session: Session) {
             ?: NotificationCompat.MessagingStyle(Person.Builder().setName(t("You")).setKey(session.store.s.me?.id ?: "me").build())
         style.conversationTitle = conversation
         style.isGroupConversation = group
-        style.addMessage(text, System.currentTimeMillis(), Person.Builder().setName(author).setKey(authorId).build())
+        style.addMessage(
+            text, System.currentTimeMillis(),
+            Person.Builder().setName(author).setKey(authorId)
+                .apply { picture?.let { setIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(it)) } }.build(),
+        )
         while (style.messages.size > KEEP) style.messages.removeAt(0)
         // A conversation that was a mention keeps alerting like one even if the next message is a plain one.
         val channel = if (showing != null && kind == MESSAGES && showing.channelId != MESSAGES) showing.channelId else kind
-        post(channelId, channel, style, conversation ?: author, text, messageId ?: showing?.extras?.getString(EXTRA_LAST), quiet = false)
+        post(channelId, channel, style, conversation ?: author, text, messageId ?: showing?.extras?.getString(EXTRA_LAST), quiet = false, picture = picture)
     }
 
     /**
@@ -196,28 +252,33 @@ class Notifier(private val session: Session) {
      * sound, and the Reply box stays for another one.
      */
     @android.annotation.SuppressLint("MissingPermission")
+    @Synchronized
     fun replied(channelId: String, text: String, messageId: String?) {
         val showing = runCatching { nm.activeNotifications.firstOrNull { it.id == channelId.hashCode() && it.tag == null }?.notification }.getOrNull() ?: return
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(showing) ?: return
         style.addMessage(text, System.currentTimeMillis(), null as Person?)
         while (style.messages.size > KEEP) style.messages.removeAt(0)
         val title = showing.extras.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString() ?: ""
-        post(channelId, showing.channelId, style, title, text, messageId ?: showing.extras.getString(EXTRA_LAST), quiet = true)
+        post(channelId, showing.channelId, style, title, text, messageId ?: showing.extras.getString(EXTRA_LAST), quiet = true, keepPicture = showing)
     }
 
     /** The reply couldn't be sent: say so on the notification itself (the app may not be open to show a toast). */
     @android.annotation.SuppressLint("MissingPermission")
+    @Synchronized
     fun replyFailed(channelId: String) {
         val showing = runCatching { nm.activeNotifications.firstOrNull { it.id == channelId.hashCode() && it.tag == null }?.notification }.getOrNull() ?: return
         val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(showing) ?: return
         style.addMessage(t("Your reply couldn't be sent."), System.currentTimeMillis(), null as Person?)
         val title = showing.extras.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString() ?: ""
-        post(channelId, showing.channelId, style, title, "", showing.extras.getString(EXTRA_LAST), quiet = true)
+        post(channelId, showing.channelId, style, title, "", showing.extras.getString(EXTRA_LAST), quiet = true, keepPicture = showing)
     }
 
     /** A conversation's notification, with Reply (typed in the shade) and Mark as read. */
     @android.annotation.SuppressLint("MissingPermission")
-    private fun post(channelId: String, channel: String, style: NotificationCompat.MessagingStyle, title: String, text: String, lastMessageId: String?, quiet: Boolean) {
+    private fun post(
+        channelId: String, channel: String, style: NotificationCompat.MessagingStyle, title: String, text: String, lastMessageId: String?, quiet: Boolean,
+        picture: android.graphics.Bitmap? = null, keepPicture: android.app.Notification? = null,
+    ) {
         val id = channelId.hashCode()
         val reply = NotificationCompat.Action.Builder(
             R.drawable.ic_notification, t("Reply"),
@@ -239,6 +300,8 @@ class Notifier(private val session: Session) {
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(style)
+            // The sender's picture (or, when rebuilding after a reply, the one it already had).
+            .apply { if (picture != null) setLargeIcon(picture) else keepPicture?.getLargeIcon()?.let { setLargeIcon(it) } }
             .setNumber(style.messages.size)
             .setGroup(channelId)
             .setAutoCancel(true)

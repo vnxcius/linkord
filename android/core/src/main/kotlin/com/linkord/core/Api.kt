@@ -1,6 +1,8 @@
 package com.linkord.core
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonElement
@@ -52,7 +54,9 @@ class Api(
             method(method, body ?: if (method == "GET" || method == "DELETE") null else ByteArray(0).toRequestBody(null))
         }.build()
         val res = http.newCall(req).await()
-        val text = res.use { it.body.string() }
+        // The body is read off the caller's thread: only the headers have arrived when await() returns, and a large
+        // answer is still coming over the socket (on Android's main thread that's NetworkOnMainThreadException).
+        val text = withContext(Dispatchers.IO) { res.use { it.body.string() } }
         if (res.code == 429 && retry) {
             val wait = runCatching { LinkordJson.parseToJsonElement(text).jsonObject["retry_after"]?.jsonPrimitive?.doubleOrNull }
                 .getOrNull() ?: 1.0

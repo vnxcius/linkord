@@ -45,7 +45,8 @@ sealed interface Screen {
     data class RoleEdit(val guildId: String, val roleId: String) : Screen
     data class ChannelPermissions(val channelId: String) : Screen
     data class Image(val url: String, val name: String) : Screen
-    data class Video(val url: String, val name: String) : Screen
+    /** [startMs]: where to pick up (fullscreen from a chat video that was already playing). */
+    data class Video(val url: String, val name: String, val startMs: Long = 0) : Screen
     data class Pins(val channelId: String) : Screen
     data class Search(val channelId: String) : Screen
     data class Call(val channelId: String) : Screen

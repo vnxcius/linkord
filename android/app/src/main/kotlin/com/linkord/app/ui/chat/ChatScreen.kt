@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -125,7 +126,19 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
             )
         }
 
-        val typing = st.typingIn(channelId)
+        // Typing entries expire by time (10 s after the last TYPING_START), not by an event, so wake up when the next one
+        // runs out; otherwise "is typing" stayed until something else changed.
+        val entries = st.typing[channelId]
+        var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(entries) {
+            now = System.currentTimeMillis()
+            while (true) {
+                val next = entries?.values?.filter { it > now }?.minOrNull() ?: break
+                kotlinx.coroutines.delay(next - System.currentTimeMillis() + 50)
+                now = System.currentTimeMillis()
+            }
+        }
+        val typing = st.typingIn(channelId, now)
         TypingLine(typing.map { st.nameOf(it, guildId, t("Unknown")) })
         Composer(
             channel = ch,

@@ -247,16 +247,27 @@ fun MessageItem(
                             Text(t("Forwarded"), style = Linkord.type.label)
                             if (f.content.isNotEmpty()) MarkdownText(f.content, guildId, onTap = onTap)
                             Attachments(f.attachments)
+                            val origins = session.knownServers()
+                            for (code in com.linkord.core.inviteCodes(f.content, origins)) InviteCard(code, mine = false)
+                            for ((i, e) in f.embeds.withIndex()) {
+                                if (origins.none { e.url.startsWith("$it/invite/") }) EmbedCard(e, f.guildId ?: guildId, onTap, "${m.id}-f$i")
+                            }
                         }
                     }
                 }
-                if (m.content.isNotEmpty()) MarkdownText(
+                if (m.content.isNotEmpty() && m.type != com.linkord.core.MessageType.LEAGUE_INVITE) MarkdownText(
                     m.content, guildId, jumbo = Markdown.isJumbo(m.content), edited = m.editedAt != null,
                     color = if (m.failed) c.danger else c.text, onTap = onTap,
                 )
                 if (m.ephemeral) Text(t("Only you can see this"), style = Linkord.type.label)
                 Attachments(m.attachments)
-                for (e in m.embeds) EmbedCard(e, guildId, onTap)
+                // Invite links become cards; their link previews would only repeat them (web MessageItem).
+                val origins = session.knownServers()
+                for (code in com.linkord.core.inviteCodes(m.content, origins)) InviteCard(code, mine = m.author.id == me)
+                if (m.type == com.linkord.core.MessageType.LEAGUE_INVITE) LobbyInviteCard(st, m, guildId)
+                else for ((i, e) in m.embeds.withIndex()) {
+                    if (origins.none { e.url.startsWith("$it/invite/") }) EmbedCard(e, guildId, onTap, "${m.id}-$i")
+                }
                 if (m.failed) FailedRow(m)
                 if (m.reactions.isNotEmpty()) FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (r in m.reactions) {
@@ -345,10 +356,15 @@ fun Attachments(list: List<Attachment>) {
                         .clip(RoundedCornerShape(10.dp)).background(c.raised).clickable { nav.push(Screen.Image(url, a.filename)) },
                 )
             }
-            // `playable` is the H.264 copy the server makes of videos phones can't decode (videos.rs).
-            a.isVideo -> FileCard(a, LinkordIcons.Play) { nav.push(Screen.Video(mediaUrlOf(ctx, a.playable ?: a.url), a.filename)) }
+            // Plays in place; `playable` is the H.264 copy the server makes of videos phones can't decode (videos.rs).
+            a.isVideo -> InlineVideo(
+                id = "att-${a.id}", url = mediaUrlOf(ctx, a.playable ?: a.url), name = a.filename,
+                ratio = if (a.width != null && a.height != null && a.height!! > 0) a.width!!.toFloat() / a.height!! else null,
+                durationMs = a.durationSecs?.let { (it * 1000).toLong() }, checking = a.codec == null,
+            )
             a.isVoiceNote -> VoiceNotePlayer(a, if (a.url.startsWith("file:")) a.url else url)
-            a.isAudio -> FileCard(a, LinkordIcons.Music) { openMedia(ctx, url, a.contentType) }
+            a.isAudio -> InlineAudio("att-${a.id}", url, a)
+            a.contentType.startsWith("text/plain") -> TextFilePreview(a, url) { openLink(ctx, url) }
             else -> FileCard(a, LinkordIcons.Paperclip) { openLink(ctx, url) }
         }
     }
@@ -357,7 +373,7 @@ fun Attachments(list: List<Attachment>) {
 private fun mediaUrlOf(ctx: android.content.Context, path: String) = ctx.session.api.media(path) ?: path
 
 @Composable
-private fun FileCard(a: Attachment, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+internal fun FileCard(a: Attachment, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     val c = Linkord.colors
     Row(
         Modifier.padding(top = 4.dp).widthIn(max = 320.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.raised)
@@ -381,51 +397,72 @@ fun humanSize(b: Long): String = when {
     else -> "%.2f GB".format(b / 1024.0 / 1024 / 1024)
 }
 
-/** Link previews and bots' cards. */
+/** Link previews, bots' cards, video links (the site's player), direct videos and shared REC clips. [id]: this embed's
+ *  key for ChatPlayback (one player at a time). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun EmbedCard(e: Embed, guildId: String?, onTap: (MdTap) -> Unit) {
+fun EmbedCard(e: Embed, guildId: String?, onTap: (MdTap) -> Unit, id: String = e.url) {
     val c = Linkord.colors
     val ctx = LocalContext.current
     val nav = LocalNav.current
-    if (e.type == "clip" && e.clip != null) {
-        com.linkord.app.ui.extras.ClipCard(e.clip!!)
-        return
+    when {
+        e.type == "clip" && e.clip != null -> return com.linkord.app.ui.extras.ClipCard(e.clip!!, "clip-$id")
+        e.type == "league_invite" -> return
+        e.type == "image" && e.image != null -> {
+            val url = mediaUrl(e.image)!!
+            AsyncImage(url, null, contentScale = ContentScale.Fit, modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp).heightIn(max = 300.dp).clip(RoundedCornerShape(10.dp)).clickable { nav.push(Screen.Image(url, "")) })
+            return
+        }
+        e.type == "video" && e.url.isNotEmpty() -> {
+            InlineVideo("emb-$id", e.url, e.url.substringAfterLast('/').substringBefore('?'), null, poster = e.image)
+            return
+        }
     }
-    if (e.type == "image" && e.image != null) {
-        val url = mediaUrl(e.image)!!
-        AsyncImage(url, null, contentScale = ContentScale.Fit, modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp).heightIn(max = 300.dp).clip(RoundedCornerShape(10.dp)).clickable { nav.push(Screen.Image(url, "")) })
-        return
+    if (e.type == "link") {
+        val base = playerOrigin(ctx.session.serverUrl())
+        val player = com.linkord.core.videoPlayer(e.resolvedUrl ?: e.url, runCatching { java.net.URI(base).host }.getOrNull() ?: "linkord.app")
+        if (player != null) return VideoLinkEmbed("emb-$id", e, player, base)
     }
     if (e.title == null && e.description == null && e.image == null && e.fields.isNullOrEmpty()) return
-    val bar = e.color?.let { Color(0xFF000000 or it.toLong()) } ?: c.lineStrong
+    val rich = e.type == "rich"
+    // The embed's colour is a dot before its kicker (owner, 2026-11-12: never a coloured side border).
+    val accent = e.color?.let { Color(0xFF000000 or it.toLong()) }
+    val sideImage = e.thumbnail ?: e.image?.takeIf { !e.largeImage }
     Row(
         Modifier.padding(top = 6.dp).widthIn(max = 360.dp).clip(RoundedCornerShape(10.dp)).background(c.raised)
-            .then(if (e.type != "rich" && e.url.isNotEmpty()) Modifier.clickable { openLink(ctx, e.url) } else Modifier)
-            .height(IntrinsicSize.Min),
+            .then(if (!rich && e.url.isNotEmpty()) Modifier.clickable { openLink(ctx, e.url) } else Modifier),
     ) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(bar))
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            e.siteName?.let { Text(it, style = Linkord.type.label) }
+        Column(Modifier.weight(1f, fill = false).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (e.siteName != null || accent != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                accent?.let { Box(Modifier.padding(end = 6.dp).size(7.dp).clip(RoundedCornerShape(4.dp)).background(it)) }
+                e.siteName?.let { Text(it, style = Linkord.type.label) }
+            }
             e.author?.let { Text(it, style = Linkord.type.small.copy(fontWeight = FontWeight.SemiBold), color = c.text) }
-            e.title?.let { Text(it, style = Linkord.type.bodyStrong, color = if (e.url.isNotEmpty() && e.type != "rich") c.brandHi else c.text) }
+            e.title?.let { Text(it, style = Linkord.type.bodyStrong, color = if (e.url.isNotEmpty() && !rich) c.brandHi else c.text) }
             e.description?.let { d ->
-                if (e.type == "rich") MarkdownText(d, guildId, style = Linkord.type.small.copy(color = c.text2), color = c.text2, onTap = onTap)
+                // Bot cards are markdown, like Discord's; link previews are the site's plain text.
+                if (rich) MarkdownText(d, guildId, style = Linkord.type.small.copy(color = c.text2), color = c.text2, onTap = onTap)
                 else Text(d, style = Linkord.type.small, maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
-            e.fields?.let { fields ->
-                for (f in fields) Column {
-                    Text(f.name, style = Linkord.type.small.copy(fontWeight = FontWeight.SemiBold), color = c.text)
-                    MarkdownText(f.value, guildId, style = Linkord.type.small, color = c.text2, onTap = onTap)
+            e.fields?.takeIf { it.isNotEmpty() }?.let { fields ->
+                // Inline fields sit side by side (up to three), the others take the whole width (web RichParts).
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp), maxItemsInEachRow = 3) {
+                    for (f in fields) Column(if (f.inline) Modifier.widthIn(min = 80.dp, max = 160.dp) else Modifier.fillMaxWidth()) {
+                        if (f.name.isNotBlank()) MarkdownText(f.name, guildId, style = Linkord.type.small.copy(fontWeight = FontWeight.SemiBold), color = c.text, onTap = onTap)
+                        MarkdownText(f.value, guildId, style = Linkord.type.small, color = c.text2, onTap = onTap)
+                    }
                 }
             }
-            e.image?.let { img ->
+            if (e.largeImage) e.image?.let { img ->
                 val url = mediaUrl(img)!!
-                AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(8.dp)).clickable { nav.push(Screen.Image(url, "")) })
+                AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(8.dp)).clickable { nav.push(Screen.Image(url, "")) })
             }
-            e.footer?.let { Text(it, style = Linkord.type.label) }
+            val footer = listOfNotNull(e.footer, e.timestamp?.let { timeOf(java.time.Instant.ofEpochMilli(it).toString()) })
+            if (footer.isNotEmpty()) Text(footer.joinToString(" · "), style = Linkord.type.label)
         }
-        e.thumbnail?.let { th ->
-            AsyncImage(mediaUrl(th), null, contentScale = ContentScale.Crop, modifier = Modifier.padding(12.dp).size(64.dp).clip(RoundedCornerShape(8.dp)))
+        sideImage?.let { th ->
+            val url = mediaUrl(th)
+            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.padding(top = 12.dp, end = 12.dp).size(64.dp).clip(RoundedCornerShape(8.dp)).clickable { url?.let { nav.push(Screen.Image(it, "")) } })
         }
     }
 }
