@@ -199,6 +199,16 @@ const meta = (f: Download, platform?: string) =>
 
 function DownloadPage() {
   onMount(loadDownloads);
+  // A shared link to a section (/download#android, #platforms): the page scrolls in its own container and draws its
+  // sections once the downloads are in, so scroll there ourselves, once, when it exists.
+  const target = location.hash.slice(1);
+  if (target) {
+    createEffect(
+      on(downloads, (d) => {
+        if (d) requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ block: 'start' }));
+      }),
+    );
+  }
   const win = () => downloads()?.windows;
   const deb = () => downloads()?.deb;
   const rpm = () => downloads()?.rpm;
@@ -492,7 +502,7 @@ function DownloadPage() {
 /** Linkord for Android: what the app does, the APK (once one is published), install steps and the phone. */
 function MobileSection(p: { android?: Download }) {
   return (
-    <section class="dl-mobile" id="mobile">
+    <section class="dl-mobile" id="android">
       <div class="dl-mobile-text">
         <p class="showcase-kicker">{t('Linkord for Android')}</p>
         <h2>{t('Linkord on your phone')}</h2>

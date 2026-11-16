@@ -3401,6 +3401,8 @@ body:has(.incoming-call) .league-prompts { top: 330px; }
 .dl-mobile-get .muted { margin: 0; }
 .dl-mobile-phone { container-type: inline-size; width: 100%; max-width: 280px; justify-self: center; }
 .dl-mobile-steps { grid-column: 1 / -1; }
+/* Sections opened from a shared link (/download#android) stop a little below the top. */
+.dl [id] { scroll-margin-top: 24px; }
 
 /* The phone (PhoneMock): 1em = 1% of its width, so it scales with its column. */
 .mk-phone {
