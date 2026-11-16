@@ -1,9 +1,11 @@
-import { createResource, createSignal, For, Show } from 'solid-js';
+import { createResource, createSignal, For, onMount, Show } from 'solid-js';
 import { api, checkServer, defaultServer, LOGIN_PENDING_KEY, serverUrl, setServerUrl, setToken } from '../lib/api';
 import { t } from '../lib/i18n';
 import { isTauri, openExternal } from '../lib/platform';
+import { openPage } from '../lib/route';
 import * as I from './Icons';
 import { Emblem } from './Icons';
+import { AppOffer, appForThisDevice, loadDownloads } from './Pages';
 
 function randomNonce() {
   const b = crypto.getRandomValues(new Uint8Array(32));
@@ -44,6 +46,9 @@ export function Login(p: { onLogin: () => void }) {
     refetch();
   };
   const status = () => (check.loading ? 'checking' : config() ? 'online' : 'offline');
+  // On the web, the app for this device comes first (we'd rather people use it); the browser stays one step below.
+  if (!isTauri) onMount(loadDownloads);
+  const app = () => appForThisDevice();
 
   const done = (token: string) => {
     setToken(token);
@@ -103,10 +108,28 @@ export function Login(p: { onLogin: () => void }) {
         <header class="login-brand">
           <Emblem size={30} />
           <span>Linkord</span>
+          <Show when={!isTauri}>
+            <button class="login-download" onClick={() => openPage('download')}>
+              <I.Download size={15} />
+              {t('Download')}
+            </button>
+          </Show>
         </header>
 
         <div class="login-card">
           <h1>{t('Gather your party.')}</h1>
+
+          <Show when={app()}>
+            {(a) => (
+              <>
+                <AppOffer platform={a().platform} file={a().file} />
+                <div class="divider login-or">
+                  <span>{t('or continue in the browser')}</span>
+                </div>
+              </>
+            )}
+          </Show>
+          {/* After the offer it introduces the browser option; without one it follows the title as before. */}
           <p class="login-lead">
             {t('Sign in with your Discord account to hop into voice, chat and streams with your friends.')}
           </p>

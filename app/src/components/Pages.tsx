@@ -701,6 +701,75 @@ export function DownloadBanner() {
   );
 }
 
+/** The app for the device this page is open on (web only), when there's a build of it to download. */
+export function appForThisDevice(): { platform: 'windows' | 'linux' | 'android'; file: Download } | null {
+  const d = downloads();
+  if (isTauri || !d) return null;
+  if (onAndroid) return d.android ? { platform: 'android', file: d.android } : null;
+  if (os === 'windows' && d.windows) return { platform: 'windows', file: d.windows };
+  const linux = d.deb ?? d.rpm;
+  if (os === 'linux' && linux) return { platform: 'linux', file: linux };
+  return null;
+}
+
+export { loadDownloads };
+
+/** What the sign-in screen says about each app: one reason that matters on that device. */
+const OFFER = {
+  windows: {
+    name: msg('Linkord for Windows'),
+    pitch: msg('Push to talk works inside games, and REC saves your best plays.'),
+    cta: msg('Download for Windows'),
+  },
+  linux: {
+    name: msg('Linkord for Linux'),
+    pitch: msg('Voice and screen sharing with sound, in a window of its own.'),
+    cta: msg('Download for Linux'),
+  },
+  android: {
+    name: msg('Linkord for Android'),
+    pitch: msg('Calls ring like a phone call, even with the app closed.'),
+    cta: msg('Download for Android'),
+  },
+};
+
+/**
+ * The sign-in screen's offer (web): the app for this device, ahead of signing in here. One download click (Linux opens
+ * the page, to pick .deb or .rpm), and the facts that make it an easy yes: free, its size, it updates itself.
+ */
+export function AppOffer(p: { platform: 'windows' | 'linux' | 'android'; file: Download }) {
+  const o = OFFER[p.platform];
+  const icon = () =>
+    p.platform === 'windows' ? <WindowsMark /> : p.platform === 'linux' ? <LinuxMark /> : <I.MobileDevice size={18} />;
+  return (
+    <div class="app-offer">
+      <span class="app-offer-badge">{t('Recommended')}</span>
+      <div class="app-offer-head">
+        <Emblem size={34} />
+        <div>
+          <strong>{t(o.name)}</strong>
+          <span>{[t('Free'), megabytes(p.file.size), t('Updates itself')].filter(Boolean).join(' · ')}</span>
+        </div>
+      </div>
+      <p>{t(o.pitch)}</p>
+      <Show
+        when={p.platform !== 'linux'}
+        fallback={
+          <button class="btn primary app-offer-cta" onClick={() => openPage('download')}>
+            {icon()}
+            {t(o.cta)}
+          </button>
+        }
+      >
+        <a class="btn primary app-offer-cta" href={p.file.url} download="">
+          {icon()}
+          {t(o.cta)}
+        </a>
+      </Show>
+    </div>
+  );
+}
+
 /** After an update (desktop) or a new release (web): once, with a link to the patch notes. */
 export function UpdatedBanner() {
   // First run on this device: nothing to announce.
