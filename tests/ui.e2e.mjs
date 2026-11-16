@@ -573,7 +573,8 @@ await step('own user card: edit the custom status right in the bubble; the prese
   await a.page.hover('.profile-card .profile-avatar');
   const onTop = await a.page.evaluate(() => {
     const r = document.querySelector('.profile-card .profile-avatar .presence').getBoundingClientRect();
-    return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.classList.contains('presence');
+    // The mark is an SVG inside .presence (Avatar.tsx PresenceMark): what's on top there is part of it.
+    return !!document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('.presence');
   });
   assert.ok(onTop, 'the "View profile" overlay covers the presence dot');
   await shot(a.page, 'e2e-own-card-status');
