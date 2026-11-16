@@ -26,8 +26,8 @@ android {
         applicationId = "com.linkord.app"
         minSdk = 29
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.1.1"
+        versionCode = 4
+        versionName = "0.1.2"
         buildConfigField("String", "DEFAULT_SERVER", "\"https://linkord.app\"")
         buildConfigField("String", "DIRECT_SERVER", "\"https://direct.example.com:8443\"")
         // Addresses this server had before: links to them in old messages still open here.
