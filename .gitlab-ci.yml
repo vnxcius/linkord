@@ -1,0 +1,18 @@
+# GitLab's view of the box's runner (deploy/ci/linkord-ci): one job, on the box itself, that wakes the runner for the
+# pushed commit and streams its log here until the run ends (red when a test, deploy or publish failed). The work is
+# linkord-ci's, so the cron tick still ships every push the same way when GitLab or this job is down.
+# The box's gitlab-runner (tag linkord-box) is set up by deploy/ci/install-gitlab-runner.sh.
+workflow:
+  rules:
+    # The runner's own version bumps come back as chore(release) commits: nothing to ship for them.
+    - if: $CI_COMMIT_BRANCH == "master" && $CI_COMMIT_MESSAGE !~ /^chore\(release\): /
+
+ship:
+  tags: [linkord-box]
+  timeout: 3h
+  variables:
+    # The runner works in its own checkout (~/repositories/linkord); this job needs no clone.
+    GIT_STRATEGY: none
+  script:
+    - ~/.local/bin/linkord-ci kick
+    - ~/.local/bin/linkord-ci follow "$CI_COMMIT_SHA"

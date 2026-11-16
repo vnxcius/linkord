@@ -89,11 +89,15 @@ Patch notes are written from the commit subjects (`feat`, `fix` and `perf`, with
 `chore(release): ...` commit: `git pull --rebase` before your next push. Order is CLAUDE.md's: tests, server, clients.
 
 ```bash
-deploy/ci/ship.sh                       # git push, then follow the run on the box until it's done
-ssh linkord-box linkord-ci status       # where each part stands, the last runs
-ssh linkord-box linkord-ci log -f       # the current run
-ssh linkord-box linkord-ci retry        # run a failed commit again (failures wait for the next push otherwise)
+deploy/ci/ship.sh                                   # git push, then follow the run on the box until it's done
+ssh linkord-box '~/.local/bin/linkord-ci status'    # where each part stands, the last runs
+ssh linkord-box '~/.local/bin/linkord-ci log -f'    # the current run
+ssh linkord-box '~/.local/bin/linkord-ci retry'     # run a failed commit again (failures wait for the next push otherwise)
 ```
+
+Each push also shows up in GitLab (Build -> Pipelines): `.gitlab-ci.yml` runs one job on the box that wakes the runner
+and streams its log there, red when a step failed. The box's gitlab-runner is set up by
+`deploy/ci/install-gitlab-runner.sh glrt-...` (a project runner tagged `linkord-box`; no sudo, kept up by cron).
 
 Set up once on the box: `deploy/ci/install.sh` (a crontab line, no sudo; `--remove` takes it out). It needs Docker
 (our BuildKit builder), Rust, Bun, Node, a JDK 21 in `/mnt/hdd/linkord/jdk-21`, the Android SDK in `/mnt/hdd/linkord/android-sdk` and the signing keys
