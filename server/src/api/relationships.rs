@@ -112,6 +112,8 @@ async fn send_request(st: &AppState, me: Id, target: Id) -> ApiResult<()> {
         _ => {
             set(&st.db, me, target, OUTGOING).await?;
             set(&st.db, target, me, INCOMING).await?;
+            // Their phone hears about it even with the app closed (the open apps show it from RELATIONSHIP_ADD).
+            crate::push::on_friend_request(st, target, me);
         }
     }
     notify(st, me, target).await?;

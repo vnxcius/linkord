@@ -382,7 +382,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .guild-header:hover { background: var(--bg-hover); }
 .guild-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .guild-counts { display: flex; gap: 12px; font: 400 11px var(--font-mono); color: var(--text-3); white-space: nowrap; }
-.online-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--online); vertical-align: 1px; }
+.online-dot { display: inline-block; width: 8px; height: 8px; color: var(--online); vertical-align: 0; }
+.online-dot > svg { display: block; width: 100%; height: 100%; }
 .sidebar-header .chev { margin-bottom: 4px; }
 .chev { color: var(--text-3); transition: transform 0.2s; }
 .chev.open { transform: rotate(180deg); }
@@ -513,7 +514,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .rec-strip-what { flex: 1; min-width: 0; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rec-strip-time { flex: none; font: 500 11.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-2); }
 .status-menu { bottom: 64px; left: 8px; right: 8px; }
-.presence-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: auto; }
+.presence-dot { width: 10px; height: 10px; display: inline-block; margin-right: auto; flex: none; color: var(--offline); }
+.presence-dot > svg { display: block; width: 100%; height: 100%; }
 .status-menu button { justify-content: flex-start; }
 .status-menu button .presence-dot { margin-right: 8px; }
 
@@ -535,24 +537,24 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text); font-family: var(--font); font-weight: 600;
 }
 .avatar.speaking img, .avatar.speaking .avatar-fallback { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--speaking); }
+/* Status marks (lib/presence-marks.ts, Avatar.tsx PresenceMark): triangles from the app icon, each status its own
+   shape and colour. In an avatar's corner the mark sits in a ring of --presence-ring (the surface behind it) that cuts
+   it out of the picture; --ring is its width (--ring-w overrides it where a bigger avatar wants a set one). */
 .presence {
-  position: absolute; right: -4px; bottom: -4px; width: 32%; height: 32%; border-radius: 50%;
-  --presence-ring: var(--bg-1); border: var(--ring) solid var(--presence-ring); background: var(--offline); box-sizing: content-box; transform: translate(12%, 12%);
+  position: absolute; right: -4px; bottom: -4px; width: 32%; height: 32%; --presence-ring: var(--bg-1);
+  border: var(--ring-w, var(--ring)) solid transparent; box-sizing: content-box; transform: translate(12%, 12%);
+  color: var(--offline);
+}
+.presence > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.presence-ring {
+  fill: var(--presence-ring); stroke: var(--presence-ring); stroke-width: calc(2 * var(--ring-w, var(--ring)));
+  stroke-linejoin: round; vector-effect: non-scaling-stroke;
 }
 .user-panel .presence { --presence-ring: var(--bg-1); }
-.presence.online, .presence-dot.online { background: var(--online); }
-.presence.idle, .presence-dot.idle { background: var(--idle); }
-/* Idle reads as a hint of a crescent: a small bite out of the top-left, in the ring colour (or cut out of a bare dot). */
-.presence.idle { background: radial-gradient(ellipse 36% 36% at 20% 20%, var(--presence-ring) 97%, transparent 100%), var(--idle); }
-.presence-dot.idle { mask: radial-gradient(ellipse 36% 36% at 20% 20%, transparent 97%, #000 100%); }
-.presence.dnd, .presence-dot.dnd { background: var(--dnd); }
-/* Do Not Disturb carries a black minus, like Discord's. */
-.presence-dot.dnd { position: relative; }
-.presence.dnd::after, .presence-dot.dnd::after {
-  content: ''; position: absolute; left: 50%; top: 50%; width: 62%; height: 24%; min-height: 2px; border-radius: 999px;
-  background: #000; transform: translate(-50%, -50%);
-}
-.presence.offline, .presence-dot.offline { background: var(--offline); }
+.presence.online, .presence-dot.online { color: var(--online); }
+.presence.idle, .presence-dot.idle { color: var(--idle); }
+.presence.dnd, .presence-dot.dnd { color: var(--dnd); }
+.presence.offline, .presence-dot.offline { color: var(--offline); }
 
 /* ---------- Main ---------- */
 
@@ -809,7 +811,7 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .margin-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 10px 8px 12px; }
 .dm-profile { flex: 1; min-height: 0; overflow-y: auto; }
-.dm-profile .profile-avatar .presence { width: 22%; height: 22%; border-width: 4px; }
+.dm-profile .profile-avatar .presence { width: 22%; height: 22%; --ring-w: 4px; }
 .dm-profile .bio { overflow-wrap: anywhere; }
 .dm-profile-mutual { padding: 0; color: var(--text-2); font-size: 13px; text-align: left; }
 .dm-profile-mutual:hover { color: var(--text); text-decoration: underline; }
@@ -2705,8 +2707,9 @@ button.viewers:hover { background: rgba(255, 255, 255, 0.12); }
 
 .vn-wave { position: relative; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 2px; touch-action: none; }
 .vn-wave.seekable { cursor: pointer; }
-.vn-wave span:not(.vn-thumb) { flex: 1; max-width: 3px; min-width: 2px; border-radius: 2px; background: var(--text-3); opacity: 0.7; transition: background 0.1s; }
-.vn-wave span.on { background: var(--brand); opacity: 1; }
+.vn-bars { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; gap: 2px; pointer-events: none; }
+.vn-bars span { flex: 1; max-width: 3px; min-width: 2px; border-radius: 2px; background: var(--text-3); opacity: 0.7; }
+.vn-bars.on span { background: var(--brand); opacity: 1; }
 .vn-thumb {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
   background: var(--brand); box-shadow: 0 0 0 3px rgb(var(--brand-rgb) / calc(0.2 * var(--tint)));
@@ -2797,7 +2800,7 @@ button.profile-avatar:hover .profile-avatar-hint, button.profile-avatar:focus-vi
 .profile-banner .modal-close { background: rgba(10, 10, 12, 0.5); color: #fff; z-index: 1; }
 .profile-modal-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 0 20px; margin-top: -64px; position: relative; }
 .profile-avatar.big { margin: 0; border-width: 8px; border-color: var(--bg-2); background: var(--bg-2); }
-.profile-avatar.big .presence { --presence-ring: var(--bg-2); width: 20%; height: 20%; border-width: 5px; }
+.profile-avatar.big .presence { --presence-ring: var(--bg-2); width: 20%; height: 20%; --ring-w: 5px; }
 button.profile-avatar.big { cursor: zoom-in; }
 button.profile-avatar.big:disabled { cursor: default; opacity: 1; }
 .profile-modal-actions { display: flex; gap: 8px; padding-bottom: 8px; flex-wrap: wrap; justify-content: flex-end; }

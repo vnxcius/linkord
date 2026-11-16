@@ -25,7 +25,7 @@ const supported = !isTauri && 'serviceWorker' in navigator && 'PushManager' in w
 
 let registration: ServiceWorkerRegistration | null = null;
 /** Part of the service worker's address: a new value makes every browser fetch it again, past any cache. */
-const SW_VERSION = 4;
+const SW_VERSION = 5;
 
 export async function initPush() {
   if (isTauri || !('serviceWorker' in navigator)) return setPushState('unsupported');
@@ -40,6 +40,7 @@ export async function initPush() {
     if (m?.type === 'push-received') received?.(m);
     else if (m?.type === 'open' && typeof m.channelId === 'string')
       openNotificationTarget({ channelId: m.channelId, messageId: m.messageId ?? undefined });
+    else if (m?.type === 'open' && m.friends === true) openNotificationTarget({ friends: true });
     else if (m?.type === 'resubscribe') void sync();
   });
   await refresh();

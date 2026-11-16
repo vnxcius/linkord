@@ -22,6 +22,8 @@ self.addEventListener('push', (e) => {
       url: n.url || '/',
       channelId: n.channel_id ? String(n.channel_id) : null,
       messageId: n.message_id ? String(n.message_id) : null,
+      // A friend request (push.rs on_friend_request): a click opens the friends list.
+      friends: !!n.friend_request,
     },
   });
   e.waitUntil(
@@ -62,6 +64,7 @@ self.addEventListener('notificationclick', (e) => {
       if (open) {
         await open.focus();
         if (data.channelId) open.postMessage({ type: 'open', channelId: data.channelId, messageId: data.messageId });
+        else if (data.friends) open.postMessage({ type: 'open', friends: true });
         return;
       }
       await self.clients.openWindow(data.url || '/');

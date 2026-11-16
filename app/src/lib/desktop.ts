@@ -83,7 +83,8 @@ async function openFromNotification(target: NotifyTarget) {
     await win.unminimize().catch(() => {});
     await win.setFocus().catch(() => {});
   }
-  const { jumpToMessage, openVoiceChat, selectChannel } = await import('./actions');
+  const { jumpToMessage, openFriends, openVoiceChat, selectChannel } = await import('./actions');
+  if ('friends' in target) return openFriends();
   const ch = state.channels[target.channelId];
   if (!ch) return;
   // A voice channel's chat opens beside the call.

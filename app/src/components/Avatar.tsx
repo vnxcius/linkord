@@ -1,5 +1,6 @@
 import { Show } from 'solid-js';
 import { media } from '../lib/api';
+import { MARKS, OUTLINE, outline, type Presence } from '../lib/presence-marks';
 import { presenceOf, state } from '../lib/store';
 import type { User } from '../lib/types';
 import { displayName } from '../lib/types';
@@ -28,9 +29,49 @@ export function Avatar(p: {
         {(src) => <img src={src()} alt="" loading="lazy" draggable={false} />}
       </Show>
       <Show when={p.presence && p.user}>
-        <span class={`presence ${presenceOf(p.user!.id)}`} style={{ '--ring': `${Math.max(3, size() * 0.07)}px` }} />
+        <span
+          class={`presence ${markOf(presenceOf(p.user!.id))}`}
+          style={{ '--ring': `${Math.max(3, size() * 0.07)}px` }}
+        >
+          <PresenceMark status={presenceOf(p.user!.id)} ring />
+        </span>
       </Show>
     </div>
+  );
+}
+
+const markOf = (s: string): Presence => (s === 'online' || s === 'idle' || s === 'dnd' ? s : 'offline');
+
+/**
+ * A status's mark (lib/presence-marks.ts), in its status colour (CSS `color` on the parent: .presence / .presence-dot).
+ * `ring`: drawn in an avatar's corner, cut out of the picture by a ring in --presence-ring, --ring wide.
+ */
+export function PresenceMark(p: { status: string; ring?: boolean }) {
+  const s = () => markOf(p.status);
+  return (
+    <svg viewBox="0 0 100 100" overflow="visible" aria-hidden="true">
+      <Show when={p.ring}>
+        <path class="presence-ring" d={outline(s())} />
+      </Show>
+      <Show
+        when={s() !== 'offline'}
+        fallback={
+          <path
+            d={MARKS.inner}
+            fill={p.ring ? 'var(--presence-ring)' : 'none'}
+            stroke="currentColor"
+            stroke-width={OUTLINE}
+            stroke-linejoin="round"
+          />
+        }
+      >
+        <path
+          d={s() === 'idle' ? MARKS.triforce : s() === 'dnd' ? MARKS.down : MARKS.up}
+          fill="currentColor"
+          fill-rule="evenodd"
+        />
+      </Show>
+    </svg>
   );
 }
 

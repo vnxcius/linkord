@@ -317,14 +317,17 @@ function Waveform(p: { levels: number[]; progress: number; onSeek?: (f: number) 
       }}
       onPointerMove={(e) => p.onSeek && e.buttons & 1 && p.onSeek(at(e))}
     >
-      <For each={bars()}>
-        {(l, i) => (
-          <span
-            classList={{ on: (i() + 0.5) / bars().length <= p.progress }}
-            style={{ height: `${Math.max(10, l * 100)}%` }}
-          />
-        )}
-      </For>
+      {/* The played part is the same bars in the accent, cut exactly at the position (through a bar, not bar by bar,
+          so it moves smoothly). */}
+      <div class="vn-bars">
+        <For each={bars()}>{(l) => <span style={{ height: `${Math.max(10, l * 100)}%` }} />}</For>
+      </div>
+      <div
+        class="vn-bars on"
+        style={{ 'clip-path': `inset(0 ${(1 - Math.min(1, Math.max(0, p.progress))) * 100}% 0 0)` }}
+      >
+        <For each={bars()}>{(l) => <span style={{ height: `${Math.max(10, l * 100)}%` }} />}</For>
+      </div>
       <Show when={p.onSeek}>
         <span class="vn-thumb" style={{ left: `${Math.min(1, p.progress) * 100}%` }} />
       </Show>

@@ -124,7 +124,7 @@ const LADDERS: Record<string, Ladder> = {
 };
 
 const SINGLES: Record<string, { name: string; about: string }> = {
-  admin: { name: msg('Linkord Admin'), about: msg('Runs this Linkord') },
+  admin: { name: msg('Linkord Admin'), about: msg('Verified Administrator') },
   early: { name: msg('Early Member'), about: msg('Here before Linkord 1.0') },
   owner: { name: msg('Server Owner'), about: msg('Created a server') },
   bug_hunter: { name: msg('Bug Hunter'), about: msg('Found and reported a bug') },

@@ -27,8 +27,9 @@ import {
   state,
   type BotCommand,
 } from './store';
-import type { Activity, Channel, Guild, Message, Rel, Settings, Status, User, VoiceState } from './types';
-import { Kind } from './types';
+import type { Activity, Channel, Guild, Message, Settings, Status, User, VoiceState } from './types';
+import { displayName, Kind, Rel } from './types';
+import { toast } from './ui';
 import { onVoiceStateFromServer } from './voice';
 import { onBadgeEarned, onBadgesUpdate } from './badges';
 
@@ -256,11 +257,15 @@ function handle(t: string, d: any) {
       });
     case 'USER_SETTINGS_UPDATE':
       return setState('settings', reconcile(d));
-    case 'RELATIONSHIP_ADD':
-      return batch(() => {
+    case 'RELATIONSHIP_ADD': {
+      const was = state.relationships[d.id];
+      batch(() => {
         putUser(d.user);
         setState('relationships', d.id, d.type);
       });
+      if (d.type === Rel.Incoming && was !== Rel.Incoming) onFriendRequest(d.user);
+      return;
+    }
     case 'RELATIONSHIP_REMOVE':
       return setState(
         'relationships',
@@ -399,6 +404,17 @@ function onMessage(m: Message) {
     m.content.replace(/<@&?(\d+)>/g, (_, id) => '@' + nameOf(id, ch.guild_id)).replace(/<a?:(\w+):\d+>/g, ':$1:') ||
     (m.forwarded ? t('Forwarded a message') : t('Sent an attachment'));
   void notify(where, body.slice(0, 200), media(m.author.avatar), { channelId: m.channel_id, messageId: m.id });
+}
+
+/** Someone sent you a friend request: the message sound, and a notification while Linkord isn't in front (a toast
+ *  while it is). With the app closed, push.rs on_friend_request tells the phone/browser instead. */
+function onFriendRequest(u: User) {
+  if (state.me?.status === 'dnd') return;
+  sounds.message();
+  const name = displayName(u);
+  if (document.hasFocus()) return toast(t('{name} sent you a friend request', { name }));
+  if (!prefs.desktopNotifications) return;
+  void notify(name, t('Sent you a friend request'), media(u.avatar), { friends: true });
 }
 
 function onReaction(add: boolean, d: { channel_id: string; message_id: string; user_id: string; emoji: string }) {

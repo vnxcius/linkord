@@ -202,14 +202,20 @@ const tiered = (draw, t) => {
 // ---------- single badges ----------
 
 const SINGLE = {
+  // The app icon itself (design/linkord-icon.svg) on its graphite tile: white wings around the gold Triforce, with the
+  // badges' usual shading (a lit top edge, the right half of each piece a shade deeper) and a sparkle.
   admin: () => `
-<path d="M24 4.5L38.5 9.8V22C38.5 31 32.5 38.5 24 43.5C15.5 38.5 9.5 31 9.5 22V9.8Z" fill="#f5b935"/>
-<path d="M24 4.5L38.5 9.8V22C38.5 31 32.5 38.5 24 43.5Z" fill="#c98417"/>
-<path d="M24 8.3L35.2 12.4V22C35.2 29.4 30.8 35.4 24 39.6C17.2 35.4 12.8 29.4 12.8 22V12.4Z" fill="#3e5be0"/>
-<path d="M24 8.3L35.2 12.4V22C35.2 29.4 30.8 35.4 24 39.6Z" fill="#2c42b0"/>
-<path d="M24 13.5L27.6 19.8H20.4Z M20.4 19.8L24 26.1H16.8Z M27.6 19.8L31.2 26.1H24Z" fill="#ffd65c"/>
-<path d="M11.5 11.6L22 7.8" stroke="#ffe28c" stroke-width="1.4" stroke-linecap="round"/>
-${sparkle(39.5, 6.5, 3.6)}`,
+<rect x="4" y="5.5" width="40" height="40" rx="9" fill="#0c0c0f"/>
+<rect x="4" y="3.5" width="40" height="40" rx="9" fill="#18181c"/>
+<path d="M12.5 3.5H35.5C40.5 3.5 44 7 44 11V12C44 8 40.5 5 35.5 5H12.5C7.5 5 4 8 4 12V11C4 7 7.5 3.5 12.5 3.5Z" fill="#3a3a42"/>
+<g transform="translate(24 23.5) scale(.078) translate(-256 -228)" stroke-linejoin="round">
+<path d="M176.3 176L68.5 123.4L50.9 159.3L111.3 212.7L66.4 214.7L48.9 250.6L114.7 282.7Z M335.7 176L443.5 123.4L461.1 159.3L400.7 212.7L445.6 214.7L463.1 250.6L397.3 282.7Z" fill="#efece6" stroke="#efece6" stroke-width="20"/>
+<path d="M335.7 176L443.5 123.4L461.1 159.3L400.7 212.7L445.6 214.7L463.1 250.6L397.3 282.7Z" fill="#cfcac0" stroke="#cfcac0" stroke-width="20"/>
+<path d="M256 110L395.7 352L116.3 352Z M188 232.1L324 232.1L256 349.8Z" fill="#f6bd2e" stroke="#f6bd2e" stroke-width="12" fill-rule="evenodd"/>
+<path d="M256 110L395.7 352L256 352L256 349.8L324 232.1L256 232.1Z" fill="#d99a17" stroke="#d99a17" stroke-width="12"/>
+<path d="M256 110L186 231" stroke="#ffe28c" stroke-width="14" stroke-linecap="round"/>
+</g>
+${sparkle(40.5, 6.5, 3.6)}`,
   early: () => `
 <circle cx="24" cy="23" r="10.5" fill="#ffd23f"/>
 <path d="M33.6 19A10.5 10.5 0 0 1 20 32.5C27 32 32 27 33.6 19Z" fill="#f2b51d"/>

@@ -57,7 +57,7 @@ import { canShareScreen, liveFirst, viewersOf } from './VoiceView';
 import { canSetVoiceStatus, editVoiceStatus, VoiceStatusLine } from './VoiceStatus';
 import { ActivityLine, CustomStatusView, elapsedSince, GameIcon } from './Activity';
 import { clearCustomStatusNow, openCustomStatus } from './CustomStatus';
-import { Avatar } from './Avatar';
+import { Avatar, PresenceMark } from './Avatar';
 import { moveMember, userMenu } from './Profile';
 import { PrivateBadge } from './PrivateBadge';
 import { streamPreviewOn } from './StreamPreview';
@@ -356,7 +356,10 @@ function GuildSidebar(p: { guildId: string }) {
           <span class="sidebar-title">{g()!.name}</span>
           <span class="guild-counts">
             <span>
-              <i class="online-dot" /> {t('{n} online', { n: online() })}
+              <i class="online-dot">
+                <PresenceMark status="online" />
+              </i>{' '}
+              {t('{n} online', { n: online() })}
             </span>
             <span>{plural(memberIds().length, '{n} member', '{n} members')}</span>
           </span>
@@ -1249,7 +1252,11 @@ function UserPanel() {
         ...items,
         ...STATUSES.map((s) => ({
           label: t(s.label),
-          icon: () => <span class={`presence-dot ${s.id === 'invisible' ? 'offline' : s.id}`} />,
+          icon: () => (
+            <span class={`presence-dot ${s.id === 'invisible' ? 'offline' : s.id}`}>
+              <PresenceMark status={s.id} />
+            </span>
+          ),
           run: () => setStatus(s.id),
         })),
         'separator' as const,

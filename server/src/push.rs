@@ -9,6 +9,7 @@
 //! message in channels set to "All messages"; never while muted ("Nothing", muted channel/server except direct
 //! mentions), in Do Not Disturb, from someone blocked, or while the person is using Linkord on another device
 //! (a session that reported activity in the last ACTIVE_WINDOW and isn't in the background, gateway.rs in_use).
+//! Friend requests reach the person asked under the same DND / in-use rules (on_friend_request).
 //! Endpoints must be at a known push service (SSRF: the server POSTs to them).
 
 use std::collections::{HashMap, HashSet};
@@ -274,6 +275,7 @@ enum Words {
     Attachment,
     Forwarded,
     Calling,
+    FriendRequest,
     Test,
 }
 
@@ -284,6 +286,7 @@ fn words(lang: &str, w: Words) -> (&'static str, &'static str) {
         Words::Attachment => ("", if pt { "Enviou um anexo" } else { "Sent an attachment" }),
         Words::Forwarded => ("", if pt { "Encaminhou uma mensagem" } else { "Forwarded a message" }),
         Words::Calling => ("", if pt { "está te ligando" } else { "is calling you" }),
+        Words::FriendRequest => ("", if pt { "Te enviou um pedido de amizade" } else { "Sent you a friend request" }),
         Words::Test => ("Linkord", if pt { "As notificações estão funcionando neste dispositivo." } else { "Notifications work on this device." }),
     }
 }
@@ -508,6 +511,43 @@ pub fn on_ring(st: &AppState, channel: Id, caller: Id, users: Vec<Id>) {
                 "call": true,
             });
             send(&st, s, &payload, CALL_TTL, "high", None).await;
+        }
+    });
+}
+
+/// `from` sent `to` a friend request: their phone shows it (unless they're in Linkord already, where the app does,
+/// or in Do Not Disturb). Blocks are checked by the caller: a blocked person can't send one.
+pub fn on_friend_request(st: &AppState, to: Id, from: Id) {
+    let st = st.clone();
+    tokio::spawn(async move {
+        let subs = match subscriptions(&st, "user_id = $1", to).await {
+            Ok(s) => s,
+            Err(e) => return tracing::warn!("push: {e:?}"),
+        };
+        if subs.is_empty() {
+            return;
+        }
+        let dnd: bool = sqlx::query_scalar("SELECT status = 'dnd' FROM users WHERE id = $1").bind(to).fetch_optional(&st.db).await.ok().flatten().unwrap_or(false);
+        if dnd {
+            return tracing::info!(user = %to, reason = "do not disturb", "push: friend request not sent");
+        }
+        if st.hub.in_use(to, ACTIVE_WINDOW) {
+            return tracing::info!(user = %to, reason = "using Linkord on another device", "push: friend request not sent");
+        }
+        let name = name_in(&st, from, None).await;
+        let icon: Option<String> = sqlx::query_scalar("SELECT avatar FROM users WHERE id = $1").bind(from).fetch_optional(&st.db).await.ok().flatten().flatten();
+        for s in &subs {
+            // No channel_id: Android builds before friend requests ignore it (they only stack conversations).
+            let payload = json!({
+                "title": name,
+                "body": words(&s.lang, Words::FriendRequest).1,
+                "icon": icon.clone().unwrap_or_else(|| "/icon.png".into()),
+                "tag": format!("friend-{from}"),
+                "url": "/channels/@me",
+                "friend_request": true,
+                "user_id": from,
+            });
+            send(&st, s, &payload, MESSAGE_TTL, "high", Some(&format!("friend-{from}"))).await;
         }
     });
 }
