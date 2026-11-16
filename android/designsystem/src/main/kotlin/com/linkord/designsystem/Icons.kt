@@ -49,3 +49,92 @@ val LinkordMark: ImageVector by lazy {
         }
     }.build()
 }
+
+/** The site a profile link goes to, if it's one with a mark (web: lib/brand-icons.ts brandOf). Subdomains count. */
+fun brandOf(url: String): Brand? {
+    val u = url.trim()
+    if (u.isEmpty()) return null
+    val full = if (Regex("^[a-z][a-z0-9+.-]*://", RegexOption.IGNORE_CASE).containsMatchIn(u)) u else "https://$u"
+    val host = runCatching { java.net.URI(full).host }.getOrNull()?.lowercase()?.trimEnd('.') ?: return null
+    return BrandIcons.all.firstOrNull { b -> b.hosts.any { host == it || host.endsWith(".$it") } }
+}
+
+private val brandVectors = HashMap<String, ImageVector>()
+
+/**
+ * A link's icon: the site's own mark for sites we know (Instagram, Twitter, Steam...), otherwise the chain link, like
+ * the web's SiteIcon. Brand marks fill their whole grid, so they get Heroicons' 2px of air to match in size.
+ */
+fun siteIcon(url: String): ImageVector {
+    val b = brandOf(url) ?: return LinkordIcons.Link
+    return synchronized(brandVectors) {
+        brandVectors.getOrPut(b.id) {
+            ImageVector.Builder(b.name, 24.dp, 24.dp, 28f, 28f).apply {
+                group(translationX = 2f, translationY = 2f) {
+                    addPath(addPathNodes(b.path), fill = SolidColor(Color.Black))
+                }
+            }.build()
+        }
+    }
+}
+
+/**
+ * Presence marks (the web's app/src/lib/presence-marks.ts; keep the numbers in step): triangles from the app icon with
+ * rounded corners, in a 100-unit box. online = solid, idle = the Triforce (middle missing), dnd = upside down,
+ * offline = an empty outline [OUTLINE] wide.
+ */
+object PresenceMarks {
+    const val ROUND = 0.2f
+    const val OUTLINE = 20f
+    private const val S = 100f
+    private val W = S * (1.14f + ROUND * 0.5f)
+    private val H = W * 0.866f
+    private const val CX = S / 2
+    private val TOP = S / 2 - H / 2 + S * 0.04f
+    private val BOT = S / 2 + H / 2 + S * 0.04f
+    private val LEFT = CX - W / 2
+    private val RIGHT = CX + W / 2
+    private val R = S * ROUND
+
+    private fun roundTri(pts: List<Pair<Float, Float>>, r: Float): String {
+        val t = r * kotlin.math.sqrt(3f)
+        fun along(a: Pair<Float, Float>, b: Pair<Float, Float>, d: Float): Pair<Float, Float> {
+            val l = kotlin.math.hypot(b.first - a.first, b.second - a.second)
+            return (a.first + (b.first - a.first) / l * d) to (a.second + (b.second - a.second) / l * d)
+        }
+        val sb = StringBuilder()
+        pts.forEachIndexed { i, p ->
+            val a = along(p, pts[(i + 2) % 3], t)
+            val b = along(p, pts[(i + 1) % 3], t)
+            sb.append(if (i == 0) "M" else "L").append("${a.first},${a.second}")
+            sb.append("A$r,$r 0 0 1 ${b.first},${b.second}")
+        }
+        return sb.append("Z").toString()
+    }
+
+    private val UP = listOf(CX to TOP, RIGHT to BOT, LEFT to BOT)
+    private val DOWN = listOf(LEFT to TOP, RIGHT to TOP, CX to TOP + H)
+    private val HOLE = listOf((LEFT + CX) / 2 to (TOP + BOT) / 2, (RIGHT + CX) / 2 to (TOP + BOT) / 2, CX to BOT)
+    private val G = (TOP + 2 * BOT) / 3
+    private val K = 1 - (OUTLINE * 1.9f) / H
+    private val INNER = UP.map { (x, y) -> (CX + (x - CX) * K) to (G + (y - G) * K) }
+
+    private fun path(d: String, evenOdd: Boolean = false) = androidx.compose.ui.graphics.vector.PathParser().parsePathString(d).toPath()
+        .apply { if (evenOdd) fillType = PathFillType.EvenOdd }
+
+    val up by lazy { path(roundTri(UP, R)) }
+    val down by lazy { path(roundTri(DOWN, R)) }
+    val triforce by lazy { path(roundTri(UP, R) + roundTri(HOLE, R * 0.45f), evenOdd = true) }
+    val inner by lazy { path(roundTri(INNER, maxOf(0f, R * K - OUTLINE / 2))) }
+
+    /** The outer shape of a status's mark (what a ring is drawn around). */
+    fun outline(status: String) = if (status == "dnd") down else up
+
+    /** The mark itself, filled; null for offline (drawn as [inner] stroked [OUTLINE] wide). */
+    fun body(status: String) = when (status) {
+        "online" -> up
+        "idle" -> triforce
+        "dnd" -> down
+        else -> null
+    }
+}

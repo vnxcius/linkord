@@ -228,11 +228,13 @@ fun ServerSettingsScreen(guildId: String) {
 
                 val roles = st.can(guildId, Perm.MANAGE_ROLES)
                 val channels = st.can(guildId, Perm.MANAGE_CHANNELS)
-                if (roles || channels) {
+                val bans = st.can(guildId, Perm.KICK_MEMBERS)
+                if (roles || channels || bans) {
                     Spacer(Modifier.height(4.dp))
                     Section {
                         if (roles) Entry(LinkordIcons.Users, t("Roles"), trailing = (st.rolesOf(guildId).size - 1).toString()) { nav.push(Screen.Roles(guildId)) }
                         if (channels) Entry(LinkordIcons.Hash, t("Channels"), trailing = layout.all.size.toString()) { nav.push(Screen.ChannelOrder(guildId)) }
+                        if (bans) Entry(LinkordIcons.NoSymbol, t("Banned")) { nav.push(Screen.Bans(guildId)) }
                     }
                 }
                 Text(t("Emoji and sounds are managed in the desktop or web app."), style = Linkord.type.small, color = c.text3, modifier = Modifier.padding(horizontal = 16.dp))

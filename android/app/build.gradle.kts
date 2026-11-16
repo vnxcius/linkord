@@ -124,12 +124,14 @@ dependencies {
 // - the translations, app/src/lib/locales/pt-BR.ts as i18n/pt-BR.json (scripts/gen-strings.mjs; needs Node 22+ on the
 //   PATH, or -Plinkord.node=/path/to/node);
 // - the badge art, app/src/assets/badges/*.svg as badges/;
-// - the call sounds (the owner's WAVs and the ringtones), app/src/assets/sounds as sounds/.
+// - the call sounds (the owner's WAVs and the ringtones), app/src/assets/sounds as sounds/;
+// - every emoji with its names, by category (app/src/lib/emoji-list.json, scripts/build-emoji-data.mjs) as emoji/.
 abstract class GenAssets : DefaultTask() {
     @get:InputFile abstract val dictionary: RegularFileProperty
     @get:InputFile abstract val script: RegularFileProperty
     @get:InputDirectory abstract val badges: DirectoryProperty
     @get:InputDirectory abstract val sounds: DirectoryProperty
+    @get:InputFile abstract val emojis: RegularFileProperty
     @get:Input abstract val node: Property<String>
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
     @get:Inject abstract val exec: ExecOperations
@@ -147,6 +149,10 @@ abstract class GenAssets : DefaultTask() {
             from(sounds) { include("join.wav", "leave.wav", "disconnect.wav", "mute.wav", "unmute.wav", "deafen.wav", "undeafen.wav", "ring-incoming.mp3", "ring-outgoing.mp3", "message.wav", "christmas/*.mp3") }
             into(out.resolve("sounds"))
         }
+        fs.copy {
+            from(emojis)
+            into(out.resolve("emoji"))
+        }
     }
 }
 
@@ -155,6 +161,7 @@ val genAssets = tasks.register<GenAssets>("genAssets") {
     script.set(rootProject.file("scripts/gen-strings.mjs"))
     badges.set(rootProject.file("../app/src/assets/badges"))
     sounds.set(rootProject.file("../app/src/assets/sounds"))
+    emojis.set(rootProject.file("../app/src/lib/emoji-list.json"))
     node.set((findProperty("linkord.node") as String?) ?: "node")
 }
 

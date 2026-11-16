@@ -88,6 +88,7 @@ class Session(val context: Context) {
     init {
         loadLanguage()
         store.onAlert = { notifier.alert(it) }
+        store.onRelationship = { id, before, after -> notifier.relationship(id, before, after) }
     }
 
     /** The UI language follows the app's locale (Android's per-app language, or the system's). */

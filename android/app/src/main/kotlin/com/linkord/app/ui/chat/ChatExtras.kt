@@ -4,6 +4,7 @@ import android.content.ClipData
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -78,19 +79,9 @@ import kotlinx.coroutines.launch
 /** Quick reactions, as on the web client (EmojiPicker QUICK_REACTIONS). */
 val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "🔥", "👀", "🎉")
 
-/** Emoji offered under "More" (the phone keyboard has the rest for messages). */
-private val MORE_EMOJI = listOf(
-    "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😋", "😛", "😜", "🤪",
-    "🤔", "🤨", "😐", "😑", "😶", "🙄", "😏", "😬", "😌", "😔", "😪", "😴", "😷", "🤒", "🥵", "🥶", "🥴", "😵", "🤯", "🤠",
-    "🥳", "😎", "🤓", "😕", "😟", "🙁", "😮", "😲", "😳", "🥺", "😦", "😨", "😰", "😢", "😭", "😱", "😖", "😣", "😞", "😩",
-    "😤", "😡", "😠", "🤬", "💀", "💩", "🤡", "👻", "👽", "🤖", "😺", "🙈", "🙉", "🙊", "💯", "💢", "💥", "💫", "💤", "👋",
-    "👌", "✌️", "🤞", "🤟", "🤘", "👈", "👉", "👆", "👇", "👍", "👎", "✊", "👏", "🙌", "🙏", "💪", "🧠", "👀", "❤️", "🧡",
-    "💛", "💚", "💙", "💜", "🖤", "🤍", "💔", "❤️‍🔥", "✨", "⭐", "🌟", "🔥", "🎉", "🎊", "🏆", "⚔️", "🛡️", "🎮", "🎧", "🍕",
-)
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: () -> Unit, onEdit: () -> Unit) {
+fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: () -> Unit, onEdit: () -> Unit, image: Pair<String, String>? = null) {
     val session = LocalContext.current.session
     val st by session.store.state.collectAsState()
     val clipboard = LocalClipboard.current
@@ -111,7 +102,7 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                 }
                 return@Column
             }
-            // Quick reactions on top, the rest of the emoji under "more".
+            // Quick reactions on top, every emoji under "more" (EmojiPicker).
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 for (e in QUICK_REACTIONS) {
                     Box(Modifier.size(46.dp).clip(RoundedCornerShape(23.dp)).background(c.raised).clickable { close { session.actions.toggleReaction(m, e) } }, contentAlignment = Alignment.Center) {
@@ -122,8 +113,13 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                     LIcon(if (more) LinkordIcons.Chevron else LinkordIcons.Smile, tint = c.text)
                 }
             }
-            if (more) EmojiGrid(st, guildId) { e -> close { session.actions.toggleReaction(m, e) } }
+            if (more) EmojiPicker(st, guildId, height = 420.dp) { e -> close { session.actions.toggleReaction(m, e) } }
             else {
+                // Held on a picture: its own actions first.
+                if (image != null) {
+                    ImageActionRows(image.first, image.second) { then -> close(then) }
+                    androidx.compose.material3.HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = c.line)
+                }
                 SheetAction(LinkordIcons.Reply, t("Reply")) { close(onReply) }
                 val ch = st.channels[m.channelId]
                 if (ch?.guildId != null && ch.kind == Kind.TEXT && m.threadId == null && m.type == 0) SheetAction(LinkordIcons.Thread, t("Create Thread")) {
@@ -150,22 +146,6 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                     close { session.launch { session.actions.deleteMessage(m) } }
                 }
             }
-        }
-    }
-}
-
-@Composable
-internal fun EmojiGrid(st: State, guildId: String?, onPick: (String) -> Unit) {
-    val session = LocalContext.current.session
-    val custom = (guildId?.let { st.emojis[it] } ?: emptyList()) + st.emojis.filterKeys { it != guildId }.values.flatten()
-    LazyVerticalGrid(GridCells.Adaptive(44.dp), Modifier.fillMaxWidth().height(320.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
-        items(custom, key = { "c" + it.id }) { e ->
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).clickable { onPick("${e.name}:${e.id}") }, contentAlignment = Alignment.Center) {
-                AsyncImage(session.api.emojiUrl(e.id, e.animated), ":${e.name}:", modifier = Modifier.size(28.dp))
-            }
-        }
-        items(MORE_EMOJI, key = { it }) { e ->
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).clickable { onPick(e) }, contentAlignment = Alignment.Center) { Text(com.linkord.designsystem.emojiText(e), fontSize = 24.sp) }
         }
     }
 }
@@ -269,10 +249,12 @@ fun ScreenScaffold(title: String, actions: @Composable () -> Unit = {}, onBack: 
     }
 }
 
-/** A picture full screen: pinch to zoom, drag down to put it away. */
+/** A picture full screen: pinch or double tap to zoom, drag down to put it away, hold for Save / Share / Copy Link. */
 @Composable
 fun ImageViewer(url: String, name: String) {
     val nav = LocalNav.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var actions by remember { mutableStateOf(false) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var drop by remember { mutableFloatStateOf(0f) }
@@ -283,6 +265,14 @@ fun ImageViewer(url: String, name: String) {
                     scale = (scale * zoom).coerceIn(1f, 6f)
                     offset = if (scale > 1f) offset + pan else androidx.compose.ui.geometry.Offset.Zero
                 }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); actions = true },
+                    onDoubleTap = {
+                        if (scale > 1f) { scale = 1f; offset = androidx.compose.ui.geometry.Offset.Zero } else scale = 2.5f
+                    },
+                )
             }
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
@@ -303,4 +293,5 @@ fun ImageViewer(url: String, name: String) {
             LIcon(LinkordIcons.Close, tint = Color.White)
         }
     }
+    if (actions) ImageSheet(url, name) { actions = false }
 }

@@ -99,6 +99,7 @@ private fun AppShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () ->
                         is Screen.ServerSettings -> com.linkord.app.ui.settings.ServerSettingsScreen(s.guildId)
                         is Screen.ChannelOrder -> com.linkord.app.ui.settings.ChannelOrderScreen(s.guildId)
                         is Screen.Roles -> com.linkord.app.ui.settings.RolesScreen(s.guildId)
+                        is Screen.Bans -> com.linkord.app.ui.profile.BansScreen(s.guildId)
                         is Screen.RoleEdit -> com.linkord.app.ui.settings.RoleEditScreen(s.guildId, s.roleId)
                         is Screen.ChannelPermissions -> com.linkord.app.ui.settings.ChannelPermissionsScreen(s.channelId)
                         is Screen.Image -> ImageViewer(s.url, s.name)

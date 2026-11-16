@@ -33,7 +33,7 @@ private val LADDERS = mapOf(
 )
 
 private val SINGLES = mapOf(
-    "admin" to ("Linkord Admin" to "Runs this Linkord"),
+    "admin" to ("Linkord Admin" to "Verified Administrator"),
     "early" to ("Early Member" to "Here before Linkord 1.0"),
     "owner" to ("Server Owner" to "Created a server"),
     "bug_hunter" to ("Bug Hunter" to "Found and reported a bug"),

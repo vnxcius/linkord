@@ -144,6 +144,7 @@ fun MessageItem(
                     if (link.message != null) scope.launch { runCatching { session.actions.jumpToMessage(link.channel, link.message) } } else onOpenChannel(link.channel)
                 } else openLink(ctx, tap.url)
                 is com.linkord.app.data.AppLink.Clip -> nav.push(Screen.Video("${session.serverUrl()}/uploads/clips/${link.slug}.mp4", ""))
+                is com.linkord.app.data.AppLink.Profile -> nav.push(Screen.Profile(link.userId, guildId))
                 null -> openLink(ctx, tap.url)
             }
         }
@@ -260,7 +261,7 @@ fun MessageItem(
                     color = if (m.failed) c.danger else c.text, onTap = onTap,
                 )
                 if (m.ephemeral) Text(t("Only you can see this"), style = Linkord.type.label)
-                Attachments(m.attachments)
+                Attachments(m.attachments, m)
                 // Invite links become cards; their link previews would only repeat them (web MessageItem).
                 val origins = session.knownServers()
                 for (code in com.linkord.core.inviteCodes(m.content, origins)) InviteCard(code, mine = m.author.id == me)
@@ -341,7 +342,7 @@ fun ReactionEmoji(emoji: String, size: androidx.compose.ui.unit.Dp) {
 }
 
 @Composable
-fun Attachments(list: List<Attachment>) {
+fun Attachments(list: List<Attachment>, m: Message? = null) {
     val nav = LocalNav.current
     val ctx = LocalContext.current
     val c = Linkord.colors
@@ -353,7 +354,7 @@ fun Attachments(list: List<Attachment>) {
                 AsyncImage(
                     url, a.filename, contentScale = ContentScale.Crop,
                     modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp).heightIn(max = 360.dp).aspectRatio(ratio.coerceIn(0.4f, 3f))
-                        .clip(RoundedCornerShape(10.dp)).background(c.raised).clickable { nav.push(Screen.Image(url, a.filename)) },
+                        .clip(RoundedCornerShape(10.dp)).background(c.raised).imageTap(url, a.filename),
                 )
             }
             // Plays in place; `playable` is the H.264 copy the server makes of videos phones can't decode (videos.rs).
@@ -362,7 +363,7 @@ fun Attachments(list: List<Attachment>) {
                 ratio = if (a.width != null && a.height != null && a.height!! > 0) a.width!!.toFloat() / a.height!! else null,
                 durationMs = a.durationSecs?.let { (it * 1000).toLong() }, checking = a.codec == null,
             )
-            a.isVoiceNote -> VoiceNotePlayer(a, if (a.url.startsWith("file:")) a.url else url)
+            a.isVoiceNote -> VoiceNotePlayer(a, if (a.url.startsWith("file:")) a.url else url, m)
             a.isAudio -> InlineAudio("att-${a.id}", url, a)
             a.contentType.startsWith("text/plain") -> TextFilePreview(a, url) { openLink(ctx, url) }
             else -> FileCard(a, LinkordIcons.Paperclip) { openLink(ctx, url) }
@@ -410,7 +411,7 @@ fun EmbedCard(e: Embed, guildId: String?, onTap: (MdTap) -> Unit, id: String = e
         e.type == "league_invite" -> return
         e.type == "image" && e.image != null -> {
             val url = mediaUrl(e.image)!!
-            AsyncImage(url, null, contentScale = ContentScale.Fit, modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp).heightIn(max = 300.dp).clip(RoundedCornerShape(10.dp)).clickable { nav.push(Screen.Image(url, "")) })
+            AsyncImage(url, null, contentScale = ContentScale.Fit, modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp).heightIn(max = 300.dp).clip(RoundedCornerShape(10.dp)).imageTap(url, ""))
             return
         }
         e.type == "video" && e.url.isNotEmpty() -> {
@@ -455,14 +456,14 @@ fun EmbedCard(e: Embed, guildId: String?, onTap: (MdTap) -> Unit, id: String = e
             }
             if (e.largeImage) e.image?.let { img ->
                 val url = mediaUrl(img)!!
-                AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(8.dp)).clickable { nav.push(Screen.Image(url, "")) })
+                AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(8.dp)).imageTap(url, ""))
             }
             val footer = listOfNotNull(e.footer, e.timestamp?.let { timeOf(java.time.Instant.ofEpochMilli(it).toString()) })
             if (footer.isNotEmpty()) Text(footer.joinToString(" · "), style = Linkord.type.label)
         }
         sideImage?.let { th ->
             val url = mediaUrl(th)
-            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.padding(top = 12.dp, end = 12.dp).size(64.dp).clip(RoundedCornerShape(8.dp)).clickable { url?.let { nav.push(Screen.Image(it, "")) } })
+            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.padding(top = 12.dp, end = 12.dp).size(64.dp).clip(RoundedCornerShape(8.dp)).then(if (url != null) Modifier.imageTap(url, "") else Modifier))
         }
     }
 }
@@ -476,3 +477,11 @@ fun openMedia(ctx: android.content.Context, url: String, type: String) {
         .onFailure { openLink(ctx, url) }
 }
 
+/** A picture in a message: a tap opens it full screen; holding it opens the quick actions (LocalImageHold). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun Modifier.imageTap(url: String, name: String): Modifier {
+    val nav = LocalNav.current
+    val hold = LocalImageHold.current
+    return combinedClickable(onClick = { nav.push(Screen.Image(url, name)) }, onLongClick = hold?.let { h -> { h(url, name) } })
+}

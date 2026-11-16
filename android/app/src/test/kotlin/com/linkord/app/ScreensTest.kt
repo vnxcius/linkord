@@ -1,7 +1,10 @@
 package com.linkord.app
 
+import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
@@ -79,9 +82,21 @@ class ScreensTest {
     @Test fun profileDark() = shot("profile", ThemeMode.Dark) { ProfileScreen("2", "g1") }
     @Test fun callDark() = shot("call", ThemeMode.Dark) { com.linkord.app.ui.call.CallScreen("v1") {} }
     @Test fun callLight() = shot("call", ThemeMode.Light) { com.linkord.app.ui.call.CallScreen("v1") {} }
+    @Test fun emojiPickerDark() = shot("emoji-picker", ThemeMode.Dark) { Picker() }
+    @Test fun emojiPickerLight() = shot("emoji-picker", ThemeMode.Light) { Picker() }
+    @Test fun moderationDark() = shot("moderation", ThemeMode.Dark) { com.linkord.app.ui.profile.ModerationCard("g1", "2", zelda) }
+    @Test fun moderationLight() = shot("moderation", ThemeMode.Light) { com.linkord.app.ui.profile.ModerationCard("g1", "2", zelda) }
     @Test fun serverSettingsDark() = shot("server-settings", ThemeMode.Dark) { com.linkord.app.ui.settings.ServerSettingsScreen("g1") }
     @Test fun serverSettingsLight() = shot("server-settings", ThemeMode.Light) { com.linkord.app.ui.settings.ServerSettingsScreen("g1") }
     @Test fun channelOrderDark() = shot("channel-order", ThemeMode.Dark) { com.linkord.app.ui.settings.ChannelOrderScreen("g1") }
+
+    @Composable
+    private fun Picker() {
+        val st by session.store.state.collectAsState()
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.background(com.linkord.designsystem.Linkord.colors.panel)) {
+            com.linkord.app.ui.chat.EmojiPicker(st, "g1") {}
+        }
+    }
 
     private fun empty(channelId: String, mode: ThemeMode = ThemeMode.Dark) {
         session.store.update { it.copy(messages = it.messages.put(channelId, ChannelMessages(loaded = true, hasMore = false))) }
@@ -106,6 +121,7 @@ class ScreensTest {
                     Channel("c2", "g1", Kind.TEXT, "clips", position = 1, parentId = "cat1", lastMessageId = "x2"),
                     Channel("c3", "g1", Kind.TEXT, "lore", position = 2, parentId = "cat1"),
                     Channel("v1", "g1", Kind.VOICE, "Temple of Time", position = 3, parentId = "cat1"),
+                    Channel("v2", "g1", Kind.VOICE, "Lost Woods", position = 4, parentId = "cat1"),
                     Channel("cat2", "g1", Kind.CATEGORY, "Elsewhere", position = 1),
                     Channel("c4", "g1", Kind.TEXT, "kakariko", position = 0, parentId = "cat2"),
                 ),

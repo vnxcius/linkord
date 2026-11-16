@@ -1,5 +1,6 @@
 package com.linkord.app.ui.components
 
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -70,39 +71,39 @@ fun Avatar(user: User?, size: Dp, modifier: Modifier = Modifier, status: String?
     }
 }
 
-/** The presence dot in an avatar's corner, cut out of the background around it. */
+/** The status mark in an avatar's corner (PresenceMark), cut out of the picture by a ring of [ring] around it. */
 @Composable
 fun StatusDot(status: String, avatar: Dp, modifier: Modifier = Modifier, ring: Color = Linkord.colors.panel) {
-    val d = (avatar.value * 0.34f).coerceIn(9f, 16f).dp
-    Box(modifier.offset(d * 0.12f, d * 0.12f).size(d).clip(CircleShape).background(ring).padding(d * 0.18f)) {
-        PresenceDot(status, d * 0.64f, ring)
+    // Like the web's (32% of the avatar, less on big ones): the triangles need the room a dot didn't.
+    val d = (avatar.value * 0.34f).coerceIn(11f, 24f).dp
+    Box(modifier.offset(d * 0.12f, d * 0.12f).size(d), contentAlignment = Alignment.Center) {
+        PresenceDot(status, d * 0.7f, ring, ringWidth = d * 0.15f)
     }
 }
 
 /**
- * A presence dot drawn like the desktop's (styles.css .presence): idle = a small bite out of the top-left (a hint of a
- * crescent), Do Not Disturb = a black minus, offline grey. [ring] = the colour around it (the bite is filled with it);
- * null = a bare dot, the bite cut out.
+ * A status's mark, like the desktop's (lib/presence-marks.ts, designsystem PresenceMarks): triangles from the app icon,
+ * online solid, idle the Triforce, Do Not Disturb upside down, offline an outline. [ring]: the colour around it in an
+ * avatar's corner, [ringWidth] wide (it also fills the outline's middle); null = a bare mark (menus).
  */
 @Composable
-fun PresenceDot(status: String, size: Dp, ring: Color? = null, modifier: Modifier = Modifier) {
+fun PresenceDot(status: String, size: Dp, ring: Color? = null, modifier: Modifier = Modifier, ringWidth: Dp = 0.dp) {
     val color = Linkord.colors.status(status)
-    androidx.compose.foundation.Canvas(modifier.size(size).graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }) {
-        val w = this.size.width
-        drawCircle(color)
-        when (status) {
-            "idle" -> {
-                val r = w * 0.36f
-                val center = androidx.compose.ui.geometry.Offset(w * 0.2f, w * 0.2f)
-                if (ring != null) drawCircle(ring, r, center) else drawCircle(Color.Black, r, center, blendMode = androidx.compose.ui.graphics.BlendMode.Clear)
+    val marks = com.linkord.designsystem.PresenceMarks
+    androidx.compose.foundation.Canvas(modifier.size(size)) {
+        val k = this.size.width / 100f
+        val ringPx = ringWidth.toPx() / k
+        withTransform({ scale(k, k, androidx.compose.ui.geometry.Offset.Zero) }) {
+            if (ring != null && ringPx > 0f) {
+                val o = marks.outline(status)
+                drawPath(o, ring)
+                drawPath(o, ring, style = androidx.compose.ui.graphics.drawscope.Stroke(ringPx * 2, join = androidx.compose.ui.graphics.StrokeJoin.Round))
             }
-            "dnd" -> {
-                val bw = w * 0.62f
-                val bh = maxOf(w * 0.24f, 2f)
-                drawRoundRect(
-                    Color.Black, topLeft = androidx.compose.ui.geometry.Offset((w - bw) / 2, (w - bh) / 2),
-                    size = androidx.compose.ui.geometry.Size(bw, bh), cornerRadius = androidx.compose.ui.geometry.CornerRadius(bh / 2),
-                )
+            val body = marks.body(status)
+            if (body != null) drawPath(body, color)
+            else {
+                if (ring != null) drawPath(marks.inner, ring)
+                drawPath(marks.inner, color, style = androidx.compose.ui.graphics.drawscope.Stroke(com.linkord.designsystem.PresenceMarks.OUTLINE, join = androidx.compose.ui.graphics.StrokeJoin.Round))
             }
         }
     }

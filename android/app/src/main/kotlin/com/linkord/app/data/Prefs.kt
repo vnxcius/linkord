@@ -53,6 +53,26 @@ class Prefs(context: Context) {
         get() = p.getBoolean("christmasSounds", true)
         set(v) = p.edit { putBoolean("christmasSounds", v) }
 
+    /** Emoji picked lately, newest first (the picker's Recent tab): a character, or "name:id" for a server's emoji. */
+    var recentEmoji: List<String>
+        get() = p.getString("emoji.recent", "")!!.split('\n').filter { it.isNotEmpty() }
+        set(v) = p.edit { putString("emoji.recent", v.joinToString("\n")) }
+
+    /** Voice message playback speed (1, 1.5 or 2), kept like WhatsApp does. */
+    var voiceSpeed: Float
+        get() = p.getFloat("voice.speed", 1f)
+        set(v) = p.edit { putFloat("voice.speed", v) }
+
+    /** Voice messages you've listened to (attachment ids, the latest 1000): their mic turns from grey to the accent. */
+    var heardVoice: List<String>
+        get() = p.getString("voice.heard", "")!!.split(',').filter { it.isNotEmpty() }
+        set(v) = p.edit { putString("voice.heard", v.joinToString(",")) }
+
+    /** The skin tone chosen for each emoji (long press in the picker): the plain emoji -> the toned one. */
+    var emojiTones: Map<String, String>
+        get() = p.getString("emoji.tones", "")!!.split('\n').mapNotNull { l -> l.split('\t').takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+        set(v) = p.edit { putString("emoji.tones", v.entries.joinToString("\n") { "${it.key}\t${it.value}" }) }
+
     /** Reaction added by a double tap on a message (a setting, owner's design note). */
     var quickReaction: String
         get() = p.getString("quickReaction", "❤️") ?: "❤️"

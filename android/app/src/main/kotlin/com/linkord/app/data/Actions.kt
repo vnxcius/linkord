@@ -397,6 +397,17 @@ class Actions(private val session: Session) {
     suspend fun removeRelationship(userId: String) = api.send("DELETE", "/users/@me/relationships/$userId")
     suspend fun blockUser(userId: String) = api.send("PUT", "/users/@me/relationships/$userId", mapOf("type" to 2))
 
+    // Moderation (web: Profile.tsx memberMenu). The server checks the permission and that you outrank them.
+    suspend fun kick(guildId: String, userId: String) = api.send("DELETE", "/guilds/$guildId/members/$userId")
+    suspend fun ban(guildId: String, userId: String) = api.send("PUT", "/guilds/$guildId/bans/$userId")
+    suspend fun unban(guildId: String, userId: String) = api.send("DELETE", "/guilds/$guildId/bans/$userId")
+    /** Into another voice channel, or out of the call ([channelId] null). */
+    suspend fun moveMember(guildId: String, userId: String, channelId: String?) =
+        api.send("PATCH", "/guilds/$guildId/members/$userId/voice", mapOf("channel_id" to (channelId ?: kotlinx.serialization.json.JsonNull)))
+    /** Someone's nickname in the server; empty clears it. */
+    suspend fun setNickname(guildId: String, userId: String, nickname: String) =
+        api.send("PATCH", "/guilds/$guildId/members/$userId", mapOf("nickname" to nickname))
+
     suspend fun setStatus(status: String) {
         api.send("PATCH", "/users/@me", mapOf("status" to status))
         store.update { st -> st.copy(me = st.me?.copy(status = status)) }

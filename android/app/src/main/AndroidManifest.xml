@@ -80,6 +80,16 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+        <!-- Images shared from a long press (ui/chat/ImageActions.kt) reach the other app through here. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
         <!-- Firebase starts from data/Push.kt with the server's settings, not from a google-services.json. -->
         <provider
             android:name="com.google.firebase.provider.FirebaseInitProvider"

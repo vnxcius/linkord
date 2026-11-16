@@ -7,6 +7,8 @@ sealed interface AppLink {
     data class Invite(val code: String) : AppLink
     data class Channel(val guild: String, val channel: String, val message: String?) : AppLink
     data class Clip(val slug: String) : AppLink
+    /** Someone's profile (a friend request's notification). */
+    data class Profile(val userId: String) : AppLink
 }
 
 object Links {

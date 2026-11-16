@@ -88,6 +88,9 @@ class Store {
     /** Called for messages that notify (mirrors gateway.ts onMessage). */
     var onAlert: ((Alert) -> Unit)? = null
 
+    /** A relationship changed (RELATIONSHIP_ADD / _REMOVE): [Rel] kinds before and after, null for none. */
+    var onRelationship: ((id: String, before: Int?, after: Int?) -> Unit)? = null
+
     /** Whether the user is looking at this channel right now (app in front, chat open). */
     var isViewing: (String) -> Boolean = { false }
 
@@ -256,9 +259,16 @@ class Store {
             "USER_SETTINGS_UPDATE" -> update { it.withSettings(d.jsonObject) }
             "RELATIONSHIP_ADD" -> {
                 val r: Relationship = dec(d)
+                val before = s.relationships[r.id]
                 update { it.putUser(r.user).let { s1 -> s1.copy(relationships = s1.relationships.putting(r.id, r.type)) } }
+                onRelationship?.invoke(r.id, before, r.type)
             }
-            "RELATIONSHIP_REMOVE" -> update { it.copy(relationships = it.relationships.removing(d.jsonObject.str("id")!!)) }
+            "RELATIONSHIP_REMOVE" -> {
+                val id = d.jsonObject.str("id")!!
+                val before = s.relationships[id]
+                update { it.copy(relationships = it.relationships.removing(id)) }
+                onRelationship?.invoke(id, before, null)
+            }
             "CALL_UPDATE" -> {
                 val o = d.jsonObject
                 val ringing = o["ringing"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()

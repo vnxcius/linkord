@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         intent ?: return
         intent.getStringExtra(EXTRA_CHANNEL)?.let { openRequest = com.linkord.app.data.AppLink.Channel("", it, intent.getStringExtra(EXTRA_MESSAGE)) }
+        intent.getStringExtra(EXTRA_PROFILE)?.let { openRequest = com.linkord.app.data.AppLink.Profile(it) }
         // A DM call: shown over the lock screen (full-screen notification), or answered from the notification.
         intent.getStringExtra(EXTRA_INCOMING_CALL)?.let {
             overLockScreen(true)
@@ -106,5 +107,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_MESSAGE = "message"
         const val EXTRA_INCOMING_CALL = "incoming_call"
         const val EXTRA_ANSWER_CALL = "answer_call"
+        const val EXTRA_PROFILE = "profile"
     }
 }

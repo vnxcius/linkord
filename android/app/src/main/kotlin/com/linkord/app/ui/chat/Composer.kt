@@ -353,11 +353,11 @@ object Drafts {
     }
 }
 
-/** Emoji for the message box: server emoji first, then the common ones (the keyboard has every other). */
+/** Emoji for the message box: every emoji by category, the servers' own included (EmojiPicker). */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun EmojiSheet(st: com.linkord.core.State, guildId: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     androidx.compose.material3.ModalBottomSheet(onDismiss, containerColor = Linkord.colors.panel) {
-        Box(Modifier.padding(bottom = 24.dp)) { EmojiGrid(st, guildId) { onPick(it) } }
+        Box(Modifier.padding(bottom = 24.dp)) { EmojiPicker(st, guildId, height = 440.dp) { onPick(it) } }
     }
 }

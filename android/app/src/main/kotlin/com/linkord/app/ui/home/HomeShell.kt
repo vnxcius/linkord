@@ -102,6 +102,7 @@ fun HomeShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () -> Unit) 
                     }
                 }
                 is com.linkord.app.data.AppLink.Invite -> nav.push(com.linkord.app.ui.Screen.JoinServer(req.code))
+                is com.linkord.app.data.AppLink.Profile -> nav.push(com.linkord.app.ui.Screen.Profile(req.userId, null))
                 is com.linkord.app.data.AppLink.Clip -> nav.push(com.linkord.app.ui.Screen.Video("${session.serverUrl()}/uploads/clips/${req.slug}.mp4", ""))
             }
             onOpened()

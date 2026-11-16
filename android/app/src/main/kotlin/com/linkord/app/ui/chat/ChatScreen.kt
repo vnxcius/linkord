@@ -86,7 +86,11 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
     val scope = rememberCoroutineScope()
     var replyTo by remember(channelId) { mutableStateOf<Message?>(null) }
     var editing by remember(channelId) { mutableStateOf<Message?>(null) }
+    // A voice message playing here stops when you leave the conversation or the app (VoicePlayback).
+    androidx.compose.runtime.DisposableEffect(channelId) { onDispose { VoicePlayback.stopIn(channelId) } }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { VoicePlayback.pause() }
     var menuFor by remember { mutableStateOf<Message?>(null) }
+    var menuImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     val join = com.linkord.app.ui.call.rememberJoin()
 
     LaunchedEffect(channelId, st.ready) {
@@ -126,7 +130,8 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
             MessageList(
                 channelId, guildId, messages, bucket.loaded, bucket.hasMore, bucket.hasNewer, bucket.loading && !bucket.loaded, highlight,
                 onReply = { replyTo = it; editing = null },
-                onMenu = { menuFor = it },
+                onMenu = { menuFor = it; menuImage = null },
+                onImageMenu = { m, url, name -> menuFor = m; menuImage = url to name },
                 onOpenChannel = onOpenChannel,
             )
         }
@@ -158,7 +163,8 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
     menuFor?.let { m ->
         MessageSheet(
             m, guildId,
-            onDismiss = { menuFor = null },
+            image = menuImage,
+            onDismiss = { menuFor = null; menuImage = null },
             onReply = { replyTo = m; editing = null },
             onEdit = { editing = m; replyTo = null },
         )
@@ -184,9 +190,11 @@ private fun MessageList(
     highlight: String?,
     onReply: (Message) -> Unit,
     onMenu: (Message) -> Unit,
+    onImageMenu: (Message, String, String) -> Unit,
     onOpenChannel: (String) -> Unit,
 ) {
     val session = LocalContext.current.session
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val st by session.store.state.collectAsState()
     val c = Linkord.colors
     val scope = rememberCoroutineScope()
@@ -224,9 +232,18 @@ private fun MessageList(
                 Column {
                     val day = dayOf(m.createdAt)
                     if (day != null && (older == null || dayOf(older.createdAt) != day)) DaySeparator(day)
-                    MessageItem(st, m, guildId, grouped, highlight == m.id, onReply, onMenu,
-                        onJump = { id -> scope.launch { runCatching { session.actions.jumpToMessage(channelId, id) } } },
-                        onOpenChannel = onOpenChannel)
+                    // Holding a picture in it: the message's quick actions with the picture's own on top.
+                    val hold = remember(m.id) {
+                        { url: String, name: String ->
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onImageMenu(m, url, name)
+                        }
+                    }
+                    androidx.compose.runtime.CompositionLocalProvider(LocalImageHold provides (if (m.pending || m.failed) null else hold)) {
+                        MessageItem(st, m, guildId, grouped, highlight == m.id, onReply, onMenu,
+                            onJump = { id -> scope.launch { runCatching { session.actions.jumpToMessage(channelId, id) } } },
+                            onOpenChannel = onOpenChannel)
+                    }
                 }
             }
             if (hasMore && messages.isNotEmpty()) item(key = "more") {

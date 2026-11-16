@@ -38,6 +38,7 @@ class Notifier(private val session: Session) {
                 NotificationChannel(DMS, t("Direct messages"), NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(MENTIONS, t("Mentions and replies"), NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(MESSAGES, t("Other messages"), NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(FRIENDS, t("Friend requests"), NotificationManager.IMPORTANCE_HIGH),
                 // Incoming DM calls ring like the phone's own calls: its ringtone, repeating (FLAG_INSISTENT) until
                 // answered, declined or 60 s. A new channel: an existing channel's sound can't be changed.
                 NotificationChannel(RINGING, t("Incoming calls"), NotificationManager.IMPORTANCE_HIGH).apply {
@@ -139,9 +140,52 @@ class Notifier(private val session: Session) {
         }
     }
 
+    /**
+     * A relationship changed (gateway): a new incoming friend request is shown (the app may be in the background with
+     * the gateway still up, where the server doesn't push); once it's accepted, declined or cancelled it goes away.
+     */
+    fun relationship(userId: String, before: Int?, after: Int?) {
+        if (after == com.linkord.core.Rel.INCOMING && before != com.linkord.core.Rel.INCOMING) {
+            val st = session.store.s
+            if (!allowed() || st.me?.status == "dnd") return
+            val u = st.users[userId] ?: return
+            session.scope.launch(kotlinx.coroutines.Dispatchers.IO) { friendRequest(userId, u.name, t("Sent you a friend request"), avatar(u.avatar)) }
+        } else if (after != com.linkord.core.Rel.INCOMING && before == com.linkord.core.Rel.INCOMING) {
+            nm.cancel(friendTag(userId), 0)
+        }
+    }
+
+    /** "Ana: Sent you a friend request", opening their profile (Accept is there). One per person. */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun friendRequest(userId: String, name: String, text: String, picture: android.graphics.Bitmap?) {
+        val intent = Intent(ctx, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_PROFILE, userId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val open = PendingIntent.getActivity(ctx, friendTag(userId).hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = NotificationCompat.Builder(ctx, FRIENDS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(name)
+            .setContentText(text)
+            .apply { picture?.let { setLargeIcon(it) } }
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .build()
+        runCatching { nm.notify(friendTag(userId), 0, n) }
+    }
+
+    private fun friendTag(userId: String) = "friend-$userId"
+
     /** A notification the server wrote (push.rs payload: title, body, channel_id, message_id?, author?, conversation?, call?). */
     @android.annotation.SuppressLint("MissingPermission")
     fun push(note: org.json.JSONObject) {
+        // A friend request (push.rs on_friend_request): no conversation behind it.
+        if (note.optBoolean("friend_request")) {
+            val userId = note.optString("user_id").ifEmpty { return }
+            if (!allowed()) return
+            return friendRequest(userId, note.optString("title"), note.optString("body"), avatar(note.optString("icon")))
+        }
         val channelId = note.optString("channel_id").ifEmpty { return }
         // The call stopped ringing us (push.rs on_ring_end): even a closed app hears it this way.
         if (note.optBoolean("call_end")) return clearCall(channelId)
@@ -327,6 +371,7 @@ class Notifier(private val session: Session) {
         const val DMS = "dms"
         const val MENTIONS = "mentions"
         const val MESSAGES = "messages"
+        const val FRIENDS = "friends"
         const val RINGING = "ringing"
         /** The newest message in a conversation's notification (for Mark as read). */
         private const val EXTRA_LAST = "linkord.last_message"

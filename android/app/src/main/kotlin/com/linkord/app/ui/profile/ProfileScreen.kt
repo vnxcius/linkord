@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -73,7 +74,18 @@ import java.time.format.FormatStyle
 data class Badge(val id: String, val tier: Int? = null)
 
 @Serializable
-data class ProfileLink(val url: String, val title: String? = null)
+data class ProfileLink(val url: String, val label: String = "")
+
+/** "instagram.com/someone": the address without its scheme, www or trailing slash (web: ProfileWidgets shortLink). */
+fun shortLink(url: String): String {
+    val u = runCatching { java.net.URI(url) }.getOrNull()
+    val host = u?.host ?: return url
+    val s = host.removePrefix("www.") + (u.rawPath ?: "").trimEnd('/')
+    return if (s.length > 42) s.take(41) + "…" else s
+}
+
+/** A link's name when it has none of its own: the site's ("Instagram"), else its address (web: linkName). */
+fun linkName(l: ProfileLink): String = l.label.ifBlank { com.linkord.designsystem.brandOf(l.url)?.name ?: shortLink(l.url) }
 
 @Serializable
 data class Profile(
@@ -221,10 +233,17 @@ fun ProfileScreen(userId: String, guildId: String?) {
             profile?.links?.takeIf { it.isNotEmpty() }?.let { links ->
                 Spacer(Modifier.height(12.dp))
                 Kicker(t("Links"))
-                for (l in links) Row(Modifier.fillMaxWidth().clickable { openLink(ctx, l.url) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    LIcon(LinkordIcons.Link, size = 16.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(l.title?.takeIf { it.isNotEmpty() } ?: l.url.substringAfter("://"), style = Linkord.type.body, color = c.brandHi)
+                // Chips side by side, each with its site's mark (Instagram, Steam...) and name, like the web profile.
+                FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (l in links) Row(
+                        Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(c.raised).border(1.dp, c.line, RoundedCornerShape(18.dp))
+                            .clickable { openLink(ctx, l.url) }.padding(start = 10.dp, end = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LIcon(com.linkord.designsystem.siteIcon(l.url), size = 18.dp, tint = c.text2)
+                        Spacer(Modifier.width(7.dp))
+                        Text(linkName(l), style = Linkord.type.bodyStrong, color = c.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
@@ -257,14 +276,7 @@ fun ProfileScreen(userId: String, guildId: String?) {
                 }
             }
         }
-        if (guildId != null && !me && st.guilds[guildId]?.ownerId != userId && st.can(guildId, com.linkord.core.Perm.KICK_MEMBERS)) Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text(t("Kick"), style = Linkord.type.body, color = c.danger, modifier = Modifier.clickable {
-                scope.launch { runCatching { session.api.send("DELETE", "/guilds/$guildId/members/$userId") }.onSuccess { nav.pop() }.onFailure { session.toast(session.describe(it)) } }
-            })
-            Text(t("Ban"), style = Linkord.type.body, color = c.danger, modifier = Modifier.clickable {
-                scope.launch { runCatching { session.api.send("PUT", "/guilds/$guildId/bans/$userId") }.onSuccess { nav.pop() }.onFailure { session.toast(session.describe(it)) } }
-            })
-        }
+        if (guildId != null && !me && st.members[guildId]?.containsKey(userId) == true) ModerationCard(guildId, userId, user)
         if (!me && rel != Rel.BLOCKED && !user.bot) Text(
             t("Block"), style = Linkord.type.body.copy(fontWeight = FontWeight.Medium), color = c.danger,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp).clickable { scope.launch { runCatching { session.actions.blockUser(userId) }.onFailure { session.toast(session.describe(it)) } } },

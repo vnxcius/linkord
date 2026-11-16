@@ -173,6 +173,7 @@ fun CallScreen(channelId: String, onOpenChat: (String) -> Unit) {
                             Slider(vol, { vol = it; calls.voice.setUserVolume(v.userId, it) }, valueRange = 0f..2f)
                         }
                         DropdownMenuItem(text = { Text(t("Profile")) }, onClick = { volumeFor = null; nav.push(Screen.Profile(v.userId, ch.guildId)) })
+                        if (v.userId != me) com.linkord.app.ui.profile.VoiceModItems(ch.guildId, v.userId) { volumeFor = null }
                     }
                 }
             }
