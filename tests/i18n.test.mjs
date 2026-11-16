@@ -95,3 +95,14 @@ test('every server error message is translated', () => {
     assert.ok(i18n.includes(`/^${prefix}`), `no SERVER_PATTERNS entry for "${f}"`);
   }
 });
+
+test('no key appears twice in the dictionary', () => {
+  // A duplicate silently keeps the last value at runtime but fails the app's typecheck (TS1117), so catch it here.
+  const src = readFileSync(join(root, 'app/src/lib/locales/pt-BR.ts'), 'utf8');
+  const keys = [...src.matchAll(/^ {2}('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|[A-Za-z_$][\w$]*):/gm)].map((m) => {
+    const k = m[1];
+    return /^['"]/.test(k) ? k.slice(1, -1).replace(/\\(.)/g, '$1') : k;
+  });
+  const seen = new Set();
+  assert.deepEqual(keys.filter((k) => (seen.has(k) ? true : (seen.add(k), false))), []);
+});
