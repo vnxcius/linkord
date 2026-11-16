@@ -171,9 +171,7 @@ const FEATURES: Feature[] = [
   {
     id: 'look',
     title: msg('Cotton on steel'),
-    text: msg(
-      'Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme.',
-    ),
+    text: msg('Gold gave way to Algodão: cotton white on steel-tinted grays, or ink on paper in the light theme.'),
     art: LookArt,
   },
 ];
