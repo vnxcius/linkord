@@ -184,11 +184,23 @@ follow() {
   local sha=${1:-}
   [ -n "$sha" ] || { git_ fetch -q origin master; sha=$(git_ rev-parse origin/master); }
   sha=$(git_ rev-parse "$sha" 2>/dev/null || echo "$sha")
-  local f=""
-  for _ in $(seq 1 120); do
+  local f="" newest s9 done
+  # LINKORD_CI_WAIT: how long to wait for the run to start (GitLab's job waits out a run for an older push).
+  for _ in $(seq 1 "${LINKORD_CI_WAIT:-120}"); do
     f=$(ls -t "$runs"/*-"${sha:0:9}".log 2>/dev/null | head -1)
     [ -n "$f" ] && break
-    [ "$(cat "$state/last-tick" 2>/dev/null)" = "$sha" ] && { echo "Already done for ${sha:0:9}."; return 0; }
+    # The runner ships master's tip: a later push can carry this commit, and its run is this one's too.
+    newest=$(ls -t "$runs"/*.log 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+      s9=${newest##*-}; s9=${s9%.log}
+      if [ "$s9" != "${sha:0:9}" ] && git_ merge-base --is-ancestor "$sha" "$s9" 2>/dev/null; then
+        echo "${sha:0:9} goes out with ${s9}:"; f=$newest; break
+      fi
+    fi
+    done=$(cat "$state/last-tick" 2>/dev/null)
+    if [ -n "$done" ] && { [ "$done" = "$sha" ] || git_ merge-base --is-ancestor "$sha" "$done" 2>/dev/null; }; then
+      echo "Already done for ${sha:0:9}."; return 0
+    fi
     sleep 1
   done
   [ -n "$f" ] || { echo "No run started for ${sha:0:9} yet (is a run for an older push still going?)."; return 1; }

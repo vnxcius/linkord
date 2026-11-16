@@ -5,7 +5,8 @@
 workflow:
   rules:
     # The runner's own version bumps come back as chore(release) commits: nothing to ship for them.
-    - if: $CI_COMMIT_BRANCH == "master" && $CI_COMMIT_MESSAGE !~ /^chore\(release\): /
+    # Quoted: the ": " in the pattern would otherwise read as YAML.
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_COMMIT_MESSAGE !~ /^chore\(release\): /'
 
 ship:
   tags: [linkord-box]
@@ -15,4 +16,5 @@ ship:
     GIT_STRATEGY: none
   script:
     - ~/.local/bin/linkord-ci kick
-    - ~/.local/bin/linkord-ci follow "$CI_COMMIT_SHA"
+    # Waits out a run for an older push first (up to the job's timeout).
+    - LINKORD_CI_WAIT=10500 ~/.local/bin/linkord-ci follow "$CI_COMMIT_SHA"
