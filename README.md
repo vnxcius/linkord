@@ -3,18 +3,18 @@
 A self-hosted chat app for a small group of friends: servers, channels, threads, DMs, voice, video and screen share.
 Login is Discord OAuth only.
 
-It was briefly called Pottira in November 2026 (version 2.0.0) and went back to Linkord right after.
-
 - **Server:** Rust (axum, sqlx) + PostgreSQL. REST API, a websocket gateway, and a voice/video relay, all on one
   HTTPS origin, so voice needs no port forwarding, TURN or media server.
 - **Client:** SolidJS + Vite (web), wrapped in a Tauri 2 desktop app (Windows first, Linux packages too) with
   native screen capture, global keybinds, tray and signed auto-updates.
+- **Android:** a native Kotlin + Jetpack Compose app (`android/`), sideloaded with its own updater.
 
 ```
 server/   Rust backend (src/api REST, gateway.rs, voice.rs, migrations/)
 app/      SolidJS client; app/src-tauri = desktop shell
+android/  Android app (core, designsystem, voice, app modules)
 monitor/  The dashboard (health, logs, moderation): a separate service
-deploy/   docker-compose (Postgres, server slots a/b, monitor), Dockerfiles, install scripts
+deploy/   docker-compose (Postgres, server slots a/b, monitor), Dockerfiles, install scripts, ci/ (the runner)
 tests/    API, browser (Playwright) and unit tests
 ```
 
@@ -55,7 +55,6 @@ Rust (stable), Node 20+, Bun, Docker. Desktop builds also run in Docker, so no T
    cd tests && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs
    ```
    New UI strings need a pt-BR entry in `app/src/lib/locales/pt-BR.ts` or `i18n.test.mjs` fails.
-   GitLab CI (`.gitlab-ci.yml`) runs the same suite on every push and merge request.
 6. **Try the desktop app:** `app/build-windows.sh` builds a Windows installer into `app/out/` (cross-compiled in
    Docker on Linux, native on Windows; unsigned when the updater key is missing).
 
@@ -71,37 +70,43 @@ $env:VITE_DEFAULT_SERVER='https://linkord.app'; bun run desktop   # the dev buil
 cd app/src-tauri; cargo test # desktop shell unit tests (keybinds, colour conversion)
 ```
 
-## Deploy
+## Ship
 
-Production runs in Docker on `127.0.0.1:7700` (deploy/docker-compose.yml), published through a Cloudflare tunnel.
+Production runs in Docker on `127.0.0.1:7700` (deploy/docker-compose.yml), published through a Cloudflare tunnel, on
+the home server. **Pushing to `master` is the release:** a runner on that box (`deploy/ci/linkord-ci`, ticked by cron
+every minute) fetches master, fast-forwards its checkout and ships what changed since each part last went out:
 
-1. **Run the full test suite:** `tests/run-local.sh`.
-2. **Deploy the server and web client** (builds the image, then swaps slots a/b without dropping anyone):
-   ```bash
-   deploy/install-service.sh
-   docker logs -f linkord-server-<slot>            # logs; server/data/run/live names the slot serving
-   ```
-3. **Publish the desktop app** (bumps the patch version, signed build, published to the update feed):
-   ```bash
-   app/publish-windows.sh "What changed"
-   app/publish-linux.sh                            # optional: .deb/.rpm for the same version
-   ```
-   Installed apps show the update within seconds. Deploy the server first when the client depends on new
-   server behaviour, and keep the server compatible with the previous client during that window.
-   GitLab CI also builds both installers as job artifacts on `v*` tags (needs a `TAURI_SIGNING_KEY` File variable);
-   publishing to the update feed stays local.
+| Changed | Runner does |
+| --- | --- |
+| anything but docs | full test suite (one retry for the known flaky step), unit tests, lint, `cargo test` / Gradle tests as relevant |
+| `server/`, the web client (`app/` minus the desktop shell), the image's deploy files | `deploy/install-service.sh`: zero-downtime swap between slots a/b |
+| `monitor/` | `deploy/install-monitor.sh` |
+| `app/` | desktop release: Windows + Linux, signed, on the update feed (apps see it at once) |
+| `android/`, `pt-BR.ts` | Android release (signed APK on the update feed) |
 
-4. **Deploy the dashboard** (separate service, deploying one never restarts the other):
-   ```bash
-   deploy/install-monitor.sh                       # the first run creates monitor/.env with a random password
-   ssh -L 7710:127.0.0.1:7710 <user>@<server>      # from your PC, then open http://localhost:7710
-   ```
-   Availability, performance, network, storage, database, logs and diagnostics, plus every server, account and uploaded
-   file for moderation. It listens on loopback by default (`LINKORD_MONITOR_BIND`). Only expose it on purpose: it can see
-   everything people upload, direct messages included.
+Patch notes are written from the commit subjects (`feat`, `fix` and `perf`, without the type and scope; see
+`deploy/ci/notes.mjs`), so write subjects people can read. Version bumps come back to master as one
+`chore(release): ...` commit: `git pull --rebase` before your next push. Order is CLAUDE.md's: tests, server, clients.
 
-**Updater signing key:** `~/.config/linkord/updater.key` (outside the repo). Back it up: without it, installed apps
-can't verify updates and everyone has to reinstall.
+```bash
+deploy/ci/ship.sh                       # git push, then follow the run on the box until it's done
+ssh linkord-box linkord-ci status       # where each part stands, the last runs
+ssh linkord-box linkord-ci log -f       # the current run
+ssh linkord-box linkord-ci retry        # run a failed commit again (failures wait for the next push otherwise)
+```
+
+Set up once on the box: `deploy/ci/install.sh` (a crontab line, no sudo; `--remove` takes it out). It needs Docker
+(our BuildKit builder), Rust, Bun, Node, a JDK 21 in `/mnt/hdd/linkord/jdk-21`, the Android SDK in `/mnt/hdd/linkord/android-sdk` and the signing keys
+in `~/.config/linkord/`. The scripts it runs still work by hand on the box (`deploy/install-service.sh`,
+`app/publish-windows.sh "notes"`, `android/publish.sh "notes"`, ...).
+
+The dashboard (`deploy/install-monitor.sh`; the first run creates monitor/.env with a random password) listens on
+loopback: `ssh -L 7710:127.0.0.1:7710 <user>@<server>`, then open http://localhost:7710. Availability, performance,
+network, storage, database, logs and diagnostics, plus every server, account and uploaded file for moderation. Only
+expose it on purpose: it can see everything people upload, direct messages included.
+
+**Signing keys:** `~/.config/linkord/updater.key` (desktop) and `android-release.jks` + `.properties` (Android),
+outside the repo. Back them up: without them, installed apps can't verify updates and everyone has to reinstall.
 
 ### Configuration (`server/.env`)
 
