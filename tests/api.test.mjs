@@ -2668,17 +2668,20 @@ test('push: the Android app gets the same sealed notifications through FCM', { s
     assert.equal(s.msg.android.collapse_key, undefined, 'no collapse key: an offline phone gets every message to stack');
     assert.equal(s.msg.notification, undefined, 'a data message only: Google never sees the text');
     // Opened like the phone does it (RFC 8291), with Node's own crypto.
-    const body = Buffer.from(s.msg.data.p, 'base64');
-    const salt = body.subarray(0, 16);
-    const keyid = body.subarray(21, 21 + body[20]);
-    const ct = body.subarray(21 + body[20]);
-    const ikm = Buffer.from(crypto.hkdfSync('sha256', ecdh.computeSecret(keyid), auth, Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), keyid]), 32));
-    const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16));
-    const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
-    const d = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
-    d.setAuthTag(ct.subarray(ct.length - 16));
-    const plain = Buffer.concat([d.update(ct.subarray(0, -16)), d.final()]);
-    const note = JSON.parse(plain.subarray(0, -1));
+    const open = (sent) => {
+      const body = Buffer.from(sent.msg.data.p, 'base64');
+      const salt = body.subarray(0, 16);
+      const keyid = body.subarray(21, 21 + body[20]);
+      const ct = body.subarray(21 + body[20]);
+      const ikm = Buffer.from(crypto.hkdfSync('sha256', ecdh.computeSecret(keyid), auth, Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), keyid]), 32));
+      const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16));
+      const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
+      const d = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+      d.setAuthTag(ct.subarray(ct.length - 16));
+      const plain = Buffer.concat([d.update(ct.subarray(0, -16)), d.final()]);
+      return JSON.parse(plain.subarray(0, -1));
+    };
+    const note = open(s);
     assert.equal(note.body, 'oi do celular');
     assert.equal(note.channel_id, dm.id);
     assert.equal(note.author_id, b.id);
@@ -2694,6 +2697,15 @@ test('push: the Android app gets the same sealed notifications through FCM', { s
     await until(() => sends.filter((x) => x.msg.token === 'phone-token_1').length === 3);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(sends.filter((x) => x.msg.token === 'gone-token').length, 1, 'the gone token got nothing more');
+
+    // A DM call rings the phone, and when the caller hangs up the phone hears it stopped (call_end), so a closed app
+    // can take its "is calling you" down.
+    const before = sends.length;
+    const phone = () => sends.slice(before).filter((x) => x.msg.token === 'phone-token_1').map(open);
+    const ws = await voiceJoin(b, dm.id);
+    await until(() => phone().some((n) => n.call && n.channel_id === dm.id));
+    ws.close();
+    await until(() => phone().some((n) => n.call_end && n.channel_id === dm.id));
   } finally {
     google.close();
   }

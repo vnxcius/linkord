@@ -29,10 +29,12 @@ class LinkordApp : Application(), SingletonImageLoader.Factory {
                 idle?.cancel()
                 session.gateway.setForeground(true)
                 session.gateway.wake()
+                session.calls.foregroundChanged(true)
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 session.gateway.setForeground(false)
+                session.calls.foregroundChanged(false)
                 // Without push yet, the socket stays open a while in the background (messages keep arriving, a
                 // quick return resumes), then closes to spare the battery; coming back reconnects.
                 idle = session.scope.launch {

@@ -119,6 +119,16 @@ private fun AppShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () ->
             var welcome by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(!session.prefs.welcomed) }
             if (st.ready && welcome) Welcome { welcome = false; session.prefs.welcomed = true }
             if (st.ready) com.linkord.app.ui.call.IncomingCall(Modifier.align(Alignment.TopCenter).statusBarsPadding())
+            // Answer on the incoming call notification: join once connected (asking for the mic if needed), show the call.
+            val answer by session.calls.answer.collectAsState()
+            val join = com.linkord.app.ui.call.rememberJoin()
+            androidx.compose.runtime.LaunchedEffect(answer, st.ready) {
+                val ch = answer ?: return@LaunchedEffect
+                if (!st.ready) return@LaunchedEffect
+                session.calls.answer.value = null
+                join(ch)
+                nav.push(Screen.Call(ch))
+            }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
         }
     }

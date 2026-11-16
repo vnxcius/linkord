@@ -51,6 +51,17 @@ class MainActivity : ComponentActivity() {
         pip = isInPictureInPictureMode
     }
 
+    /** Over the lock screen only for a call: once the app leaves the screen, the lock screen is back to normal. */
+    private fun overLockScreen(on: Boolean) {
+        setShowWhenLocked(on)
+        setTurnScreenOn(on)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        overLockScreen(false)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
@@ -59,6 +70,16 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         intent ?: return
         intent.getStringExtra(EXTRA_CHANNEL)?.let { openRequest = com.linkord.app.data.AppLink.Channel("", it, intent.getStringExtra(EXTRA_MESSAGE)) }
+        // A DM call: shown over the lock screen (full-screen notification), or answered from the notification.
+        intent.getStringExtra(EXTRA_INCOMING_CALL)?.let {
+            overLockScreen(true)
+            openRequest = com.linkord.app.data.AppLink.Channel("", it, null)
+        }
+        intent.getStringExtra(EXTRA_ANSWER_CALL)?.let {
+            overLockScreen(true)
+            session.notifier.clearCall(it)
+            session.calls.answer.value = it
+        }
         val uri = intent.data ?: return
         if (uri.scheme == "https") {
             com.linkord.app.data.Links.parse(uri.toString(), session.knownServers())?.let { openRequest = it }
@@ -83,5 +104,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_CHANNEL = "channel"
         const val EXTRA_MESSAGE = "message"
+        const val EXTRA_INCOMING_CALL = "incoming_call"
+        const val EXTRA_ANSWER_CALL = "answer_call"
     }
 }

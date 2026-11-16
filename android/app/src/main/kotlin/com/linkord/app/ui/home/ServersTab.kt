@@ -198,15 +198,22 @@ private fun ChannelList(st: State, guildId: String, onOpenChannel: (String) -> U
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item {
             val banner = mediaUrl(g.banner)
-            Box(Modifier.fillMaxWidth().height(if (banner != null) 132.dp else 72.dp)) {
+            // The name/banner opens Server Settings for whoever may change something there (same rule as the server menu).
+            val nav = com.linkord.app.ui.LocalNav.current
+            val settings = st.can(guildId, com.linkord.core.Perm.MANAGE_GUILD) || st.can(guildId, com.linkord.core.Perm.MANAGE_ROLES)
+            Box(Modifier.fillMaxWidth().height(if (banner != null) 132.dp else 72.dp)
+                .then(if (settings) Modifier.clickable { nav.push(com.linkord.app.ui.Screen.ServerSettings(guildId)) } else Modifier)) {
                 if (banner != null) {
                     AsyncImage(banner, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, c.panel.copy(alpha = 0.92f)))))
                 }
-                Text(
-                    g.name, style = Linkord.type.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 56.dp, top = 12.dp, bottom = 12.dp),
-                )
+                Row(
+                    Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 56.dp, top = 12.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(g.name, style = Linkord.type.title, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (settings) LIcon(LinkordIcons.ChevronRight, size = 16.dp, tint = c.text2, modifier = Modifier.padding(start = 6.dp))
+                }
                 if (st.can(guildId, com.linkord.core.Perm.MANAGE_CHANNELS)) {
                     var creating by remember { mutableStateOf(false) }
                     Box(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(36.dp).clip(RoundedCornerShape(18.dp)).clickable { creating = true }, contentAlignment = Alignment.Center) {

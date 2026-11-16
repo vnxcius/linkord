@@ -445,9 +445,10 @@ fn stop_ringing_after(st: &AppState, channel: Id, gen: u64, after: Duration) {
     let st = st.clone();
     tokio::spawn(async move {
         tokio::time::sleep(after).await;
-        let stopped = st.voice.calls.get_mut(&channel).filter(|c| c.ring_gen == gen && !c.ringing.is_empty()).map(|mut c| c.ringing.clear()).is_some();
-        if stopped {
+        let stopped = st.voice.calls.get_mut(&channel).filter(|c| c.ring_gen == gen && !c.ringing.is_empty()).map(|mut c| std::mem::take(&mut c.ringing));
+        if let Some(users) = stopped {
             announce_call(&st, channel).await;
+            crate::push::on_ring_end(&st, channel, users.into_iter().collect());
         }
     });
 }
@@ -457,6 +458,7 @@ pub async fn stop_ringing(st: &AppState, channel: Id, user: Id) {
     let changed = st.voice.calls.get_mut(&channel).is_some_and(|mut c| c.ringing.remove(&user));
     if changed {
         announce_call(st, channel).await;
+        crate::push::on_ring_end(st, channel, vec![user]);
     }
 }
 
@@ -542,8 +544,13 @@ pub async fn recheck(st: &AppState, ctx: &perms::GuildCtx) {
 /// A DM call nobody is in any more stops ringing.
 async fn end_dm_call_if_empty(st: &AppState, channel: Id) {
     let empty = st.voice.rooms.get(&channel).is_none_or(|r| r.is_empty());
-    if empty && st.voice.calls.get_mut(&channel).is_some_and(|mut c| !std::mem::take(&mut c.ringing).is_empty() || c.guild_id.is_none()) {
+    let mut stopped = Vec::new();
+    if empty && st.voice.calls.get_mut(&channel).is_some_and(|mut c| {
+        stopped = std::mem::take(&mut c.ringing).into_iter().collect();
+        !stopped.is_empty() || c.guild_id.is_none()
+    }) {
         announce_call(st, channel).await;
+        crate::push::on_ring_end(st, channel, stopped);
     }
 }
 

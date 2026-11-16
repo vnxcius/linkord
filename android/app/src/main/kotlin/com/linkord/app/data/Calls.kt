@@ -57,6 +57,18 @@ class Calls(private val session: Session) {
     /** The DM call last ringing us, so its pushed notification goes away once it stops. */
     private var lastRinging: String? = null
 
+    /** Answer tapped on the incoming call notification: the UI joins once it's up (Root, with the mic permission). */
+    val answer = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    /** The app came to the front or left it (LinkordApp): the ringing moves between the app and the notification. */
+    fun foregroundChanged(front: Boolean) {
+        val ringing = lastRinging ?: return
+        if (front) {
+            session.notifier.clearCall(ringing)
+            startRing()
+        } else stopRing()
+    }
+
     /** At your ear on the earpiece, the screen goes off (no cheek presses); never with video. */
     private val proximity by lazy {
         ctx.getSystemService(android.os.PowerManager::class.java).newWakeLock(android.os.PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "linkord:call")
@@ -110,7 +122,11 @@ class Calls(private val session: Session) {
                 .distinctUntilChanged().collect { ringing ->
                     lastRinging?.takeIf { it != ringing }?.let { session.notifier.clearCall(it) }
                     lastRinging = ringing
-                    if (ringing != null) startRing() else stopRing()
+                    // In front the app rings (and the card shows); in the background the call notification does.
+                    if (ringing != null && session.gateway.foreground) {
+                        session.notifier.clearCall(ringing)
+                        startRing()
+                    } else if (ringing == null) stopRing()
                 }
         }
     }

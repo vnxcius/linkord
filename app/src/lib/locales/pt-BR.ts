@@ -454,6 +454,8 @@ export const UI: Record<string, string> = {
   'Choose a banner': 'Escolha um banner',
   'Choose an icon': 'Escolha um ícone',
   'Edit roles': 'Editar cargos',
+  'Incoming calls': 'Chamadas recebidas',
+  "Your reply couldn't be sent.": 'Não foi possível enviar sua resposta.',
   'Emoji and sounds are managed in the desktop or web app.': 'Emojis e sons são gerenciados no app para computador ou na web.',
   'All photos and videos': 'Todas as fotos e vídeos',
   'You can add up to {max} at once.': 'Você pode adicionar até {max} de uma vez.',

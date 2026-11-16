@@ -512,6 +512,26 @@ pub fn on_ring(st: &AppState, channel: Id, caller: Id, users: Vec<Id>) {
     });
 }
 
+/// A DM call stopped ringing `users` (answered, declined, hung up, timed out): their Android apps take the
+/// "is calling you" notification down. FCM only: a Web Push must always show something, and the web's ringing
+/// notification already ends with its own timeout.
+pub fn on_ring_end(st: &AppState, channel: Id, users: Vec<Id>) {
+    if users.is_empty() {
+        return;
+    }
+    let st = st.clone();
+    tokio::spawn(async move {
+        let subs = match subscriptions(&st, "user_id = ANY($1)", &users).await {
+            Ok(s) => s,
+            Err(e) => return tracing::warn!("push: {e:?}"),
+        };
+        for s in subs.iter().filter(|s| s.endpoint.starts_with(crate::fcm::PREFIX)) {
+            let payload = json!({ "call_end": true, "channel_id": channel, "tag": format!("call-{channel}") });
+            send(&st, s, &payload, CALL_TTL, "high", None).await;
+        }
+    });
+}
+
 // ---------- sending (RFC 8291 encryption, RFC 8292 VAPID) ----------
 
 /// Sends one notification. True if the push service took it. A subscription the service says is gone is deleted.

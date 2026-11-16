@@ -21,6 +21,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Incoming DM calls over the lock screen, like the phone's own calls (Notifier.push). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -66,6 +68,7 @@
             </intent-filter>
         </activity>
         <receiver android:name=".data.Updater$InstallResult" android:exported="false" />
+        <receiver android:name=".data.NotificationActions" android:exported="false" />
         <service
             android:name=".VoiceService"
             android:exported="false"
