@@ -267,6 +267,9 @@ status() {
 
 # Sourced (to test single functions on a throwaway repo): define everything, run nothing.
 [[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
+# One compound command ending in exit: a tick fast-forwards this very file (the installed command is a symlink into the
+# checkout), and bash reads a script as it goes, so it must never read past here once the dispatch has started.
+{
 case "${1:-}" in
   tick) tick ;;
   kick) setsid "$0" tick </dev/null >/dev/null 2>&1 & ;;
@@ -276,3 +279,5 @@ case "${1:-}" in
   retry) rm -f "$state/failed" "$state/last-tick"; "$0" kick; echo "Retrying." ;;
   *) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
+exit
+}
