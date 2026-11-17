@@ -49,6 +49,7 @@ export const joinList = (items: string[]) => new Intl.ListFormat(lang(), { type:
 const SERVER_PATTERNS: [RegExp, string][] = [
   [/^channels can have up to (\d+) pins$/, msg('channels can have up to {0} pins')],
   [/^delete the servers you own first: (.+)$/, msg('delete the servers you own first: {0}')],
+  [/^they own servers: (.+)$/, msg('they own servers: {0}')],
   [/^file exceeds (\d+) MB$/, msg('file exceeds {0} MB')],
   [/^group DMs can have up to (\d+) people$/, msg('group DMs can have up to {0} people')],
   [/^message must be at most (\d+) characters$/, msg('message must be at most {0} characters')],
