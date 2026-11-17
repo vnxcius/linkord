@@ -1,6 +1,6 @@
 [package]
 name = "linkord"
-version = "2.0.3"
+version = "2.0.4"
 description = "Linkord desktop client"
 edition = "2021"
 publish = false
