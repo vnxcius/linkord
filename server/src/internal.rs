@@ -1,5 +1,6 @@
 //! What the monitor (the separate `monitor/` service) gets from the server: counters only this process knows, and
-//! the one thing it may ask for, removing an uploaded file so connected apps hear about it.
+//! the few changes it may ask for (removing an upload, suspending or deleting an account, badges) so connected apps
+//! hear about them.
 //!
 //! This listens on its own loopback address (LINKORD_INTERNAL_BIND, default 127.0.0.1:7711), never on the port the
 //! tunnel forwards, and every request needs the token in `<data>/internal-token`. It must never get in the app's
@@ -204,6 +205,7 @@ pub async fn serve(st: AppState) {
         .route("/moderation/remove", post(remove_media))
         .route("/moderation/suspend", post(suspend))
         .route("/moderation/badge", post(badge))
+        .route("/moderation/delete-account", post(delete_account))
         .layer(axum::middleware::from_fn(move |req: Request, next: Next| {
             let token = token.clone();
             async move { guard(&token, req, next).await }
@@ -398,6 +400,26 @@ async fn suspend(State(st): State<AppState>, Json(b): Json<Suspend>) -> ApiResul
     }
     tracing::info!(target: "moderation", user = %b.user_id, suspended = b.suspended, "account suspension changed");
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct DeleteAccount {
+    user_id: Id,
+    /// Their username, typed in the monitor to confirm.
+    confirm: String,
+    /// Also delete the servers they own (otherwise those block it).
+    #[serde(default)]
+    with_servers: bool,
+}
+
+/// Deletes an account for good (users::purge): nothing of theirs is left, unlike the app's own soft delete.
+async fn delete_account(State(st): State<AppState>, Json(b): Json<DeleteAccount>) -> ApiResult<Json<Value>> {
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1").bind(b.user_id).fetch_optional(&st.db).await?.ok_or(ApiError::NotFound)?;
+    if b.confirm.trim() != username {
+        return Err(bad("type their username to confirm"));
+    }
+    let done = crate::api::users::purge(&st, b.user_id, b.with_servers).await?;
+    Ok(Json(json!(done)))
 }
 
 /// Removes one upload for a moderator: the row that shows it, its file and the owner's quota, and tells connected

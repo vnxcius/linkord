@@ -69,6 +69,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/moderation/media/remove", post(moderation::remove))
         .route("/moderation/accounts/suspend", post(moderation::suspend))
         .route("/moderation/accounts/badge", post(moderation::badge))
+        .route("/moderation/accounts/delete", post(moderation::delete_account))
+        .route("/moderation/accounts/{id}", get(moderation::account))
         .route("/diagnostics/run", post(diagnose::run))
         .route("/tools/dns", post(diagnose::tool_dns))
         .route("/tools/tcp", post(diagnose::tool_tcp))

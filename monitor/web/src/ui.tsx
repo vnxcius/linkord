@@ -1,5 +1,115 @@
 // Small pieces every tab uses.
-import { type JSX, Show } from 'solid-js';
+import { createSignal, type JSX, onCleanup, onMount, Show, splitProps } from 'solid-js';
+import arrowLeft from 'heroicons/24/outline/arrow-left.svg?raw';
+import arrowRightStart from 'heroicons/24/outline/arrow-right-start-on-rectangle.svg?raw';
+import bars3 from 'heroicons/24/outline/bars-3.svg?raw';
+import bell from 'heroicons/24/outline/bell.svg?raw';
+import bolt from 'heroicons/24/outline/bolt.svg?raw';
+import chevronRight from 'heroicons/24/outline/chevron-right.svg?raw';
+import circleStack from 'heroicons/24/outline/circle-stack.svg?raw';
+import commandLine from 'heroicons/24/outline/command-line.svg?raw';
+import globe from 'heroicons/24/outline/globe-alt.svg?raw';
+import home from 'heroicons/24/outline/home.svg?raw';
+import magnifier from 'heroicons/24/outline/magnifying-glass.svg?raw';
+import photo from 'heroicons/24/outline/photo.svg?raw';
+import serverStack from 'heroicons/24/outline/server-stack.svg?raw';
+import signal from 'heroicons/24/outline/signal.svg?raw';
+import squares from 'heroicons/24/outline/squares-2x2.svg?raw';
+import tableCells from 'heroicons/24/outline/table-cells.svg?raw';
+import trash from 'heroicons/24/outline/trash.svg?raw';
+import users from 'heroicons/24/outline/users.svg?raw';
+import user from 'heroicons/24/outline/user.svg?raw';
+import wrench from 'heroicons/24/outline/wrench-screwdriver.svg?raw';
+import xMark from 'heroicons/24/outline/x-mark.svg?raw';
+import { mediaUrl } from './lib';
+
+const body = (svg: string) =>
+  svg
+    .replace(/^[\s\S]*?<svg[^>]*>/, '')
+    .replace(/<\/svg>\s*$/, '')
+    .trim();
+
+type IconProps = JSX.SvgSVGAttributes<SVGSVGElement> & { size?: number };
+/** Heroicons outline (the app's set), 1.5 stroke on the 24px grid. */
+const icon = (svg: string) => {
+  const shapes = body(svg);
+  return (p: IconProps) => {
+    const [own, rest] = splitProps(p, ['size']);
+    return <svg class="icon" width={own.size ?? 18} height={own.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width={1.5} aria-hidden="true" {...rest} innerHTML={shapes} />;
+  };
+};
+
+export const I = {
+  back: icon(arrowLeft),
+  signOut: icon(arrowRightStart),
+  menu: icon(bars3),
+  bell: icon(bell),
+  bolt: icon(bolt),
+  chevron: icon(chevronRight),
+  database: icon(circleStack),
+  logs: icon(commandLine),
+  globe: icon(globe),
+  home: icon(home),
+  search: icon(magnifier),
+  photo: icon(photo),
+  servers: icon(serverStack),
+  signal: icon(signal),
+  squares: icon(squares),
+  table: icon(tableCells),
+  trash: icon(trash),
+  people: icon(users),
+  person: icon(user),
+  wrench: icon(wrench),
+  close: icon(xMark),
+};
+
+/** A picture from the app's uploads, or the first letter: rounded squares, like the app. */
+export function Avatar(p: { url?: string | null; name: string; size?: 'lg' }) {
+  const [failed, setFailed] = createSignal(false);
+  const src = () => mediaUrl(p.url);
+  return (
+    <span class="avatar" classList={{ lg: p.size === 'lg' }} aria-hidden="true">
+      <Show when={src() && !failed()} fallback={<span>{p.name.slice(0, 1).toUpperCase()}</span>}>
+        <img src={src()} alt="" loading="lazy" onError={() => setFailed(true)} />
+      </Show>
+    </span>
+  );
+}
+
+/** A modal: Escape or a click outside closes it, focus starts inside and goes back where it was. */
+export function Dialog(p: { title: string; onClose: () => void; children: JSX.Element; danger?: boolean }) {
+  let box!: HTMLDivElement;
+  const before = document.activeElement as HTMLElement | null;
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      p.onClose();
+    }
+    if (e.key !== 'Tab') return;
+    const items = [...box.querySelectorAll<HTMLElement>('button, input, select, a[href], [tabindex="0"]')].filter((el) => !el.hasAttribute('disabled'));
+    if (!items.length) return;
+    const [first, last] = [items[0], items[items.length - 1]];
+    if (e.shiftKey && document.activeElement === first) (e.preventDefault(), last.focus());
+    else if (!e.shiftKey && document.activeElement === last) (e.preventDefault(), first.focus());
+  };
+  onMount(() => {
+    (box.querySelector<HTMLElement>('[autofocus]') ?? box.querySelector<HTMLElement>('input, button'))?.focus();
+  });
+  onCleanup(() => before?.focus?.());
+  return (
+    <div class="scrim" onMouseDown={(e) => e.target === e.currentTarget && p.onClose()}>
+      <div class="dialog" classList={{ danger: p.danger }} role="dialog" aria-modal="true" aria-label={p.title} ref={box} onKeyDown={onKey}>
+        <header class="dialog-head">
+          <h2>{p.title}</h2>
+          <button class="icon-btn" aria-label="Close" onClick={() => p.onClose()}>
+            <I.close />
+          </button>
+        </header>
+        {p.children}
+      </div>
+    </div>
+  );
+}
 
 export type Level = 'ok' | 'warning' | 'critical' | 'info' | 'none';
 
@@ -77,11 +187,19 @@ export function Section(p: { title: string; note?: JSX.Element; actions?: JSX.El
   );
 }
 
-export function Page(p: { title: string; lead?: JSX.Element; children: JSX.Element; actions?: JSX.Element }) {
+export function Page(p: { title: string; lead?: JSX.Element; children: JSX.Element; actions?: JSX.Element; back?: { href: string; label: string }; figure?: JSX.Element }) {
   return (
     <div class="page-body">
-      <header class="page-head">
-        <div>
+      <Show when={p.back}>
+        {(b) => (
+          <a class="back-link" href={b().href}>
+            <I.back size={15} /> {b().label}
+          </a>
+        )}
+      </Show>
+      <header class="page-head" classList={{ 'with-figure': !!p.figure }}>
+        {p.figure}
+        <div class="page-title">
           <h1>{p.title}</h1>
           <Show when={p.lead}>
             <p class="lead">{p.lead}</p>

@@ -1,8 +1,8 @@
 // Every file people uploaded, whatever it was uploaded as. Files come straight off the disk through the monitor; only
 // what's on screen loads. Removing one goes through the app, so it disappears from everyone's screen too.
 import { createEffect, createResource, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js';
-import { api, bytes, count, dateTime, date, type J, route } from '../lib';
-import { Notice, Page } from '../ui';
+import { api, bytes, count, dateTime, date, href, type J, route } from '../lib';
+import { Avatar, I, Notice, Page } from '../ui';
 
 const CLASSES = [
   { id: '', label: 'Everything' },
@@ -22,6 +22,7 @@ const SOURCES: Record<string, string> = {
   emoji: 'Custom emoji',
   sound: 'Soundboard sounds',
   profile_song: 'Profile songs',
+  clip: 'Shared clips',
 };
 const SINGULAR: Record<string, string> = {
   attachment: 'Attachment',
@@ -34,6 +35,7 @@ const SINGULAR: Record<string, string> = {
   emoji: 'Custom emoji',
   sound: 'Soundboard sound',
   profile_song: 'Profile song',
+  clip: 'Shared clip',
 };
 const PAGE = 60;
 
@@ -163,8 +165,8 @@ function Viewer(p: { item: J; onClose: () => void; onRemoved: (m: J) => void; ha
         </Show>
       </div>
       <aside class="viewer-side">
-        <button class="viewer-close" aria-label="Close" onClick={p.onClose}>
-          ×
+        <button class="viewer-close icon-btn" aria-label="Close" onClick={p.onClose}>
+          <I.close />
         </button>
         <h2 class="viewer-name">{p.item.filename}</h2>
         <dl class="facts">
@@ -172,13 +174,21 @@ function Viewer(p: { item: J; onClose: () => void; onRemoved: (m: J) => void; ha
           <dd>{SINGULAR[p.item.kind] ?? p.item.kind}</dd>
           <dt>From</dt>
           <dd>
-            {p.item.user_name ?? p.item.username ?? 'Unknown'}
-            <Show when={p.item.username}>
+            <Show when={p.item.user_id && p.item.username} fallback={p.item.user_name ?? p.item.username ?? 'Unknown'}>
+              <a class="inline-link" href={href('people', p.item.user_id)}>
+                {p.item.user_name ?? p.item.username}
+              </a>
               <span class="muted small mono"> {p.item.username}</span>
             </Show>
           </dd>
           <dt>Where</dt>
-          <dd>{where(p.item)}</dd>
+          <dd>
+            <Show when={p.item.guild_id && p.item.server} fallback={where(p.item)}>
+              <a class="inline-link" href={href('servers', p.item.guild_id)}>
+                {where(p.item)}
+              </a>
+            </Show>
+          </dd>
           <dt>When</dt>
           <dd>{p.item.created_at ? dateTime(p.item.created_at) : 'Unknown'}</dd>
           <dt>Size</dt>
@@ -247,7 +257,15 @@ export function Media() {
   const [totals, { refetch: refetchTotals }] = createResource(() => api<J>('GET', '/moderation/media/totals'));
   const [cls, setCls] = createSignal('');
   const [source, setSource] = createSignal('');
-  const [server, setServer] = createSignal(route().arg);
+  const arg = route().arg;
+  const [server, setServer] = createSignal(arg.startsWith('user-') ? '' : arg);
+  /** Only one person's files: #/media/user-<id>, from their page. */
+  const [user, setUser] = createSignal(arg.startsWith('user-') ? arg.slice(5) : '');
+  const [person] = createResource(user, (id) => api<J>('GET', `/moderation/accounts/${id}`).catch(() => null));
+  const clearUser = () => {
+    setUser('');
+    history.replaceState(null, '', href('media'));
+  };
   const [query, setQuery] = createSignal('');
   const [sort, setSort] = createSignal('newest');
   const [items, setItems] = createSignal<J[]>([]);
@@ -273,6 +291,7 @@ export function Media() {
     if (cls()) params.set('class', cls());
     if (source()) params.set('source', source());
     if (server()) params.set('server', server());
+    if (user()) params.set('user', user());
     if (query().trim()) params.set('q', query().trim());
     try {
       const r = await api<J>('GET', `/moderation/media?${params}`);
@@ -291,7 +310,7 @@ export function Media() {
   };
   let timer: number | undefined;
   createEffect(
-    on([cls, source, server, query, sort], () => {
+    on([cls, source, server, user, query, sort], () => {
       clearTimeout(timer);
       timer = window.setTimeout(() => void load(), 200);
     }),
@@ -343,13 +362,33 @@ export function Media() {
           <option value="oldest">Oldest first</option>
           <option value="largest">Largest first</option>
         </select>
-        <input class="grow" type="search" placeholder="Search by file name, person or server" aria-label="Search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
+        <div class="search-field grow">
+          <I.search size={16} />
+          <input type="search" placeholder="Search by file name, person or server" aria-label="Search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
+        </div>
         <label class="check">
           <input type="checkbox" checked={blur()} onChange={(e) => setBlur(e.currentTarget.checked)} />
           Blur previews
         </label>
       </div>
 
+      <Show when={user()}>
+        <div class="chips">
+          <span class="chip">
+            <Show when={person()?.account} fallback={<span>One person's files</span>}>
+              {(a) => (
+                <a class="person" href={href('people', user())}>
+                  <Avatar url={a().avatar} name={a().username} />
+                  Only {a().name ?? a().username}'s files
+                </a>
+              )}
+            </Show>
+            <button class="icon-btn" aria-label="Show everyone's files" onClick={clearUser}>
+              <I.close size={14} />
+            </button>
+          </span>
+        </div>
+      </Show>
       <p class="result-line" aria-live="polite">
         <span class="mono">
           {count(total())} {total() === 1 ? 'file' : 'files'}, {bytes(totalBytes())}
@@ -386,7 +425,7 @@ export function Media() {
         </For>
       </ul>
       <Show when={!items().length && !loading() && !error()}>
-        <p class="empty">{cls() || source() || server() || query() ? 'Nothing matches these filters. Clear some to see more.' : 'Nobody has uploaded anything yet.'}</p>
+        <p class="empty">{cls() || source() || server() || user() || query() ? 'Nothing matches these filters. Clear some to see more.' : 'Nobody has uploaded anything yet.'}</p>
       </Show>
       <Show when={items().length < total()}>
         <button class="btn more" disabled={loading()} onClick={() => void load(true)}>

@@ -87,6 +87,19 @@ pub async fn summary(State(st): State<AppState>) -> ApiResult {
 #[derive(Deserialize)]
 pub struct Search {
     q: Option<String>,
+    /// Accounts only: active | suspended | deleted | bots (everyone when missing).
+    status: Option<String>,
+}
+
+/// Which accounts a status filter keeps, as SQL on `u`.
+fn status_filter(status: Option<&str>) -> &'static str {
+    match status {
+        Some("active") => "NOT u.bot AND u.deleted_at IS NULL AND u.suspended_at IS NULL",
+        Some("suspended") => "u.suspended_at IS NOT NULL",
+        Some("deleted") => "u.deleted_at IS NOT NULL",
+        Some("bots") => "u.bot",
+        _ => "true",
+    }
 }
 
 pub async fn servers(State(st): State<AppState>, Query(s): Query<Search>) -> ApiResult {
@@ -146,6 +159,21 @@ pub async fn servers(State(st): State<AppState>, Query(s): Query<Search>) -> Api
 
 /// One server in full: its people, channels and invites.
 pub async fn server(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResult {
+    let Some(head) = sqlx::query(
+        "SELECT g.name, g.icon, g.created_at, o.id::text AS owner_id, o.username AS owner_username, o.display_name AS owner_name,
+            o.avatar AS owner_avatar, o.deleted_at IS NOT NULL AS owner_deleted,
+            (SELECT count(*) FROM messages x JOIN channels c ON c.id = x.channel_id WHERE c.guild_id = g.id)::bigint AS messages,
+            (SELECT COALESCE(SUM((a->>'size')::bigint), 0)::bigint FROM messages x JOIN channels c ON c.id = x.channel_id
+               CROSS JOIN LATERAL jsonb_array_elements(x.attachments) a WHERE c.guild_id = g.id AND x.attachments <> '[]'::jsonb) AS media_bytes
+         FROM guilds g JOIN users o ON o.id = g.owner_id WHERE g.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&st.db)
+    .await
+    .map_err(db_error)?
+    else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "There's no such server (any more)." }))));
+    };
     let members = sqlx::query(
         "SELECT u.id::text AS id, u.username, u.display_name, u.avatar, u.bot, u.deleted_at IS NOT NULL AS deleted, m.nickname, m.joined_at,
             (SELECT count(*) FROM member_roles r WHERE r.guild_id = m.guild_id AND r.user_id = m.user_id)::bigint AS roles,
@@ -179,6 +207,21 @@ pub async fn server(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResul
     .await
     .map_err(db_error)?;
     Ok(Json(json!({
+        "server": {
+            "id": id.to_string(),
+            "name": head.get::<String, _>("name"),
+            "icon": head.get::<Option<String>, _>("icon"),
+            "created_at": head.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+            "messages": head.get::<i64, _>("messages"),
+            "media_bytes": head.get::<i64, _>("media_bytes"),
+            "owner": {
+                "id": head.get::<String, _>("owner_id"),
+                "username": head.get::<String, _>("owner_username"),
+                "name": head.get::<Option<String>, _>("owner_name"),
+                "avatar": head.get::<Option<String>, _>("owner_avatar"),
+                "deleted": head.get::<bool, _>("owner_deleted"),
+            },
+        },
         "members": members.iter().map(|r| json!({
             "id": r.get::<String, _>("id"),
             "username": r.get::<String, _>("username"),
@@ -217,54 +260,113 @@ pub async fn server(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResul
 /// The badges an admin gives (the app's badges::MANUAL): Bug Hunter, Tester, Contributor, Helper.
 const MANUAL_BADGES: [&str; 4] = ["bug_hunter", "tester", "contributor", "helper"];
 
+/// One row per account, with what they have and did. `{where}` filters `u`; $2 is MANUAL_BADGES.
+const ACCOUNT: &str = "SELECT u.id::text AS id, u.username, u.display_name, u.discord_username, u.avatar, u.bot, u.deleted_at, u.created_at,
+        u.upload_bytes, u.voice_seconds, u.suspended_at,
+        (SELECT count(*) FROM guilds g WHERE g.owner_id = u.id)::bigint AS servers_owned,
+        (SELECT count(*) FROM members m WHERE m.user_id = u.id)::bigint AS servers_joined,
+        (SELECT count(*) FROM messages x WHERE x.author_id = u.id)::bigint AS messages,
+        (SELECT COALESCE(SUM(jsonb_array_length(x.attachments)), 0)::bigint FROM messages x WHERE x.author_id = u.id AND x.attachments <> '[]'::jsonb) AS media,
+        (SELECT MAX(x.created_at) FROM messages x WHERE x.author_id = u.id) AS last_message,
+        (SELECT count(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())::bigint AS sessions,
+        ARRAY(SELECT b.badge FROM user_badges b WHERE b.user_id = u.id AND b.badge = ANY($2) ORDER BY b.badge) AS badges
+     FROM users u";
+
+fn account_json(r: &sqlx::postgres::PgRow) -> Value {
+    let n = |k: &str| r.get::<i64, _>(k);
+    json!({
+        "id": r.get::<String, _>("id"),
+        "username": r.get::<String, _>("username"),
+        "name": r.get::<Option<String>, _>("display_name"),
+        "discord_username": r.get::<Option<String>, _>("discord_username"),
+        "avatar": r.get::<Option<String>, _>("avatar"),
+        "bot": r.get::<bool, _>("bot"),
+        "deleted_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("deleted_at"),
+        "created_at": r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+        "upload_bytes": n("upload_bytes"),
+        "voice_seconds": n("voice_seconds"),
+        "servers_owned": n("servers_owned"),
+        "servers_joined": n("servers_joined"),
+        "messages": n("messages"),
+        "media": n("media"),
+        "last_message": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_message"),
+        "sessions": n("sessions"),
+        "suspended_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_at"),
+        "badges": r.get::<Vec<String>, _>("badges"),
+    })
+}
+
+fn manual_badges() -> Vec<String> {
+    MANUAL_BADGES.map(String::from).to_vec()
+}
+
 pub async fn accounts(State(st): State<AppState>, Query(s): Query<Search>) -> ApiResult {
     let q = s.q.unwrap_or_default();
-    let rows = sqlx::query(
-        "SELECT u.id::text AS id, u.username, u.display_name, u.discord_username, u.avatar, u.bot, u.deleted_at, u.created_at,
-            u.upload_bytes, u.voice_seconds, u.suspended_at,
-            (SELECT count(*) FROM guilds g WHERE g.owner_id = u.id)::bigint AS servers_owned,
-            (SELECT count(*) FROM members m WHERE m.user_id = u.id)::bigint AS servers_joined,
-            (SELECT count(*) FROM messages x WHERE x.author_id = u.id)::bigint AS messages,
-            (SELECT COALESCE(SUM(jsonb_array_length(x.attachments)), 0)::bigint FROM messages x WHERE x.author_id = u.id AND x.attachments <> '[]'::jsonb) AS media,
-            (SELECT MAX(x.created_at) FROM messages x WHERE x.author_id = u.id) AS last_message,
-            (SELECT count(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())::bigint AS sessions,
-            ARRAY(SELECT b.badge FROM user_badges b WHERE b.user_id = u.id AND b.badge = ANY($2) ORDER BY b.badge) AS badges
-         FROM users u
-         WHERE $1 = '' OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%' OR u.discord_username ILIKE '%' || $1 || '%'
-         ORDER BY u.created_at DESC LIMIT 500",
-    )
+    const MATCHES: &str = "($1 = '' OR u.username ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%' OR u.discord_username ILIKE '%' || $1 || '%')";
+    let sql = format!("{ACCOUNT} WHERE {MATCHES} AND {} ORDER BY u.created_at DESC LIMIT 500", status_filter(s.status.as_deref()));
+    let rows = sqlx::query(&sql).bind(&q).bind(manual_badges()).fetch_all(&st.db).await.map_err(db_error)?;
+    // How many each filter would show, for the search as typed (not just the 500 listed).
+    let counts: (i64, i64, i64, i64, i64) = sqlx::query_as(&format!(
+        "SELECT count(*), count(*) FILTER (WHERE {}), count(*) FILTER (WHERE {}), count(*) FILTER (WHERE {}), count(*) FILTER (WHERE {})
+         FROM users u WHERE {MATCHES}",
+        status_filter(Some("active")),
+        status_filter(Some("suspended")),
+        status_filter(Some("deleted")),
+        status_filter(Some("bots")),
+    ))
     .bind(&q)
-    .bind(MANUAL_BADGES.map(String::from).to_vec())
+    .fetch_one(&st.db)
+    .await
+    .map_err(db_error)?;
+    Ok(Json(json!({
+        "accounts": rows.iter().map(account_json).collect::<Vec<_>>(),
+        "counts": { "all": counts.0, "active": counts.1, "suspended": counts.2, "deleted": counts.3, "bots": counts.4 },
+    })))
+}
+
+/// One person: their account, the servers they're in, and what deleting them would take with it.
+pub async fn account(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResult {
+    let sql = format!("{ACCOUNT} WHERE u.id = $1");
+    let Some(row) = sqlx::query(&sql).bind(id).bind(manual_badges()).fetch_optional(&st.db).await.map_err(db_error)? else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "There's no such account (any more)." }))));
+    };
+    let servers = sqlx::query(
+        "SELECT g.id::text AS id, g.name, g.icon, g.owner_id = m.user_id AS owner, m.joined_at, m.nickname,
+            (SELECT count(*) FROM members o WHERE o.guild_id = g.id)::bigint AS members,
+            (SELECT count(*) FROM messages x JOIN channels c ON c.id = x.channel_id WHERE c.guild_id = g.id AND x.author_id = m.user_id)::bigint AS messages
+         FROM members m JOIN guilds g ON g.id = m.guild_id WHERE m.user_id = $1 ORDER BY owner DESC, lower(g.name)",
+    )
+    .bind(id)
     .fetch_all(&st.db)
     .await
     .map_err(db_error)?;
-    let list: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            let n = |k: &str| r.get::<i64, _>(k);
-            json!({
-                "id": r.get::<String, _>("id"),
-                "username": r.get::<String, _>("username"),
-                "name": r.get::<Option<String>, _>("display_name"),
-                "discord_username": r.get::<Option<String>, _>("discord_username"),
-                "avatar": r.get::<Option<String>, _>("avatar"),
-                "bot": r.get::<bool, _>("bot"),
-                "deleted_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("deleted_at"),
-                "created_at": r.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
-                "upload_bytes": n("upload_bytes"),
-                "voice_seconds": n("voice_seconds"),
-                "servers_owned": n("servers_owned"),
-                "servers_joined": n("servers_joined"),
-                "messages": n("messages"),
-                "media": n("media"),
-                "last_message": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_message"),
-                "sessions": n("sessions"),
-                "suspended_at": r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("suspended_at"),
-                "badges": r.get::<Vec<String>, _>("badges"),
-            })
-        })
-        .collect();
-    Ok(Json(json!({ "accounts": list })))
+    let other: (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM dm_recipients r JOIN channels c ON c.id = r.channel_id WHERE r.user_id = $1 AND c.kind = 1)::bigint,
+                (SELECT count(*) FROM dm_recipients r JOIN channels c ON c.id = r.channel_id WHERE r.user_id = $1 AND c.kind = 3)::bigint,
+                (SELECT count(*) FROM clips k WHERE k.user_id = $1)::bigint,
+                (SELECT count(*) FROM relationships x WHERE x.user_id = $1 AND x.kind = 1)::bigint",
+    )
+    .bind(id)
+    .fetch_one(&st.db)
+    .await
+    .map_err(db_error)?;
+    Ok(Json(json!({
+        "account": account_json(&row),
+        "servers": servers.iter().map(|r| json!({
+            "id": r.get::<String, _>("id"),
+            "name": r.get::<String, _>("name"),
+            "icon": r.get::<Option<String>, _>("icon"),
+            "owner": r.get::<bool, _>("owner"),
+            "nickname": r.get::<Option<String>, _>("nickname"),
+            "joined_at": r.get::<chrono::DateTime<chrono::Utc>, _>("joined_at"),
+            "members": r.get::<i64, _>("members"),
+            "messages": r.get::<i64, _>("messages"),
+        })).collect::<Vec<_>>(),
+        "direct_conversations": other.0,
+        "group_conversations": other.1,
+        "clips": other.2,
+        "friends": other.3,
+    })))
 }
 
 // ---------- media ----------
@@ -308,6 +410,8 @@ pub struct MediaQuery {
     source: Option<String>,
     /// A server's id, or "dm" for direct messages.
     server: Option<String>,
+    /// Only what this person uploaded.
+    user: Option<String>,
     q: Option<String>,
     /// newest (default) | oldest | largest
     sort: Option<String>,
@@ -349,6 +453,7 @@ pub async fn media(State(st): State<AppState>, Query(m): Query<MediaQuery>) -> A
          WHERE ($1 = '' OR x.class = $1)
            AND ($2 = '' OR x.kind = $2)
            AND ($3 = '' OR ($3 = 'dm' AND c.id IS NOT NULL AND c.guild_id IS NULL) OR x.guild_id = $4)
+           AND ($8::bigint IS NULL OR x.user_id = $8)
            AND ($5 = '' OR COALESCE(x.filename, '') ILIKE '%' || $5 || '%' OR u.username ILIKE '%' || $5 || '%' OR COALESCE(u.display_name, '') ILIKE '%' || $5 || '%' OR COALESCE(g.name, '') ILIKE '%' || $5 || '%')
          ORDER BY {order} LIMIT $6 OFFSET $7"
     );
@@ -360,6 +465,7 @@ pub async fn media(State(st): State<AppState>, Query(m): Query<MediaQuery>) -> A
         .bind(m.q.unwrap_or_default())
         .bind(m.limit.unwrap_or(60).clamp(1, 200))
         .bind(m.offset.unwrap_or(0).max(0))
+        .bind(m.user.as_deref().and_then(|u| u.parse::<i64>().ok()))
         .fetch_all(&st.db)
         .await
         .map_err(db_error)?;
@@ -445,6 +551,40 @@ pub async fn file(State(st): State<AppState>, Path(rel): Path<String>, req: Requ
     res
 }
 
+/// Asks the app (internal.rs in the server) to make a change: this process never changes the app's data itself.
+async fn forward<B: serde::Serialize>(st: &AppState, path: &str, body: &B, refused: &str) -> ApiResult {
+    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
+    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
+    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
+        return Err(unavailable("Can't read the app's internal token."));
+    };
+    let res = st
+        .http
+        .post(format!("{url}{path}"))
+        .bearer_auth(token.trim())
+        .json(body)
+        .send()
+        .await
+        .map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
+    let status = res.status();
+    let v: Value = res.json().await.unwrap_or(Value::Null);
+    if status.is_success() {
+        return Ok(Json(v));
+    }
+    let message = v["message"].as_str().or(v["error"].as_str()).unwrap_or(refused);
+    let message = if status == StatusCode::NOT_FOUND { "It's already gone." } else { message };
+    Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": capitalized(message) }))))
+}
+
+/// The app's errors are lowercase phrases ("they own servers: ..."); here they stand as sentences.
+fn capitalized(s: &str) -> String {
+    let mut c = s.chars();
+    let first = c.next().map(|f| f.to_uppercase().collect::<String>()).unwrap_or_default();
+    let rest: String = c.collect();
+    let out = format!("{first}{rest}");
+    if out.ends_with(['.', '!', '?']) { out } else { format!("{out}.") }
+}
+
 #[derive(Deserialize, serde::Serialize)]
 pub struct RemoveMedia {
     kind: String,
@@ -454,29 +594,20 @@ pub struct RemoveMedia {
     guild_id: Option<String>,
 }
 
-/// Asks the app to remove the file: it updates the database, tells connected apps and gives back the quota.
+/// Removes a file: the app updates the database, tells connected apps and gives back the quota.
+pub async fn remove(State(st): State<AppState>, Json(body): Json<RemoveMedia>) -> ApiResult {
+    forward(&st, "/moderation/remove", &body, "The app refused to remove it.").await
+}
+
 #[derive(Deserialize, serde::Serialize)]
 pub struct Suspend {
     user_id: String,
     suspended: bool,
 }
 
-/// Suspends or restores an account, through the app (this process never changes its data).
+/// Suspends or restores an account.
 pub async fn suspend(State(st): State<AppState>, Json(body): Json<Suspend>) -> ApiResult {
-    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
-    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
-    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
-        return Err(unavailable("Can't read the app's internal token."));
-    };
-    let res = st.http.post(format!("{url}/moderation/suspend")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
-    let status = res.status();
-    let v: Value = res.json().await.unwrap_or(Value::Null);
-    if status.is_success() {
-        Ok(Json(v))
-    } else {
-        let message = v["error"].as_str().unwrap_or("The app refused.").to_string();
-        Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": message }))))
-    }
+    forward(&st, "/moderation/suspend", &body, "The app refused.").await
 }
 
 #[derive(Deserialize, serde::Serialize)]
@@ -486,40 +617,24 @@ pub struct GiveBadge {
     given: bool,
 }
 
-/// Gives or takes away a badge, through the app (which tells the person's apps).
+/// Gives or takes away a badge (the app tells the person's apps).
 pub async fn badge(State(st): State<AppState>, Json(body): Json<GiveBadge>) -> ApiResult {
-    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
-    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
-    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
-        return Err(unavailable("Can't read the app's internal token."));
-    };
-    let res = st.http.post(format!("{url}/moderation/badge")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing changed."))?;
-    let status = res.status();
-    let v: Value = res.json().await.unwrap_or(Value::Null);
-    if status.is_success() {
-        Ok(Json(v))
-    } else {
-        let message = v["error"].as_str().unwrap_or("The app refused.").to_string();
-        Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": message }))))
-    }
+    forward(&st, "/moderation/badge", &body, "The app refused.").await
 }
 
-pub async fn remove(State(st): State<AppState>, Json(body): Json<RemoveMedia>) -> ApiResult {
-    let unavailable = |msg: &str| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
-    let Some(url) = &st.cfg.internal_url else { return Err(unavailable("The app's internal address is turned off.")) };
-    let Ok(token) = tokio::fs::read_to_string(st.cfg.app_data.join("internal-token")).await else {
-        return Err(unavailable("Can't read the app's internal token."));
-    };
-    let res = st.http.post(format!("{url}/moderation/remove")).bearer_auth(token.trim()).json(&body).send().await.map_err(|_| unavailable("The app isn't answering, so nothing was removed."))?;
-    let status = res.status();
-    let v: Value = res.json().await.unwrap_or(Value::Null);
-    if status.is_success() {
-        Ok(Json(v))
-    } else {
-        let message = v["message"].as_str().or(v["error"].as_str()).unwrap_or("The app refused to remove it.");
-        let message = if status == StatusCode::NOT_FOUND { "It's already gone." } else { message };
-        Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": message }))))
-    }
+#[derive(Deserialize, serde::Serialize)]
+pub struct DeleteAccount {
+    user_id: String,
+    /// Their username, typed to confirm.
+    confirm: String,
+    #[serde(default)]
+    with_servers: bool,
+}
+
+/// Deletes an account for good: their messages, files, conversations and the account itself (the app's users::purge).
+pub async fn delete_account(State(st): State<AppState>, Json(body): Json<DeleteAccount>) -> ApiResult {
+    tracing::info!(target: "moderation", user = %body.user_id, with_servers = body.with_servers, "deleting an account for good");
+    forward(&st, "/moderation/delete-account", &body, "The app refused to delete it.").await
 }
 
 #[cfg(test)]
@@ -542,6 +657,12 @@ mod tests {
         assert!(!safe_inline("image/svg+xml"));
         assert!(!safe_inline("text/html"));
         assert!(!safe_inline("application/pdf"));
+    }
+
+    #[test]
+    fn app_errors_read_as_sentences() {
+        assert_eq!(capitalized("they own servers: Kokiri Forest"), "They own servers: Kokiri Forest.");
+        assert_eq!(capitalized("It's already gone."), "It's already gone.");
     }
 
     #[test]

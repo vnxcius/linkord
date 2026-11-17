@@ -393,6 +393,51 @@ test('suspending an account ends its sessions; restoring lets it back', async ()
   assert.equal(await status(again.token), 200);
 });
 
+test('deleting an account for good leaves nothing of theirs, and asks about their servers first', async () => {
+  const name = `purged.${run}`;
+  const gone = await app(null, 'POST', '/auth/dev', { username: name });
+  const me = await app(gone.token, 'GET', '/users/@me');
+  // In the owner's server, with a file; their own server; a DM with the owner.
+  const inv = await app(owner.token, 'POST', `/guilds/${guild.id}/invites`, {});
+  await app(gone.token, 'POST', `/invites/${inv.code}`);
+  const pic = await app(gone.token, 'POST', `/channels/${general.id}/messages`, upload(`bye ${run}`, `purge-${run}.png`, 'image/png', PNG));
+  const own = await app(gone.token, 'POST', '/guilds', { name: `Doomed ${run}` });
+  await app(gone.token, 'POST', '/users/@me/relationships', { username: (await app(owner.token, 'GET', '/users/@me')).username });
+  await app(owner.token, 'PUT', `/users/@me/relationships/${me.id}`);
+  const dm = await app(owner.token, 'POST', '/users/@me/channels', { recipient_id: me.id });
+  await app(owner.token, 'POST', `/channels/${dm.id}/messages`, { content: 'hi' });
+
+  const listed = await monOk('GET', `/moderation/accounts?q=${name}&status=active`);
+  assert.deepEqual(listed.accounts.map((u) => u.id), [me.id]);
+  assert.equal(listed.counts.all, 1);
+  assert.equal((await monOk('GET', `/moderation/accounts?q=${name}&status=suspended`)).accounts.length, 0);
+  const person = await monOk('GET', `/moderation/accounts/${me.id}`);
+  assert.equal(person.account.username, name);
+  assert.equal(person.direct_conversations, 1);
+  assert.deepEqual(person.servers.filter((s) => s.owner).map((s) => s.name), [`Doomed ${run}`]);
+
+  const wrong = await mon('POST', '/moderation/accounts/delete', { user_id: me.id, confirm: 'someone else', with_servers: true });
+  assert.equal(wrong.status, 502);
+  const owns = await mon('POST', '/moderation/accounts/delete', { user_id: me.id, confirm: name });
+  assert.equal(owns.status, 502);
+  assert.match(owns.data.error, /Doomed/);
+  assert.equal((await app(gone.token, 'GET', '/users/@me')).username, name, 'nothing changed yet');
+
+  const done = await monOk('POST', '/moderation/accounts/delete', { user_id: me.id, confirm: name, with_servers: true });
+  assert.equal(done.messages, 2, 'theirs and the welcome when they joined');
+  assert.equal(done.servers, 1);
+  assert.equal(done.direct_conversations, 1);
+  assert.equal((await mon('GET', `/moderation/accounts/${me.id}`)).status, 404);
+  assert.equal((await mon('GET', `/moderation/servers/${own.id}`)).status, 404);
+  const status = (t, path) => fetch(`${APP}/api${path}`, { headers: { authorization: `Bearer ${t}` } }).then((r) => r.status);
+  assert.equal(await status(gone.token, '/users/@me'), 401);
+  assert.equal(await status(owner.token, `/channels/${dm.id}/messages`), 404, 'the DM went whole');
+  const msgs = await app(owner.token, 'GET', `/channels/${general.id}/messages?limit=50`);
+  assert.ok(!msgs.some((m) => m.id === pic.id), 'their message is gone');
+  assert.equal((await fetch(`${APP}${pic.attachments[0].url}`)).status, 404, 'and its file');
+  assert.equal((await mon('POST', '/moderation/accounts/delete', { user_id: me.id, confirm: name })).status, 502);
+});
+
 test('logging out ends the session even for a copy of the cookie', async () => {
   const copy = cookie;
   await monOk('POST', '/logout');
@@ -436,6 +481,7 @@ test('in a browser: sign in, every tab, a removal, live logs', { skip: !process.
     logs: '.log-row',
     diagnostics: '.diag-group li',
     servers: '.server-table tbody tr',
+    people: '.people-table tbody tr',
     media: '.gallery li',
   };
   for (const [tab, selector] of Object.entries(tabs)) {
@@ -446,13 +492,15 @@ test('in a browser: sign in, every tab, a removal, live logs', { skip: !process.
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${tab} scrolls sideways`);
   }
 
-  // A server opens up, and leads to its media.
+  // A server opens on its own page, and leads to its creator and its media.
   await page.goto(`${MON}/#/servers`);
   await page.fill('.filters input[type=search]', `Moderated ${run}`);
   await page.click(`.server-table tbody tr.clickable:has-text("Moderated ${run}")`);
-  await page.waitForSelector('.detail table');
+  await page.waitForSelector(`.page-head h1:has-text("Moderated ${run}")`);
+  await page.waitForSelector('.section table');
+  assert.match(await page.textContent('.crumbs'), new RegExp(`Moderated ${run}`));
   await shot('monitor-server-detail');
-  await page.click('.detail-actions .btn');
+  await page.click('.page-actions .btn:has-text("media")');
   await page.waitForFunction(() => location.hash.startsWith('#/media/'));
   await page.waitForSelector(`.media-card:has-text("cat-${run}")`);
 
@@ -468,6 +516,36 @@ test('in a browser: sign in, every tab, a removal, live logs', { skip: !process.
   await page.waitForFunction(() => !document.querySelector('.viewer'));
   assert.equal(await page.locator(`.media-card:has-text("cat-${run}")`).count(), 0);
 
+  // Jumping anywhere by typing: Ctrl+K, a server's name, Enter.
+  await page.keyboard.press('Control+k');
+  await page.waitForSelector('.palette input');
+  await page.keyboard.type(`Moderated ${run}`);
+  await page.waitForSelector(`.palette-hit:has-text("Moderated ${run}")`);
+  await shot('monitor-palette');
+  await page.keyboard.press('ArrowDown');
+  await page.click(`.palette-hit:has-text("Moderated ${run}")`);
+  await page.waitForFunction(() => location.hash.startsWith('#/servers/'));
+  await page.waitForFunction(() => !document.querySelector('.palette'));
+
+  // A person's page, then deleting their account for good, confirmed by typing their name.
+  const doomed = await app(null, 'POST', '/auth/dev', { username: `uigone.${run}` });
+  const doomedMe = await app(doomed.token, 'GET', '/users/@me');
+  await page.goto(`${MON}/#/people`);
+  await page.fill('.filters input[type=search]', `uigone.${run}`);
+  await page.click(`.people-table tbody tr.clickable:has-text("uigone.${run}")`);
+  await page.waitForSelector(`.page-head h1:has-text("uigone.${run}")`);
+  await shot('monitor-person');
+  await page.click('.danger-zone .btn');
+  await page.waitForSelector('.dialog');
+  assert.equal(await page.isDisabled('.dialog .btn.danger'), true);
+  await page.fill('.dialog input:not([type=checkbox])', `uigone.${run}`);
+  await page.waitForTimeout(300);
+  await shot('monitor-delete-dialog');
+  await page.click('.dialog .btn.danger');
+  await page.waitForSelector(`.toast:has-text("uigone.${run}")`);
+  await page.waitForFunction(() => location.hash === '#/people');
+  assert.equal((await mon('GET', `/moderation/accounts/${doomedMe.id}`)).status, 404);
+
   // Live logs.
   await page.goto(`${MON}/#/logs`);
   await page.waitForSelector('.logs-live.on');
@@ -480,12 +558,21 @@ test('in a browser: sign in, every tab, a removal, live logs', { skip: !process.
 
   // Phone width: no sideways scrolling.
   await page.setViewportSize({ width: 390, height: 800 });
-  for (const tab of ['overview', 'media', 'servers', 'logs']) {
+  for (const tab of ['overview', 'media', 'servers', 'people', 'logs']) {
     await page.goto(`${MON}/#/${tab}`);
     await page.waitForTimeout(400);
     await shot(`monitor-phone-${tab}`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, `${tab} on a phone scrolls sideways`);
   }
+
+  // On a phone the sections are behind the menu button.
+  await page.click('.topbar .icon-btn[aria-label=Menu]');
+  await page.waitForSelector('.sheet-left');
+  await page.waitForTimeout(300);
+  await shot('monitor-phone-menu');
+  await page.click('.sheet-left a:has-text("People")');
+  await page.waitForFunction(() => location.hash === '#/people');
+  await page.waitForFunction(() => !document.querySelector('.sheet'));
 
   // Sign out.
   await page.setViewportSize({ width: 1500, height: 950 });

@@ -1,7 +1,7 @@
 // Renders the app's PNG icons from the SVGs in this folder, with the test suite's headless Chromium:
 //   node design/render.mjs        (CHROMIUM=/path/to/chrome to use another browser)
 // Writes assets/icon.png (1024, the source of everything the desktop scripts make), the in-app emblem
-// (app/src/assets/emblem.png) and the web icons in app/public: the favicon, the PWA icons, the maskable one (the
+// (app/src/assets/emblem.png), the monitor's two (monitor/web) and the web icons in app/public: the favicon, the PWA icons, the maskable one (the
 // tile to the edges, the mark inside the safe circle), the Apple touch icon (the tile to the edges: iOS rounds it)
 // and the notification badge (the mark alone in white: Android shows only its alpha).
 // Then run the desktop steps in README.md (tray icons, `tauri icon`, the Christmas set).
@@ -37,6 +37,9 @@ const outputs = [
   // The maskable safe zone is a circle 80% wide; the wide mark fits it at 0.72.
   ['app/public/icon-maskable-512.png', sized(fullBleed(0.72), 512)],
   ['app/public/badge-96.png', badge('#ffffff', 96, 0.06)],
+  // The monitor (monitor/web): its favicon and the emblem in its rail and sign-in.
+  ['monitor/web/public/icon.png', sized(icon, 256)],
+  ['monitor/web/src/assets/emblem.png', sized(icon, 256)],
 ];
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM });

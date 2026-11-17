@@ -347,9 +347,19 @@ async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path(key): P
 /// Removes a clip and its files (its owner here; the monitor through internal.rs).
 pub async fn delete_clip(st: &AppState, clip: &Clip) -> ApiResult<()> {
     sqlx::query("DELETE FROM clips WHERE id = $1").bind(clip.id).execute(&st.db).await?;
-    let _ = tokio::fs::remove_file(video_path(st, &clip.slug)).await;
-    let _ = tokio::fs::remove_file(picture_path(st, &clip.slug)).await;
+    delete_files(st, &clip.slug).await;
     Ok(())
+}
+
+/// A clip's video and picture.
+pub async fn delete_files(st: &AppState, slug: &str) {
+    let _ = tokio::fs::remove_file(video_path(st, slug)).await;
+    let _ = tokio::fs::remove_file(picture_path(st, slug)).await;
+}
+
+/// An unfinished upload's file (its row goes with the account, or with the upload).
+pub async fn delete_part(st: &AppState, id: &str) {
+    let _ = tokio::fs::remove_file(part_path(st, id)).await;
 }
 
 async fn remove(State(st): State<AppState>, AuthUser(me): AuthUser, Path(key): Path<String>) -> ApiResult<StatusCode> {

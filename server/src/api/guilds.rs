@@ -323,9 +323,14 @@ async fn remove(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Pa
     if !guild_perms(&st.db, id, me).await?.owner {
         return Err(ApiError::Forbidden);
     }
+    delete_guild(&st, id).await
+}
+
+/// Deletes a server (its owner here; the monitor through internal.rs when it deletes the owner's account).
+pub async fn delete_guild(st: &AppState, id: Id) -> ApiResult<()> {
     let members = guild_members(&st.db, id).await?;
     for u in &members {
-        leave_voice_in(&st, *u, id).await;
+        leave_voice_in(st, *u, id).await;
     }
     sqlx::query("DELETE FROM guilds WHERE id = $1").bind(id).execute(&st.db).await?;
     st.hub.send(&members, "GUILD_DELETE", &serde_json::json!({ "id": id }));

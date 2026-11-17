@@ -143,11 +143,15 @@ export const clock = (v: string | number) =>
 /** A file from the app's uploads, through the monitor (it never touches the app). */
 export const mediaUrl = (url: string | null | undefined) => (url?.startsWith('/uploads/') ? `/media/${url.slice('/uploads/'.length)}` : undefined);
 
-export const tabs = ['overview', 'availability', 'performance', 'network', 'storage', 'database', 'logs', 'diagnostics', 'servers', 'media'] as const;
+export const tabs = ['overview', 'availability', 'performance', 'network', 'storage', 'database', 'logs', 'diagnostics', 'servers', 'people', 'media'] as const;
 export type Tab = (typeof tabs)[number];
 
+/** Old links: the accounts list used to live under servers. */
+const moved: Record<string, string> = { 'servers/accounts': 'people' };
+
 const parseHash = (): { tab: Tab; arg: string } => {
-  const [tab, arg] = location.hash.replace(/^#\/?/, '').split('/');
+  const raw = location.hash.replace(/^#\/?/, '');
+  const [tab, arg] = (moved[raw] ?? raw).split('/');
   return { tab: tabs.includes(tab as Tab) ? (tab as Tab) : 'overview', arg: arg ? decodeURIComponent(arg) : '' };
 };
 const [route, setRoute] = createSignal(parseHash());
@@ -156,3 +160,23 @@ export { route };
 export const go = (tab: Tab, arg = '') => {
   location.hash = `/${tab}${arg ? `/${encodeURIComponent(arg)}` : ''}`;
 };
+/** The name of the one thing a page shows (a person, a server), for the breadcrumbs. */
+const [crumb, setCrumb] = createSignal('');
+export { crumb, setCrumb };
+window.addEventListener('hashchange', () => setCrumb(''));
+export const href = (tab: Tab, arg = '') => `#/${tab}${arg ? `/${encodeURIComponent(arg)}` : ''}`;
+
+// ---------- toasts ----------
+
+export type Toast = { id: number; level: 'ok' | 'critical' | 'info'; text: string };
+const [toasts, setToasts] = createSignal<Toast[]>([]);
+export { toasts };
+let toastId = 0;
+/** A short note in the corner that goes by itself: what just happened, or why it didn't. */
+export function toast(text: string, level: Toast['level'] = 'ok') {
+  const id = ++toastId;
+  setToasts((list) => [...list.slice(-3), { id, level, text }]);
+  window.setTimeout(() => dismiss(id), level === 'critical' ? 9000 : 5000);
+}
+export const dismiss = (id: number) => setToasts((list) => list.filter((t) => t.id !== id));
+export const failed = (e: unknown) => toast(e instanceof Error ? e.message : String(e), 'critical');

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::auth::AuthUser;
-use crate::api::{dms, guilds, relationships};
+use crate::api::{dms, guilds, messages, relationships};
 use crate::error::{bad, ApiResult};
 use crate::models::kind;
 use crate::gateway::{broadcast_presence, related_users};
@@ -1176,6 +1176,112 @@ async fn delete_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     st.hub.send(&audience, "PRESENCE_UPDATE", &json!({ "user_id": me, "status": "offline" }));
     tracing::info!("account {me} deleted");
     Ok(())
+}
+
+/// What deleting an account for good took with it.
+#[derive(Serialize, Default)]
+pub struct Purged {
+    pub messages: usize,
+    pub servers: usize,
+    pub direct_conversations: usize,
+    pub clips: usize,
+}
+
+/// Deletes an account for good (the monitor, through internal.rs): every message they wrote and its files, their
+/// one-to-one conversations, their clips, profile files and every row about them, then the account itself. Group
+/// conversations carry on without them; custom emoji and sounds they added stay with their server's owner. Servers they
+/// own block it unless `with_servers`, which deletes those too. Signing in with the same Discord account afterwards
+/// starts a brand new account.
+pub async fn purge(st: &AppState, user: Id, with_servers: bool) -> ApiResult<Purged> {
+    let row: Option<(bool,)> = sqlx::query_as("SELECT bot FROM users WHERE id = $1").bind(user).fetch_optional(&st.db).await?;
+    match row {
+        None => return Err(crate::error::ApiError::NotFound),
+        Some((true,)) => return Err(bad("bots can't be deleted")),
+        _ => {}
+    }
+    let owned: Vec<(Id, String)> = sqlx::query_as("SELECT id, name FROM guilds WHERE owner_id = $1 ORDER BY name").bind(user).fetch_all(&st.db).await?;
+    if !owned.is_empty() && !with_servers {
+        let names: Vec<&str> = owned.iter().map(|(_, n)| n.as_str()).collect();
+        return Err(bad(format!("they own servers: {}", names.join(", "))));
+    }
+    let mut done = Purged::default();
+    // Out of everything live first: sessions, sockets, voice.
+    crate::auth::end_sessions(st, user).await?;
+    let audience = related_users(&st.db, user).await?;
+
+    for (g, _) in &owned {
+        let channels: Vec<Id> = sqlx::query_scalar("SELECT id FROM channels WHERE guild_id = $1").bind(g).fetch_all(&st.db).await?;
+        let rows = messages::in_channels(st, &channels).await?;
+        guilds::delete_guild(st, *g).await?;
+        messages::delete_files(st, &rows).await;
+        for dir in ["icons", "banners", "member-profiles"] {
+            let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(dir).join(g.to_string())).await;
+        }
+        done.servers += 1;
+    }
+    let guild_ids: Vec<Id> = sqlx::query_scalar("SELECT guild_id FROM members WHERE user_id = $1").bind(user).fetch_all(&st.db).await?;
+    for g in guild_ids {
+        guilds::remove_member(st, g, user).await?;
+    }
+    // One-to-one conversations go whole: nobody is left on the other end.
+    let direct: Vec<Id> = sqlx::query_scalar("SELECT c.id FROM channels c JOIN dm_recipients r ON r.channel_id = c.id WHERE r.user_id = $1 AND c.kind = $2")
+        .bind(user)
+        .bind(kind::DM)
+        .fetch_all(&st.db)
+        .await?;
+    for id in direct {
+        let others: Vec<Id> = sqlx::query_scalar("SELECT user_id FROM dm_recipients WHERE channel_id = $1 AND user_id <> $2").bind(id).bind(user).fetch_all(&st.db).await?;
+        let rows = messages::in_channels(st, &[id]).await?;
+        sqlx::query("DELETE FROM channels WHERE id = $1").bind(id).execute(&st.db).await?;
+        messages::delete_files(st, &rows).await;
+        st.hub.send(&others, "CHANNEL_DELETE", &json!({ "id": id, "guild_id": null }));
+        done.direct_conversations += 1;
+    }
+    let groups: Vec<(Id, Option<Id>)> = sqlx::query_as(
+        "SELECT c.id, c.owner_id FROM channels c JOIN dm_recipients r ON r.channel_id = c.id WHERE r.user_id = $1 AND c.kind = $2",
+    )
+    .bind(user)
+    .bind(kind::GROUP_DM)
+    .fetch_all(&st.db)
+    .await?;
+    for (id, owner) in groups {
+        dms::leave_group(st, id, owner, user).await?;
+    }
+    done.messages = messages::delete_all_by(st, user).await?;
+    let others: Vec<Id> = sqlx::query_scalar("DELETE FROM relationships WHERE user_id = $1 OR target_id = $1 RETURNING CASE WHEN user_id = $1 THEN target_id ELSE user_id END")
+        .bind(user)
+        .fetch_all(&st.db)
+        .await?;
+    for other in others {
+        relationships::notify(st, other, user).await?;
+    }
+
+    // What they made for servers that stay: emoji and sounds go to the server's owner, invites and threads let go.
+    sqlx::query("UPDATE emojis e SET creator_id = g.owner_id FROM guilds g WHERE g.id = e.guild_id AND e.creator_id = $1").bind(user).execute(&st.db).await?;
+    sqlx::query("UPDATE soundboard_sounds s SET creator_id = g.owner_id FROM guilds g WHERE g.id = s.guild_id AND s.creator_id = $1").bind(user).execute(&st.db).await?;
+    sqlx::query("DELETE FROM invites WHERE creator_id = $1").bind(user).execute(&st.db).await?;
+    sqlx::query("UPDATE channels SET owner_id = NULL WHERE owner_id = $1").bind(user).execute(&st.db).await?;
+    sqlx::query("DELETE FROM channel_overwrites WHERE target_id = $1 AND kind = $2").bind(user).bind(crate::perms::OVERWRITE_MEMBER).execute(&st.db).await?;
+
+    let clips: Vec<String> = sqlx::query_scalar("SELECT slug FROM clips WHERE user_id = $1").bind(user).fetch_all(&st.db).await?;
+    for slug in &clips {
+        crate::clips::delete_files(st, slug).await;
+    }
+    done.clips = clips.len();
+    let parts: Vec<String> = sqlx::query_scalar("SELECT id FROM clip_uploads WHERE user_id = $1").bind(user).fetch_all(&st.db).await?;
+    for id in &parts {
+        crate::clips::delete_part(st, id).await;
+    }
+    for dir in ["avatars", "banners", "nameplates", "profile-songs"] {
+        let _ = tokio::fs::remove_dir_all(st.cfg.uploads_dir().join(dir).join(user.to_string())).await;
+    }
+    // Everything else about them (settings, notes, badges, push, history...) goes with the row.
+    sqlx::query("DELETE FROM users WHERE id = $1").bind(user).execute(&st.db).await?;
+    st.activities.remove(&user);
+    let audience: Vec<Id> = audience.into_iter().filter(|u| *u != user).collect();
+    st.hub.send(&audience, "PRESENCE_UPDATE", &json!({ "user_id": user, "status": "offline" }));
+    tracing::info!(target: "moderation", user = %user, messages = done.messages, servers = done.servers, "account deleted for good");
+    Ok(done)
 }
 
 const NAMEPLATE_EXT: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "svg", "webm"];

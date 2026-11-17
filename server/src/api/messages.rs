@@ -610,6 +610,47 @@ pub async fn remove_attachment(st: &AppState, message: Id, url: &str) -> ApiResu
     Ok(freed)
 }
 
+/// Deletes every message `author` wrote (the monitor deleting an account for good): the rows, their files, and
+/// connected apps hear it. Returns how many went.
+pub async fn delete_all_by(st: &AppState, author: Id) -> ApiResult<usize> {
+    let rows = sqlx::query_as::<_, MessageRow>(&format!("DELETE FROM messages WHERE author_id = $1 RETURNING {MESSAGE_COLS}"))
+        .bind(author)
+        .fetch_all(&st.db)
+        .await?;
+    delete_files(st, &rows).await;
+    let mut by_channel: HashMap<Id, Vec<Id>> = HashMap::new();
+    for r in &rows {
+        by_channel.entry(r.channel_id).or_default().push(r.id);
+    }
+    for (ch, ids) in by_channel {
+        let Ok(channel) = Channel::get(&st.db, ch).await else { continue };
+        let audience = channel_audience(&st.db, &channel).await?;
+        for mid in ids {
+            st.hub.send(&audience, "MESSAGE_DELETE", &json!({ "id": mid, "channel_id": ch }));
+        }
+    }
+    Ok(rows.len())
+}
+
+/// The messages in these channels, read before the channels (or their server) are deleted, so `delete_files` can
+/// clean up after.
+pub async fn in_channels(st: &AppState, channels: &[Id]) -> ApiResult<Vec<MessageRow>> {
+    Ok(sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE channel_id = ANY($1)"))
+        .bind(channels)
+        .fetch_all(&st.db)
+        .await?)
+}
+
+/// The files of messages already deleted, and their authors' quota back. A file a forward elsewhere still shows stays.
+pub async fn delete_files(st: &AppState, rows: &[MessageRow]) {
+    for row in rows {
+        for att in files(row) {
+            uploads::delete_attachment(st, &att.url).await;
+        }
+        uploads::release(st, row.author_id, row.attachments.0.iter().map(|x| x.size).sum()).await;
+    }
+}
+
 #[derive(Deserialize)]
 struct BulkDelete {
     messages: Vec<Id>,

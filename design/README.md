@@ -12,7 +12,8 @@ feathers merged into one shape with a V notch, the inner ends follow the Triforc
 Algodão, no hue (cotton on dark, ink on light): the icon's gold stays in the icon.
 
 Everything else is generated:
-1. `node design/render.mjs`: assets/icon.png (1024), app/src/assets/emblem.png and the web icons in app/public.
+1. `node design/render.mjs`: assets/icon.png (1024), app/src/assets/emblem.png, the web icons in app/public and the
+   monitor's (monitor/web).
 2. `node app/src-tauri/icons/tray/generate.mjs`: the tray icons and assets/icon-square.png, then
    `cd app && bun tauri icon ../assets/icon-square.png` (delete the android/ios folders it adds).
 3. `node app/src-tauri/icons/christmas/generate.mjs`, then
