@@ -1,5 +1,6 @@
 package com.linkord.core
 
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -57,5 +58,19 @@ class ReceiptsTest {
         assertNull(st.tickFor(Message("10", channelId = "dm", author = zelda, content = "hi")))
         assertNull(st.tickFor(mine("10", "text")))
         assertNull(st.tickFor(mine("10").copy(pending = true)))
+    }
+
+    @Test
+    fun aVoiceMessageIsReadOnlyOnceTheyPlayedIt() {
+        val voice = mine("10").copy(attachments = listOf(Attachment("a", durationSecs = 2.0, waveform = "AAE=")))
+        var st = base.withReceipt("dm", zelda.id, read = "10").copy(
+            messages = persistentMapOf("dm" to ChannelMessages(list = persistentListOf(voice))),
+        )
+        assertEquals(Tick.DELIVERED, st.tickFor(st.messages["dm"]!!.list[0]))
+        st = st.withPlayed("dm", "10", zelda.id)
+        assertEquals(listOf(zelda.id), st.messages["dm"]!!.list[0].playedBy)
+        assertEquals(Tick.READ, st.tickFor(st.messages["dm"]!!.list[0]))
+        // With read receipts off there's no read position, so a play doesn't show either.
+        assertEquals(Tick.DELIVERED, base.withReceipt("dm", zelda.id, delivered = "10").tickFor(st.messages["dm"]!!.list[0]))
     }
 }

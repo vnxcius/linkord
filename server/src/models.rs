@@ -364,6 +364,9 @@ pub struct Message {
     pub interaction: Option<Interaction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
+    /// Your own voice messages in a DM, in the message list: who played them (receipts.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub played_by: Option<Vec<Id>>,
     /// A bot's answer only the person who used the command sees: never stored or sent to anyone else.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub ephemeral: bool,

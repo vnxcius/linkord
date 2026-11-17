@@ -81,6 +81,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlin.math.roundToInt
+import com.linkord.core.isVoice
 
 /** "14:05", "Yesterday at 14:05" or the date, from an ISO timestamp. */
 fun timeOf(iso: String, withDay: Boolean = true): String {
@@ -305,20 +306,20 @@ fun MessageItem(
             // Your DMs, WhatsApp-style: a clock while sending, one check sent, two delivered, two in the accent read.
             val tick = st.tickFor(m)
             if (tick != null || (m.pending && !m.failed && m.author.id == me && st.channels[m.channelId]?.kind?.let(com.linkord.core.Kind::isPrivate) == true)) {
-                MessageTick(tick, Modifier.align(Alignment.Bottom).padding(start = 6.dp, bottom = 2.dp))
+                MessageTick(tick, Modifier.align(Alignment.Bottom).padding(start = 6.dp, bottom = 2.dp), voice = m.isVoice)
             }
         }
     }
 }
 
 @Composable
-private fun MessageTick(tick: Tick?, modifier: Modifier = Modifier) {
+private fun MessageTick(tick: Tick?, modifier: Modifier = Modifier, voice: Boolean = false) {
     val c = Linkord.colors
     val (icon, label) = when (tick) {
         null -> LinkordIcons.Clock to t("Sending")
         Tick.SENT -> LinkordIcons.Check to t("Sent")
         Tick.DELIVERED -> LinkordIcons.CheckDouble to t("Delivered")
-        Tick.READ -> LinkordIcons.CheckDouble to t("Read")
+        Tick.READ -> LinkordIcons.CheckDouble to if (voice) t("Played") else t("Read")
     }
     androidx.compose.material3.Icon(
         icon, contentDescription = label, tint = if (tick == Tick.READ) c.brand else c.text3,

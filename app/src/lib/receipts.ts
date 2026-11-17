@@ -1,5 +1,5 @@
-// WhatsApp-style ticks on your DMs (server receipts.rs): sent, delivered (a device of theirs got it), read. Mirrors
-// android core Store.kt tickFor / withReceipt.
+// WhatsApp-style ticks on your DMs (server receipts.rs): sent, delivered (a device of theirs got it), read; a voice
+// message is only read once heard (played_by). Mirrors android core Store.kt tickFor / withReceipt.
 import { reconcile } from 'solid-js/store';
 import { cmpId } from './ids';
 import { setState, state } from './store';
@@ -39,7 +39,27 @@ export function tickFor(m: Message): Tick | undefined {
   const others = Object.values(state.receipts[m.channel_id] ?? {}).filter((r) => r.user_id !== m.author.id);
   if (!others.length) return 'sent';
   const reached = (pos?: string | null) => !!pos && cmpId(pos, m.id) >= 0;
-  if (others.every((r) => reached(r.read_id))) return 'read';
+  // Read positions are only there while both of you have read receipts on, and that goes for plays too.
+  const heard = (userId: string) => !isVoiceMessage(m) || !!m.played_by?.includes(userId);
+  if (others.every((r) => reached(r.read_id) && heard(r.user_id))) return 'read';
   if (others.every((r) => reached(r.read_id) || reached(r.delivered_id))) return 'delivered';
   return 'sent';
+}
+
+export const isVoiceMessage = (m: Message) => m.attachments.some((a) => !!a.waveform);
+
+/** Your voice message in a DM: everyone else played it (the mic turns the accent colour, like the read ticks). */
+export const heardByAll = (m: Message) => tickFor(m) === 'read' && isVoiceMessage(m);
+
+/** Merges VOICE_PLAYED into the message, if it's loaded. */
+export function putPlayed(channelId: string, messageId: string, userId: string) {
+  if (!state.messages[channelId]) return;
+  setState(
+    'messages',
+    channelId,
+    'list',
+    (m) => m.id === messageId,
+    'played_by',
+    (l) => (l?.includes(userId) ? l : [...(l ?? []), userId]),
+  );
 }

@@ -4,9 +4,11 @@
 // seekable waveform, the time, and a speed button (1×/1.5×/2×) in place of the avatar while playing.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import { api } from '../lib/api';
 import { t } from '../lib/i18n';
+import { heardByAll } from '../lib/receipts';
 import { state } from '../lib/store';
-import type { Attachment, User } from '../lib/types';
+import { isPrivate, type Attachment, type User } from '../lib/types';
 import { toast } from '../lib/ui';
 import {
   BARS,
@@ -259,6 +261,15 @@ function loadPlayed(): string[] {
   }
 }
 const [played, setPlayed] = createSignal(new Set(loadPlayed()));
+/** Voice messages this session told the server it played (it keeps the first time; DMs only). */
+const reported = new Set<string>();
+function reportPlayed(channelId: string, messageId: string, mine: boolean) {
+  const ch = state.channels[channelId];
+  if (mine || !ch || !isPrivate(ch.kind) || reported.has(messageId)) return;
+  reported.add(messageId);
+  api('POST', `/channels/${channelId}/messages/${messageId}/played`).catch(() => reported.delete(messageId));
+}
+
 function markPlayed(id: string) {
   if (played().has(id)) return;
   const next = new Set(played()).add(id);
@@ -343,7 +354,12 @@ export function VoiceMessage(p: { a: Attachment; src: string; author: User; chan
   const [time, setTime] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const mine = () => p.author.id === state.me?.id;
-  const heard = () => mine() || played().has(p.a.id);
+  const message = createMemo(() => state.messages[p.channelId]?.list.find((m) => m.id === p.messageId));
+  // Yours: lit once everyone in the DM played it (receipts.rs). Others': once you did, on this device.
+  const heard = () => {
+    const m = message();
+    return mine() ? !!m && heardByAll(m) : played().has(p.a.id);
+  };
 
   let raf = 0;
   const tick = () => {
@@ -417,6 +433,7 @@ export function VoiceMessage(p: { a: Attachment; src: string; author: User; chan
           active = audio;
           setPlaying(true);
           markPlayed(p.a.id);
+          reportPlayed(p.channelId, p.messageId, mine());
           cancelAnimationFrame(raf);
           raf = requestAnimationFrame(tick);
         }}

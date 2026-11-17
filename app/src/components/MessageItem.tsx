@@ -46,7 +46,7 @@ import { pauseChatVideo, VideoPlayer } from './VideoPlayer';
 import { VoiceMessage } from './VoiceNote';
 import { InviteCard, inviteCodes, isInviteUrl } from './InviteCard';
 import { LobbyInviteCard } from './League';
-import { tickFor } from '../lib/receipts';
+import { isVoiceMessage, tickFor } from '../lib/receipts';
 
 export function formatTime(iso: string, withDate = true) {
   const d = new Date(iso);
@@ -308,6 +308,7 @@ const TICK_LABELS: Record<string, () => string> = {
   sent: () => t('Sent'),
   delivered: () => t('Delivered'),
   read: () => t('Read'),
+  played: () => t('Played'),
 };
 
 export function MessageItem(p: { message: Message; grouped: boolean; guildId?: string | null }) {
@@ -749,8 +750,8 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
                 class="msg-tick"
                 classList={{ read: tick() === 'read' }}
                 role="img"
-                aria-label={TICK_LABELS[tick()]()}
-                data-tip={TICK_LABELS[tick()]()}
+                aria-label={(tick() === 'read' && isVoiceMessage(m()) ? TICK_LABELS.played : TICK_LABELS[tick()])()}
+                data-tip={(tick() === 'read' && isVoiceMessage(m()) ? TICK_LABELS.played : TICK_LABELS[tick()])()}
               >
                 {tick() === 'sending' ? (
                   <I.Clock size={13} />

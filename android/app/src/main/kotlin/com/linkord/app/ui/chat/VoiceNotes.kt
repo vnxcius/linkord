@@ -57,6 +57,9 @@ import java.io.File
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.roundToInt
+import androidx.compose.runtime.collectAsState
+import com.linkord.core.isVoice
+import com.linkord.core.tickFor
 
 /** Bars in a voice message's waveform, one byte each (lib/voice-note.ts BARS). */
 const val BARS = 48
@@ -114,7 +117,8 @@ object VoicePlayback {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + androidx.compose.ui.platform.AndroidUiDispatcher.Main)
     private var ticker: kotlinx.coroutines.Job? = null
 
-    private fun init(s: com.linkord.app.data.Session) {
+    /** Loads what this phone has heard and the speed: on the first voice message drawn, not only on the first play. */
+    fun init(s: com.linkord.app.data.Session) {
         if (session != null) return
         session = s
         speed = s.prefs.voiceSpeed.takeIf { it in SPEEDS } ?: 1f
@@ -182,6 +186,7 @@ object VoicePlayback {
         ChatPlayback.current = CHAT_ID
         p.play()
         loading = true
+        if (channelId != null && messageId != null) s.actions.voicePlayed(channelId, messageId)
         if (heard[a.id] != true) {
             heard[a.id] = true
             s.prefs.heardVoice = (s.prefs.heardVoice + a.id).takeLast(1000)
@@ -255,7 +260,10 @@ fun VoiceNotePlayer(a: Attachment, url: String, m: com.linkord.core.Message? = n
     val at = if (active) v.position else v.positions[a.id] ?: 0L
     val progress = if (total > 0) (at.toFloat() / total).coerceIn(0f, 1f) else 0f
     val mine = author?.id != null && author.id == session.store.s.me?.id
-    val heard = mine || v.heard[a.id] == true
+    val st by session.store.state.collectAsState()
+    remember { v.init(session) }
+    // Yours: lit once everyone in the DM played it (receipts.rs). Others': once you did, on this phone.
+    val heard = if (mine) m != null && m.isVoice && st.tickFor(m) == com.linkord.core.Tick.READ else v.heard[a.id] == true
     val toggle = { v.toggle(session, a, url, m?.channelId, m?.id) }
 
     Row(
@@ -291,7 +299,7 @@ fun VoiceNotePlayer(a: Attachment, url: String, m: com.linkord.core.Message? = n
                     Modifier.align(if (author != null) Alignment.BottomStart else Alignment.Center).offset(x = if (author != null) (-4).dp else 0.dp, y = if (author != null) 2.dp else 0.dp)
                         .size(20.dp).clip(CircleShape).background(c.raised),
                     contentAlignment = Alignment.Center,
-                ) { LIcon(LinkordIcons.MicSolid, size = 14.dp, tint = if (heard && !mine) c.brand else c.text3) }
+                ) { LIcon(LinkordIcons.MicSolid, size = 14.dp, tint = if (heard) c.brand else c.text3) }
             }
         }
     }

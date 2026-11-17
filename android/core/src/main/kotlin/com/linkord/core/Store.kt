@@ -199,7 +199,8 @@ class Store {
                 update { st ->
                     val b = st.messages[m.channelId] ?: return@update st
                     val i = b.list.indexOfFirst { it.id == m.id }
-                    if (i < 0) st else st.copy(messages = st.messages.putting(m.channelId, b.copy(list = b.list.replacingAt(i, m))))
+                    // Events don't carry played_by (only the author's message list has it): keep what we know.
+                    if (i < 0) st else st.copy(messages = st.messages.putting(m.channelId, b.copy(list = b.list.replacingAt(i, m.copy(playedBy = m.playedBy ?: b.list[i].playedBy)))))
                 }
             }
             "MESSAGE_DELETE" -> {
@@ -226,6 +227,13 @@ class Store {
                 val cid = o.str("channel_id") ?: return
                 val uid = o.str("user_id") ?: return
                 update { it.withReceipt(cid, uid, delivered = o.str("delivered_id"), read = o.str("read_id")) }
+            }
+            "VOICE_PLAYED" -> {
+                val o = d.jsonObject
+                val cid = o.str("channel_id") ?: return
+                val mid = o.str("message_id") ?: return
+                val uid = o.str("user_id") ?: return
+                update { it.withPlayed(cid, mid, uid) }
             }
             // Someone (maybe you) turned read receipts on or off: all of your DMs' receipts again.
             "DM_RECEIPTS" -> {
@@ -599,8 +607,9 @@ fun State.withReceipt(channelId: String, userId: String, delivered: String? = nu
 }
 
 /**
- * Your message's tick in a DM: read once everyone else has read it, delivered once a device of each of them got it,
- * else sent. Null outside DMs and for others' messages, pending ones and messages from before you joined in.
+ * Your message's tick in a DM: read once everyone else has read it (a voice message: and played it), delivered once a
+ * device of each of them got it, else sent. Null outside DMs and for others' messages, pending ones and messages from
+ * before you joined in. Mirrors app lib/receipts.ts.
  */
 fun State.tickFor(m: Message): Tick? {
     val ch = channels[m.channelId] ?: return null
@@ -609,7 +618,8 @@ fun State.tickFor(m: Message): Tick? {
     if (others.isEmpty()) return Tick.SENT
     val reached = { pos: String? -> pos != null && cmpId(pos, m.id) >= 0 }
     return when {
-        others.all { reached(it.readId) } -> Tick.READ
+        // Read positions are only there while both have read receipts on, and that goes for plays too.
+        others.all { reached(it.readId) && (!m.isVoice || m.playedBy?.contains(it.userId) == true) } -> Tick.READ
         others.all { reached(it.readId) || reached(it.deliveredId) } -> Tick.DELIVERED
         else -> Tick.SENT
     }
@@ -836,3 +846,14 @@ fun State.topRole(guildId: String, userId: String?): Int {
 /** A server's roles, highest first, @everyone last. */
 fun State.rolesOf(guildId: String): List<Role> =
     roles[guildId]?.values.orEmpty().sortedWith(compareByDescending<Role> { it.id != guildId }.thenByDescending { it.position })
+
+val Message.isVoice: Boolean get() = attachments.any { it.waveform != null }
+
+/** Someone played your voice message (VOICE_PLAYED), if it's loaded. */
+fun State.withPlayed(channelId: String, messageId: String, userId: String): State {
+    val b = messages[channelId] ?: return this
+    val i = b.list.indexOfFirst { it.id == messageId }
+    if (i < 0 || b.list[i].playedBy?.contains(userId) == true) return this
+    val m = b.list[i]
+    return copy(messages = messages.putting(channelId, b.copy(list = b.list.replacingAt(i, m.copy(playedBy = m.playedBy.orEmpty() + userId)))))
+}

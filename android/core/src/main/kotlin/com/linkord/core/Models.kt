@@ -245,6 +245,8 @@ data class Message(
     val interaction: Interaction? = null,
     val nonce: String? = null,
     val ephemeral: Boolean = false,
+    /** Your own voice messages in a DM: who played them (server receipts.rs; VOICE_PLAYED adds to it). */
+    @SerialName("played_by") val playedBy: List<String>? = null,
     /** Client only: sent, not confirmed yet / failed to send. */
     @kotlinx.serialization.Transient val pending: Boolean = false,
     @kotlinx.serialization.Transient val failed: Boolean = false,

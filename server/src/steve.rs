@@ -254,6 +254,7 @@ pub async fn run(st: &AppState, me: Id, channel: Id, name: &str, query: &str) ->
             forwarded: None,
             interaction: Some(crate::models::Interaction { user: User::get(&st.db, me).await?, name: name.to_string() }),
             nonce: None,
+            played_by: None,
             ephemeral: true,
         });
     }

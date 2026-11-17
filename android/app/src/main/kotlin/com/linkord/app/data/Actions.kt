@@ -173,6 +173,18 @@ class Actions(private val session: Session) {
         }
     }
 
+    /** Voice messages this run told the server it played (it keeps the first time). */
+    private val reportedPlays = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** You played someone's voice message in a DM: its author's tick turns read (receipts.rs). */
+    fun voicePlayed(channelId: String, messageId: String) {
+        val st = store.s
+        val ch = st.channels[channelId] ?: return
+        val m = st.messages[channelId]?.list?.firstOrNull { it.id == messageId } ?: return
+        if (!Kind.isPrivate(ch.kind) || m.author.id == st.me?.id || !reportedPlays.add(messageId)) return
+        scope.launch { runCatching { api.send("POST", "/channels/$channelId/messages/$messageId/played") }.onFailure { reportedPlays.remove(messageId) } }
+    }
+
     fun markRead(channelIds: List<String>) {
         for (id in channelIds) {
             val last = store.s.channels[id]?.lastMessageId ?: continue

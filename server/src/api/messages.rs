@@ -110,6 +110,7 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
                     .interaction
                     .and_then(|i| Some(Interaction { user: users.get(&i.user_id)?.clone(), name: i.0.name })),
                 nonce: None,
+                played_by: None,
                 ephemeral: false,
             })
         })
@@ -142,7 +143,8 @@ struct Page {
 /// Messages oldest-first: the latest page, or a page before/after/around a message.
 async fn list_messages(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Query(p): Query<Page>) -> ApiResult<Json<Vec<Message>>> {
     // Without Read Message History the channel shows no past messages (only new ones as they arrive).
-    if !channel_for(&st, id, me).await?.has(perms::READ_MESSAGE_HISTORY) {
+    let a = channel_for(&st, id, me).await?;
+    if !a.has(perms::READ_MESSAGE_HISTORY) {
         return Ok(Json(vec![]));
     }
     let limit = p.limit.unwrap_or(50).clamp(1, 100);
@@ -165,7 +167,9 @@ async fn list_messages(State(st): State<AppState>, AuthUser(me): AuthUser, Path(
         rows.reverse();
         rows
     };
-    Ok(Json(hydrate(&st, rows).await?))
+    let mut msgs = hydrate(&st, rows).await?;
+    crate::receipts::attach_plays(&st.db, me, &a.ch, &mut msgs).await?;
+    Ok(Json(msgs))
 }
 
 #[derive(Deserialize, Default)]

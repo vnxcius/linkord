@@ -1434,6 +1434,48 @@ test('DM receipts: sent, delivered once a device of theirs has it, read once the
   }
 });
 
+test('DM voice messages: read once played, like WhatsApp; the author sees who played it and when', async () => {
+  const x = await login('playx');
+  const y = await login('playy');
+  await ok(x.token, 'PUT', `/users/@me/relationships/${y.id}`, {});
+  await ok(y.token, 'PUT', `/users/@me/relationships/${x.id}`, {});
+  const dm = await ok(x.token, 'POST', '/users/@me/channels', { recipient_id: y.id });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'linkord-voice-'));
+  const file = path.join(dir, 'note.ogg');
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'libopus', '-b:a', '32k', file]);
+  const note = new FormData();
+  note.append('payload_json', JSON.stringify({ voice: { duration_secs: 1, waveform: 'AAECAwQ=' } }));
+  note.append('files[0]', new Blob([fs.readFileSync(file)], { type: 'audio/ogg' }), 'voice-message.ogg');
+  const voice = await ok(x.token, 'POST', `/channels/${dm.id}/messages`, note);
+  fs.rmSync(dir, { recursive: true });
+  const text = await ok(x.token, 'POST', `/channels/${dm.id}/messages`, { content: 'not a voice message' });
+  const gx = await gateway(x.token);
+  try {
+    const playedBy = async () => (await ok(x.token, 'GET', `/channels/${dm.id}/messages`)).find((m) => m.id === voice.id).played_by;
+    assert.deepEqual(await playedBy(), []);
+    // Only the recipients' plays of a voice message count; the author's own is ignored.
+    assert.equal((await call(y.token, 'POST', `/channels/${dm.id}/messages/${text.id}/played`)).status, 404);
+    assert.equal((await call(outsider.token, 'POST', `/channels/${dm.id}/messages/${voice.id}/played`)).status, 404);
+    assert.equal((await call(x.token, 'POST', `/channels/${dm.id}/messages/${voice.id}/played`)).status, 204);
+    assert.deepEqual(await playedBy(), []);
+    await ok(y.token, 'POST', `/channels/${dm.id}/messages/${voice.id}/played`);
+    await until(() => gx.events.some((e) => e.t === 'VOICE_PLAYED' && e.d.message_id === voice.id && e.d.user_id === y.id));
+    assert.deepEqual(await playedBy(), [y.id]);
+    // Only the author's own messages carry it.
+    assert.equal((await ok(y.token, 'GET', `/channels/${dm.id}/messages`)).find((m) => m.id === voice.id).played_by, undefined);
+    const [info] = await ok(x.token, 'GET', `/channels/${dm.id}/messages/${voice.id}/receipts`);
+    assert.ok(info.played_at);
+    // Privacy: with read receipts off, plays are hidden too, and new ones aren't announced.
+    await ok(y.token, 'PATCH', '/users/@me', { read_receipts: false });
+    assert.deepEqual(await playedBy(), []);
+    assert.equal((await ok(x.token, 'GET', `/channels/${dm.id}/messages/${voice.id}/receipts`))[0].played_at, null);
+    await ok(y.token, 'PATCH', '/users/@me', { read_receipts: true });
+    assert.deepEqual(await playedBy(), [y.id]);
+  } finally {
+    gx.ws.close();
+  }
+});
+
 test('changelog: the Android app has its own patch notes', async () => {
   assert.ok(Array.isArray(await ok(null, 'GET', '/changelog?app=android')));
   assert.ok(Array.isArray(await ok(null, 'GET', '/changelog')));

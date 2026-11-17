@@ -229,6 +229,8 @@ export interface Message {
   failed?: boolean;
   /** A bot's answer only you see: it isn't stored, so it's gone after a reload. */
   ephemeral?: boolean;
+  /** Your own voice messages in a DM: who played them (server receipts.rs; VOICE_PLAYED adds to it). */
+  played_by?: string[];
 }
 
 export interface VoiceState {

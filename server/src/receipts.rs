@@ -11,6 +11,9 @@
 //! Turning it on or off sends DM_RECEIPTS {receipts} (the whole dm_receipts again) to everyone it changes things for.
 //! Each move is also logged in receipt_marks, so Message info (GET /channels/{id}/messages/{mid}/receipts, the
 //! author only) can say when a message was delivered and read.
+//! Voice messages are only read once heard, like WhatsApp: a recipient's app says it played one (POST
+//! /channels/{id}/messages/{mid}/played, kept in voice_plays), the author gets VOICE_PLAYED {channel_id, message_id,
+//! user_id} and their own voice messages come with `played_by` in the message list. The same switch applies.
 
 use std::collections::HashMap;
 
@@ -31,6 +34,62 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/channels/{id}/delivered", post(delivered))
         .route("/channels/{id}/messages/{mid}/receipts", get(message_receipts))
+        .route("/channels/{id}/messages/{mid}/played", post(played))
+}
+
+/// A recipient played a voice message in a DM: its author sees it (both with read receipts on).
+async fn played(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, mid)): Path<(Id, Id)>) -> ApiResult<StatusCode> {
+    st.limits.check(format!("played:{me}"), 20.0, 2.0)?;
+    let author: Option<Id> = sqlx::query_scalar(
+        "SELECT m.author_id FROM messages m JOIN dm_recipients r ON r.channel_id = m.channel_id AND r.user_id = $3
+         WHERE m.id = $1 AND m.channel_id = $2 AND EXISTS (SELECT 1 FROM jsonb_array_elements(m.attachments) a WHERE a ? 'waveform')",
+    )
+    .bind(mid)
+    .bind(id)
+    .bind(me)
+    .fetch_optional(&st.db)
+    .await?;
+    let Some(author) = author else { return Err(crate::error::ApiError::NotFound) };
+    if author == me {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    let new = sqlx::query("INSERT INTO voice_plays (message_id, channel_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+        .bind(mid)
+        .bind(id)
+        .bind(me)
+        .execute(&st.db)
+        .await?
+        .rows_affected();
+    let shown: bool = sqlx::query_scalar("SELECT bool_and(read_receipts) FROM users WHERE id = ANY($1)").bind([me, author]).fetch_one(&st.db).await?;
+    if new > 0 && shown {
+        st.hub.send(&[author], "VOICE_PLAYED", &json!({ "channel_id": id, "message_id": mid, "user_id": me }));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `me`'s own voice messages in a DM get who played them (messages.rs list), while both have read receipts on.
+pub async fn attach_plays(db: &PgPool, me: Id, ch: &crate::models::Channel, msgs: &mut [crate::models::Message]) -> ApiResult<()> {
+    if !crate::models::kind::is_private(ch.kind) {
+        return Ok(());
+    }
+    let ids: Vec<Id> = msgs.iter().filter(|m| m.author.id == me && m.attachments.iter().any(|a| a.waveform.is_some())).map(|m| m.id).collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let rows: Vec<(Id, Vec<Id>)> = sqlx::query_as(
+        "SELECT p.message_id, array_agg(p.user_id) FROM voice_plays p JOIN users u ON u.id = p.user_id
+         WHERE p.message_id = ANY($1) AND u.read_receipts AND (SELECT read_receipts FROM users WHERE id = $2)
+         GROUP BY p.message_id",
+    )
+    .bind(&ids)
+    .bind(me)
+    .fetch_all(db)
+    .await?;
+    let mut by: HashMap<Id, Vec<Id>> = rows.into_iter().collect();
+    for m in msgs.iter_mut().filter(|m| ids.contains(&m.id)) {
+        m.played_by = Some(by.remove(&m.id).unwrap_or_default());
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -235,6 +294,8 @@ struct MessageReceipt {
     /// Null when it happened before times were kept.
     delivered_at: Option<chrono::DateTime<chrono::Utc>>,
     read_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Voice messages: when they played it (null if not yet, or with read receipts off).
+    played_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Message info: when each of the others got your message and read it. Only its author may ask.
@@ -251,7 +312,8 @@ async fn message_receipts(State(st): State<AppState>, AuthUser(me): AuthUser, Pa
                 (SELECT min(at) FROM receipt_marks m WHERE m.channel_id = $1 AND m.user_id = r.user_id AND m.message_id >= $2) AS delivered_at,
                 CASE WHEN shown THEN
                   (SELECT min(at) FROM receipt_marks m WHERE m.channel_id = $1 AND m.user_id = r.user_id AND m.read AND m.message_id >= $2)
-                END AS read_at
+                END AS read_at,
+                CASE WHEN shown THEN (SELECT at FROM voice_plays p WHERE p.message_id = $2 AND p.user_id = r.user_id) END AS played_at
          FROM dm_recipients r
          JOIN users ru ON ru.id = r.user_id
          CROSS JOIN LATERAL (SELECT ru.read_receipts AND (SELECT read_receipts FROM users WHERE id = $3) AS shown) v

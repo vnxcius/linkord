@@ -2488,6 +2488,7 @@ export const UI: Record<string, string> = {
   Sending: 'Enviando',
   Delivered: 'Entregue',
   Read: 'Lido',
+  Played: 'Reproduzida',
   'Message info': 'Dados da mensagem',
   'Read receipts': 'Confirmação de leitura',
   "When this is off, people won't see when you've read their messages, and you won't see when they've read yours. Delivered still shows.":

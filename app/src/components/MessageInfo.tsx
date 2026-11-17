@@ -1,8 +1,10 @@
 // Message info, WhatsApp-style: when your DM was sent, and when each person got it and read it (server receipts.rs
-// GET /channels/{id}/messages/{mid}/receipts). Asked again whenever a receipt in the conversation moves.
+// GET /channels/{id}/messages/{mid}/receipts), and for voice messages when they played it. Asked again whenever a
+// receipt in the conversation moves.
 import { createResource, For, Show, type JSX } from 'solid-js';
 import { api } from '../lib/api';
 import { dateLocale, t } from '../lib/i18n';
+import { isVoiceMessage } from '../lib/receipts';
 import { nameOf, state } from '../lib/store';
 import type { Message } from '../lib/types';
 import { Avatar } from './Avatar';
@@ -17,6 +19,8 @@ interface MessageReceipt {
   read_receipts?: boolean;
   delivered_at: string | null;
   read_at: string | null;
+  /** Voice messages: when they played it. */
+  played_at?: string | null;
 }
 
 const when = (iso: string | null) =>
@@ -36,7 +40,7 @@ function Line(p: { icon: JSX.Element; label: string; time?: string | null; read?
 
 export function MessageInfoModal(p: { message: Message }) {
   const [list] = createResource(
-    () => JSON.stringify(state.receipts[p.message.channel_id] ?? {}),
+    () => JSON.stringify([state.receipts[p.message.channel_id] ?? {}, p.message.played_by ?? []]),
     () => api<MessageReceipt[]>('GET', `/channels/${p.message.channel_id}/messages/${p.message.id}/receipts`),
   );
   return (
@@ -73,6 +77,14 @@ export function MessageInfoModal(p: { message: Message }) {
                       time={r.read ? when(r.read_at) : null}
                       read
                     />
+                    <Show when={isVoiceMessage(p.message)}>
+                      <Line
+                        icon={<I.Mic size={16} />}
+                        label={t('Played')}
+                        time={r.played_at ? when(r.played_at) : null}
+                        read
+                      />
+                    </Show>
                   </Show>
                 </>
               )}

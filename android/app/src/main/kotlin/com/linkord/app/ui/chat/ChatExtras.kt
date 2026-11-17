@@ -76,6 +76,7 @@ import com.linkord.core.t
 import com.linkord.designsystem.Linkord
 import com.linkord.designsystem.LinkordIcons
 import kotlinx.coroutines.launch
+import com.linkord.core.isVoice
 
 /** Quick reactions, as on the web client (EmojiPicker QUICK_REACTIONS). */
 val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "🔥", "👀", "🎉")
@@ -168,6 +169,8 @@ private data class MessageReceipt(
     @kotlinx.serialization.SerialName("read_receipts") val readReceipts: Boolean = true,
     @kotlinx.serialization.SerialName("delivered_at") val deliveredAt: String? = null,
     @kotlinx.serialization.SerialName("read_at") val readAt: String? = null,
+    /** Voice messages: when they played it. */
+    @kotlinx.serialization.SerialName("played_at") val playedAt: String? = null,
 )
 
 /** Message info, WhatsApp-style: when your DM was sent, and when each person got it and read it. */
@@ -179,7 +182,8 @@ private fun MessageInfo(m: Message) {
     var list by remember { mutableStateOf<List<MessageReceipt>?>(null) }
     var failed by remember { mutableStateOf<String?>(null) }
     // Asked again whenever a receipt in this conversation moves, so it fills in while it's open.
-    LaunchedEffect(m.id, st.receipts[m.channelId]) {
+    val played = st.messages[m.channelId]?.list?.firstOrNull { it.id == m.id }?.playedBy
+    LaunchedEffect(m.id, st.receipts[m.channelId], played) {
         runCatching { session.api.get<List<MessageReceipt>>("/channels/${m.channelId}/messages/${m.id}/receipts") }
             .onSuccess { list = it; failed = null }
             .onFailure { failed = session.describe(it) }
@@ -201,6 +205,7 @@ private fun MessageInfo(m: Message) {
                 }
                 InfoLine(LinkordIcons.CheckDouble, c.text3, t("Delivered"), if (r.delivered) at(r.deliveredAt) ?: "" else null)
                 if (r.readReceipts) InfoLine(LinkordIcons.CheckDouble, c.brand, t("Read"), if (r.read) at(r.readAt) ?: "" else null)
+                if (r.readReceipts && m.isVoice) InfoLine(LinkordIcons.Mic, c.brand, t("Played"), r.playedAt?.let { at(it) ?: "" })
             }
         }
     }

@@ -6,7 +6,7 @@ import { produce, reconcile } from 'solid-js/store';
 import { getToken, media, serverUrl, setToken } from './api';
 import { loadMessages, maybeAck, receiveMessage, trimHistory } from './actions';
 import { cmpId } from './ids';
-import { putReceipt, setReceipts } from './receipts';
+import { putPlayed, putReceipt, setReceipts } from './receipts';
 import { isTauri, notify } from './platform';
 import { prefs } from './prefs';
 import { sounds } from './sounds';
@@ -220,7 +220,15 @@ function handle(t: string, d: any) {
     case 'MESSAGE_UPDATE':
       // Channels we haven't opened yet have nothing to update.
       if (!state.messages[d.channel_id]) return;
-      return setState('messages', d.channel_id, 'list', (m) => m.id === d.id, reconcile(d as Message));
+      return setState(
+        'messages',
+        d.channel_id,
+        'list',
+        (m) => m.id === d.id,
+        (m) =>
+          // Events don't carry played_by (only the author's message list has it): keep what we know.
+          reconcile({ ...(d as Message), played_by: d.played_by ?? m.played_by })(m),
+      );
     case 'MESSAGE_DELETE':
       if (!state.messages[d.channel_id]) return;
       return setState('messages', d.channel_id, 'list', (l) => l?.filter((m) => m.id !== d.id));
@@ -232,6 +240,8 @@ function handle(t: string, d: any) {
       });
     case 'DM_RECEIPT':
       return putReceipt(d.channel_id, d.user_id, d.delivered_id, d.read_id);
+    case 'VOICE_PLAYED':
+      return putPlayed(d.channel_id, d.message_id, d.user_id);
     // Someone (maybe you) turned read receipts on or off: all of your DMs' receipts again.
     case 'DM_RECEIPTS':
       setReceipts(d.receipts ?? {});
