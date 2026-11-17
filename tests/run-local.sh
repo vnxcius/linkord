@@ -27,6 +27,8 @@ native() { if $windows; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
 data=$(native "$(mktemp -d)")
 # A copy of the default nameplates, so tests can add files without touching server/nameplates.
 cp -r "$root/server/nameplates" "$data/nameplates"
+# A fixed message key (crypt.rs): linkord_test outlives the data dir, and its sealed rows need the same key.
+printf 'e2e0%.0s' {1..16} >"$data/message.key"
 
 docker exec linkord-postgres-1 createdb -U linkord linkord_test 2>/dev/null || true
 [[ $mode == api || $mode == handover ]] || (cd "$root/app" && bun run build >/dev/null)

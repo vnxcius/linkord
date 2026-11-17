@@ -14,6 +14,7 @@ use crate::auth::AuthUser;
 use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::channel_audience;
 use crate::id::Id;
+use crate::crypt::{self, Sealed};
 use crate::models::{kind, message_type, Attachment, Channel, Forwarded, Interaction, InteractionRow, Message, MessageRef, MessageRow, Reaction, User, CHANNEL_COLS, MESSAGE_COLS};
 use crate::perms::{self, guild_perms};
 use crate::state::AppState;
@@ -49,10 +50,16 @@ pub async fn hydrate(st: &AppState, rows: Vec<MessageRow>) -> ApiResult<Vec<Mess
     let ref_ids: Vec<Id> = rows.iter().filter_map(|r| r.reply_to).collect();
     // A reply to a forward previews the forwarded text.
     let refs: Vec<(Id, Id, String)> =
-        sqlx::query_as("SELECT id, author_id, COALESCE(NULLIF(content, ''), forwarded->>'content', '') FROM messages WHERE id = ANY($1)")
-        .bind(&ref_ids)
-        .fetch_all(&st.db)
-        .await?;
+        sqlx::query_as::<_, (Id, Id, Sealed, Option<Sealed>)>("SELECT id, author_id, content, forwarded->>'content' FROM messages WHERE id = ANY($1)")
+            .bind(&ref_ids)
+            .fetch_all(&st.db)
+            .await?
+            .into_iter()
+            .map(|(id, author, content, fwd)| {
+                let text = if content.0.is_empty() { fwd.map(|f| f.0).unwrap_or_default() } else { content.0 };
+                (id, author, text)
+            })
+            .collect();
     let mut user_ids: Vec<Id> = rows
         .iter()
         .map(|r| r.author_id)
@@ -354,8 +361,8 @@ pub async fn edit_bot_message(st: &AppState, a: &Access, mid: Id, content: Strin
         "UPDATE messages SET content = $2, embeds = $3, edited_at = now() WHERE id = $1 RETURNING {MESSAGE_COLS}"
     ))
     .bind(mid)
-    .bind(&content)
-    .bind(sqlx::types::Json(&embeds))
+    .bind(crypt::seal(&content))
+    .bind(sqlx::types::Json(crypt::seal_json(&embeds)))
     .fetch_one(&st.db)
     .await?;
     broadcast_message(st, a, row).await
@@ -371,6 +378,7 @@ pub async fn post_system_message(st: &AppState, channel: Id, author: Id, kind: i
 /// Stores a message, moves the channel (and the author's read state) to it and sends MESSAGE_CREATE.
 async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<Message> {
     let mid = Id::new();
+    let sealed = crypt::seal(&d.content);
     let row = sqlx::query_as::<_, MessageRow>(&format!(
         "INSERT INTO messages (id, channel_id, author_id, content, reply_to, attachments, mention_everyone, forwarded, embeds, interaction, type)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, '[]'), $10, $11) RETURNING {MESSAGE_COLS}"
@@ -378,12 +386,12 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     .bind(mid)
     .bind(a.ch.id)
     .bind(me)
-    .bind(&d.content)
+    .bind(&sealed)
     .bind(d.reply_to)
     .bind(sqlx::types::Json(&d.attachments))
     .bind(d.mention_everyone)
-    .bind(d.forwarded.as_ref().map(sqlx::types::Json))
-    .bind(d.embeds.as_ref().map(sqlx::types::Json))
+    .bind(d.forwarded.as_ref().map(|f| sqlx::types::Json(f.sealed())))
+    .bind(d.embeds.as_ref().map(|e| sqlx::types::Json(crypt::seal_json(e))))
     .bind(d.interaction.as_ref().map(sqlx::types::Json))
     .bind(d.kind)
     .fetch_one(&st.db)
@@ -412,7 +420,7 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     crate::push::on_message(st, &ch, &msg, &audience);
     crate::videos::spawn(st.clone(), ch.clone(), mid, msg.attachments.clone());
     if !d.content.is_empty() && d.embeds.is_none() {
-        embeds::spawn(st.clone(), ch, mid, d.content);
+        embeds::spawn(st.clone(), ch, mid, d.content, sealed);
     }
     Ok(msg)
 }
@@ -529,15 +537,16 @@ async fn edit_message(State(st): State<AppState>, AuthUser(me): AuthUser, Path((
     if content.chars().count() > MAX_CONTENT {
         return Err(bad(format!("message must be at most {MAX_CONTENT} characters")));
     }
+    let sealed = crypt::seal(&content);
     let row = sqlx::query_as::<_, MessageRow>(&format!(
         "UPDATE messages SET content = $2, edited_at = now(), embeds = '[]' WHERE id = $1 RETURNING {MESSAGE_COLS}"
     ))
     .bind(mid)
-    .bind(&content)
+    .bind(&sealed)
     .fetch_one(&st.db)
     .await?;
     let msg = broadcast_message(&st, &a, row).await?;
-    embeds::spawn(st.clone(), a.ch, mid, content);
+    embeds::spawn(st.clone(), a.ch, mid, content, sealed);
     Ok(Json(msg))
 }
 
@@ -805,20 +814,30 @@ struct SearchResults {
     messages: Vec<Message>,
 }
 
-/// Prefix-matching full-text query: every word must appear (as a word prefix).
-fn tsquery(q: &str) -> Option<String> {
-    let words: Vec<String> = q
-        .split_whitespace()
+/// A search's words, as Postgres' 'simple' text search took them: letters and digits only, lowercase, at most 8.
+fn search_words(q: &str) -> Vec<String> {
+    q.split_whitespace()
         .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
         .filter(|w| !w.is_empty())
         .take(8)
-        .map(|w| format!("{w}:*"))
-        .collect();
-    (!words.is_empty()).then(|| words.join(" & "))
+        .collect()
 }
 
+/// Every word starts one of the text's words (split on anything that isn't a letter or digit).
+fn has_words(text: &str, words: &[String]) -> bool {
+    if words.is_empty() {
+        return true;
+    }
+    let tokens: Vec<String> = text.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).map(str::to_lowercase).collect();
+    words.iter().all(|w| tokens.iter().any(|t| t.starts_with(w.as_str())))
+}
+
+/// How many of the newest candidates a search on the text reads (each opened, crypt.rs) before it stops.
+const SCAN_LIMIT: i64 = 200_000;
+const PAGE: usize = 25;
+
 async fn run_search(st: &AppState, channels: Vec<Id>, q: SearchQuery) -> ApiResult<Json<SearchResults>> {
-    let ts = q.q.as_deref().and_then(tsquery);
+    let words = q.q.as_deref().map(search_words).unwrap_or_default();
     let any_filter = q.author_id.is_some()
         || q.has.is_some()
         || q.mentions.is_some()
@@ -826,17 +845,22 @@ async fn run_search(st: &AppState, channels: Vec<Id>, q: SearchQuery) -> ApiResu
         || q.after.is_some()
         || q.during.is_some()
         || q.pinned.is_some();
-    if ts.is_none() && !any_filter {
+    if words.is_empty() && !any_filter {
         return Err(bad("enter something to search for"));
     }
     let attachment = |pattern: &str| format!("EXISTS (SELECT 1 FROM jsonb_array_elements(attachments) a WHERE a->>'content_type' LIKE '{pattern}')");
+    let mut has_link = false;
     let has = match q.has.as_deref() {
         Some("image") => attachment("image/%"),
         Some("video") => attachment("video/%"),
         Some("sound") => attachment("audio/%"),
         Some("file") => "jsonb_array_length(attachments) > 0".into(),
-        Some("link") => "content ~ 'https?://'".into(),
-        Some("embed") => "jsonb_array_length(embeds) > 0".into(),
+        Some("link") => {
+            has_link = true;
+            "true".into()
+        }
+        // Sealed embeds are a JSON string; none is still '[]'.
+        Some("embed") => "embeds <> '[]'::jsonb".into(),
         Some(_) => return Err(bad("unknown filter")),
         None => "true".into(),
     };
@@ -846,33 +870,60 @@ async fn run_search(st: &AppState, channels: Vec<Id>, q: SearchQuery) -> ApiResu
         None => "true",
     };
     let filter = format!(
-        "channel_id = ANY($1) AND ($2::TEXT IS NULL OR to_tsvector('simple', content) @@ to_tsquery('simple', $2))
-         AND ($3::BIGINT IS NULL OR author_id = $3) AND {has} AND {pinned}
-         AND ($4::TEXT IS NULL OR content LIKE $4)
-         AND ($5::DATE IS NULL OR created_at < $5::DATE)
-         AND ($6::DATE IS NULL OR created_at >= $6::DATE + 1)
-         AND ($7::DATE IS NULL OR (created_at >= $7::DATE AND created_at < $7::DATE + 1))"
+        "channel_id = ANY($1) AND ($2::BIGINT IS NULL OR author_id = $2) AND {has} AND {pinned}
+         AND ($3::DATE IS NULL OR created_at < $3::DATE)
+         AND ($4::DATE IS NULL OR created_at >= $4::DATE + 1)
+         AND ($5::DATE IS NULL OR (created_at >= $5::DATE AND created_at < $5::DATE + 1))"
     );
-    let mention = q.mentions.map(|u| format!("%<@{u}>%"));
+    let offset = q.offset.clamp(0, 5000);
+    let mention = q.mentions.map(|u| format!("<@{u}>"));
+
+    // What was typed is stored sealed, so filters on it run here on the opened text, newest first.
+    if !words.is_empty() || has_link || mention.is_some() {
+        use futures_util::TryStreamExt;
+        let sql = format!("SELECT id, content FROM messages WHERE {filter} AND content <> '' ORDER BY id DESC LIMIT {SCAN_LIMIT}");
+        let mut rows = sqlx::query_as::<_, (Id, Sealed)>(&sql)
+            .bind(&channels)
+            .bind(q.author_id)
+            .bind(q.before)
+            .bind(q.after)
+            .bind(q.during)
+            .fetch(&st.db);
+        let (mut total, mut page) = (0i64, Vec::new());
+        while let Some((id, Sealed(text))) = rows.try_next().await? {
+            let hit = has_words(&text, &words)
+                && (!has_link || text.contains("http://") || text.contains("https://"))
+                && mention.as_ref().is_none_or(|m| text.contains(m.as_str()));
+            if hit {
+                if total >= offset && page.len() < PAGE {
+                    page.push(id);
+                }
+                total += 1;
+            }
+        }
+        drop(rows);
+        let rows = sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id = ANY($1) ORDER BY id DESC"))
+            .bind(&page)
+            .fetch_all(&st.db)
+            .await?;
+        return Ok(Json(SearchResults { total, messages: hydrate(st, rows).await? }));
+    }
+
     let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM messages WHERE {filter}"))
         .bind(&channels)
-        .bind(&ts)
         .bind(q.author_id)
-        .bind(&mention)
         .bind(q.before)
         .bind(q.after)
         .bind(q.during)
         .fetch_one(&st.db)
         .await?;
-    let rows = sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE {filter} ORDER BY id DESC LIMIT 25 OFFSET $8"))
+    let rows = sqlx::query_as::<_, MessageRow>(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE {filter} ORDER BY id DESC LIMIT {PAGE} OFFSET $6"))
         .bind(&channels)
-        .bind(&ts)
         .bind(q.author_id)
-        .bind(&mention)
         .bind(q.before)
         .bind(q.after)
         .bind(q.during)
-        .bind(q.offset.clamp(0, 5000))
+        .bind(offset)
         .fetch_all(&st.db)
         .await?;
     Ok(Json(SearchResults { total, messages: hydrate(st, rows).await? }))

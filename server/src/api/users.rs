@@ -74,8 +74,7 @@ pub async fn knows(st: &AppState, me: Id, user: &User) -> ApiResult<bool> {
 async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>) -> ApiResult<Json<serde_json::Value>> {
     let user = User::get(&st.db, id).await?;
     if !knows(&st, me, &user).await? {
-        let note: Option<String> =
-            sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
+        let note = note(&st, me, id).await?;
         return Ok(Json(serde_json::json!({
             "user": user.outline(), "mutual_friends": [], "mutual_guilds": [], "connections": [], "favorite_games": [], "links": [],
             "note": note.unwrap_or_default(), "song": null,
@@ -107,8 +106,7 @@ async fn profile(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): P
     let favorite_games = favorite_games(&st, id).await?;
     let (links, show_stats, show_top_songs, show_league): (sqlx::types::Json<Vec<Link>>, bool, bool, bool) =
         sqlx::query_as("SELECT links, show_stats, show_top_songs, show_league FROM users WHERE id = $1").bind(id).fetch_one(&st.db).await?;
-    let note: Option<String> =
-        sqlx::query_scalar("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2").bind(me).bind(id).fetch_optional(&st.db).await?;
+    let note = note(&st, me, id).await?;
     let own = me == id;
     let snowballs = crate::snowball::profile(&st, me, id).await?;
     let mut out = serde_json::json!({
@@ -145,6 +143,16 @@ struct NoteBody {
     note: String,
 }
 
+/// Your note about someone (stored sealed, crypt.rs).
+async fn note(st: &AppState, me: Id, id: Id) -> ApiResult<Option<String>> {
+    Ok(sqlx::query_scalar::<_, crate::crypt::Sealed>("SELECT note FROM user_notes WHERE user_id = $1 AND target_id = $2")
+        .bind(me)
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await?
+        .map(String::from))
+}
+
 /// Your private note about someone (shown only to you, on their profile). Empty deletes it.
 async fn set_note(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Path<Id>, Json(body): Json<NoteBody>) -> ApiResult<Json<serde_json::Value>> {
     if id == me {
@@ -164,7 +172,7 @@ async fn set_note(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): 
         )
         .bind(me)
         .bind(id)
-        .bind(note)
+        .bind(crate::crypt::seal(note))
         .execute(&st.db)
         .await?;
     }

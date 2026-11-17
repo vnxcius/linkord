@@ -15,6 +15,8 @@ const BASE = 'http://127.0.0.1:7706';
 const WS = BASE.replace(/^http/, 'ws');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'linkord-handover-'));
 const run = Math.random().toString(36).slice(2, 7);
+// The same fixed message key as run-local.sh (crypt.rs): both use linkord_test.
+fs.writeFileSync(path.join(data, 'message.key'), 'e2e0'.repeat(16));
 
 function start(name, extra = {}) {
   const env = {

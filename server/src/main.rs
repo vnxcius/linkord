@@ -5,6 +5,7 @@ mod badges;
 mod clips;
 mod auth;
 mod config;
+mod crypt;
 mod direct;
 mod embeds;
 mod error;
@@ -100,6 +101,8 @@ async fn main() -> anyhow::Result<()> {
     let migrator = sqlx::migrate!("./migrations");
     let _ = internal::MIGRATIONS.set(migrator.iter().count());
     migrator.run(&db).await.context("running migrations")?;
+    crypt::init(&cfg.data_dir, &db).await.context("loading the message key")?;
+    crypt::spawn_seal_existing(db.clone());
     tokio::fs::create_dir_all(cfg.uploads_dir()).await?;
     tokio::fs::create_dir_all(&cfg.nameplates_dir).await?;
 

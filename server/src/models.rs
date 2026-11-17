@@ -266,9 +266,12 @@ pub struct MessageRow {
     pub id: Id,
     pub channel_id: Id,
     pub author_id: Id,
+    /// Stored sealed (crypt.rs), read back as typed.
+    #[sqlx(try_from = "crate::crypt::Sealed")]
     pub content: String,
     pub reply_to: Option<Id>,
     pub attachments: Json<Vec<Attachment>>,
+    #[sqlx(try_from = "crate::crypt::SealedJson")]
     pub embeds: Json<serde_json::Value>,
     pub mention_everyone: bool,
     pub pinned_at: Option<DateTime<Utc>>,
@@ -305,12 +308,22 @@ pub struct Forwarded {
     pub message_id: Id,
     pub channel_id: Id,
     pub guild_id: Option<Id>,
+    /// Text and embeds are stored sealed (crypt.rs): read back through these, written through [`Forwarded::sealed`].
+    #[serde(deserialize_with = "crate::crypt::de_open")]
     pub content: String,
     pub attachments: Vec<Attachment>,
+    #[serde(deserialize_with = "crate::crypt::de_open_json")]
     pub embeds: serde_json::Value,
     pub created_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<DateTime<Utc>>,
+}
+
+impl Forwarded {
+    /// The copy as it's stored.
+    pub fn sealed(&self) -> Forwarded {
+        Forwarded { content: crate::crypt::seal(&self.content), embeds: crate::crypt::seal_json(&self.embeds), ..self.clone() }
+    }
 }
 
 #[derive(Serialize, Clone)]

@@ -18,7 +18,8 @@ const MAX_EMBEDS: usize = 3;
 const MAX_BODY: usize = 1024 * 1024;
 const CACHE_TTL: Duration = Duration::from_secs(3600);
 
-pub fn spawn(st: AppState, ch: Channel, message: Id, content: String) {
+/// `stored` is the text as stored (sealed): the previews only land if it's still the same.
+pub fn spawn(st: AppState, ch: Channel, message: Id, content: String, stored: String) {
     // Invite links to this server get the client's own invite card instead of a page preview.
     let mut invites = vec![format!("{}/invite/", st.cfg.public_url)];
     if !st.cfg.direct_host.is_empty() {
@@ -48,8 +49,8 @@ pub fn spawn(st: AppState, ch: Channel, message: Id, content: String) {
             "UPDATE messages SET embeds = $2 WHERE id = $1 AND content = $3 RETURNING {MESSAGE_COLS}"
         ))
         .bind(message)
-        .bind(sqlx::types::Json(&embeds))
-        .bind(&content)
+        .bind(sqlx::types::Json(crate::crypt::seal_json(&serde_json::Value::Array(embeds))))
+        .bind(&stored)
         .fetch_optional(&st.db)
         .await;
         if let Ok(Some(row)) = row {
