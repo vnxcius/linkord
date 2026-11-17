@@ -82,6 +82,8 @@ android {
         unitTests.all {
             it.systemProperty("robolectric.graphicsMode", "NATIVE")
             it.systemProperty("roborazzi.test.record", "true")
+            // One line per test as it finishes, so a long run shows it's moving.
+            it.testLogging { events("passed", "skipped", "failed") }
         }
     }
 

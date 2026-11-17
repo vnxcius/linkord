@@ -78,7 +78,7 @@ every minute) fetches master, fast-forwards its checkout and ships what changed 
 
 | Changed | Runner does |
 | --- | --- |
-| anything but docs | full test suite (one retry for the known flaky step), unit tests, lint, `cargo test` / Gradle tests as relevant |
+| anything but docs | full test suite (failed browser steps run once more, alone; the monitor's tests only when it changed), unit tests, lint, `cargo test`; Android: `core` tests and a release compile the publish reuses |
 | `server/`, the web client (`app/` minus the desktop shell), the image's deploy files | `deploy/install-service.sh`: zero-downtime swap between slots a/b |
 | `monitor/` | `deploy/install-monitor.sh` |
 | `app/` | desktop release: Windows + Linux, signed, on the update feed (apps see it at once) |

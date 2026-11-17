@@ -20,7 +20,7 @@ if [ -n "${2:-}" ]; then new_name="$2"; else IFS=. read -r a b c <<<"$name"; new
 sed -i -E "s/versionCode = [0-9]+/versionCode = $new_code/; s/versionName = \"[^\"]+\"/versionName = \"$new_name\"/" "$gradle"
 echo "Linkord for Android $name ($code) -> $new_name ($new_code)"
 
-./gradlew -q :app:assembleRelease
+./gradlew --console=plain :app:assembleRelease
 apk=app/build/outputs/apk/release/app-release.apk
 [ -f "$apk" ] || { echo "No signed APK was built (is the key in $props right?)"; exit 1; }
 apksigner=$(ls -d "${ANDROID_HOME:-$HOME/Android/Sdk}"/build-tools/*/apksigner | sort -V | tail -1)

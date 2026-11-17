@@ -25,3 +25,6 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
 }
+
+// One line per test as it finishes, so the box's runner shows progress.
+tasks.withType<Test>().configureEach { testLogging { events("passed", "skipped", "failed") } }

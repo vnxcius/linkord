@@ -30,7 +30,10 @@ cp -r "$root/server/nameplates" "$data/nameplates"
 
 docker exec linkord-postgres-1 createdb -U linkord linkord_test 2>/dev/null || true
 [[ $mode == api || $mode == handover ]] || (cd "$root/app" && bun run build >/dev/null)
-if [[ $mode == all || $mode == monitor ]]; then
+# LINKORD_TEST_MONITOR=0: the full suite without the monitor's build and tests (the box's runner, when it didn't change).
+with_monitor=true
+[[ $mode == all && ${LINKORD_TEST_MONITOR:-1} == 0 ]] && with_monitor=false
+if [[ $mode == monitor ]] || { [[ $mode == all ]] && $with_monitor; }; then
   (cd "$root/monitor/web" && bun install --frozen-lockfile >/dev/null && bun run build >/dev/null)
   (cd "$root/monitor" && cargo build -q)
 fi
@@ -62,7 +65,7 @@ cd "$root/server"
 LINKORD_FCM_CREDENTIALS="$data/fcm-credentials.json" LINKORD_FCM_CLIENT="$data/google-services.json" LINKORD_FCM_URL=http://localhost:7709 \
 SPOTIFY_CLIENT_ID=test-client SPOTIFY_CLIENT_SECRET=test-secret SPOTIFY_POLL_MS=500 \
   SPOTIFY_ACCOUNTS_URL=http://localhost:7702 SPOTIFY_API_URL=http://localhost:7702 LINKORD_DETECTABLE_URL=http://localhost:7702/detectable \
-  LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704 LINKORD_VOICE_GRACE_MS=1500 LINKORD_PUSH_HOSTS=localhost:7708 \
+  LINKORD_BIND=127.0.0.1:7701 LINKORD_PUBLIC_URL=http://localhost:7701 LINKORD_INTERNAL_BIND=127.0.0.1:7704 LINKORD_VOICE_GRACE_MS=1500 LINKORD_SWEEP_MS=500 LINKORD_PUSH_HOSTS=localhost:7708 \
   LINKORD_DIRECT_BIND=127.0.0.1:7703 LINKORD_DIRECT_HOST=localhost LINKORD_DIRECT_TLS=off \
   DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" \
   LINKORD_YTDLP="$ytdlp" LINKORD_YTDLP_ARGS="$ytdlp_args" LINKORD_NAMEPLATES_DIR="$data/nameplates" LINKORD_DATA_DIR="$data" LINKORD_DEV_LOGIN=true LINKORD_ANDROID_CERTS=$(printf 'ab%.0s' {1..32}) LINKORD_GAME_INFO=off LINKORD_ADMINS=logadmin DISCORD_CLIENT_ID=test-client DISCORD_CLIENT_SECRET=test-secret DISCORD_API_URL=http://localhost:7702 DISCORD_CDN_URL=http://localhost:7702 \
@@ -71,7 +74,7 @@ server=$!
 monitor=
 trap 'kill $server $spotify_mock $monitor 2>/dev/null; sleep 0.3; rm -rf "$data"' EXIT
 for _ in $(seq 1 40); do curl -sf localhost:7701/api/health >/dev/null && break; sleep 0.5; done
-if [[ $mode == all || $mode == monitor ]]; then
+if [[ $mode == monitor ]] || { [[ $mode == all ]] && $with_monitor; }; then
   # Its own process, data and port. The same variables server/.env gives it in production.
   # No subshell: on Windows killing one would leave the program running, holding its files.
   cd "$root/monitor"
@@ -94,7 +97,7 @@ export CHROMIUM="${CHROMIUM:-$chromium}"
 [[ $mode == ui || $mode == monitor ]] || LINKORD_SERVER_BIN="$(native "$(cd "$root/server" && cd "${CARGO_TARGET_DIR:-target}" && pwd)/debug/linkord-server")" \
   LINKORD_TEST_DATABASE_URL="postgres://linkord:$pg_pass@127.0.0.1:5433/linkord_test" LINKORD_YTDLP="$ytdlp" \
   node --test --test-timeout=120000 handover.test.mjs
-if [[ $mode == all || $mode == monitor ]]; then
+if [[ $mode == monitor ]] || { [[ $mode == all ]] && $with_monitor; }; then
   MONITOR_TEST_URL=http://localhost:7705 LINKORD_INTERNAL_TEST_URL=http://127.0.0.1:7704 SHOTS="${SHOTS:-}" \
     node --test --test-timeout=120000 monitor.test.mjs || { cat "$data/monitor.log"; exit 1; }
 fi

@@ -75,7 +75,9 @@ pipeline() {
 
   # 1. Tests.
   if [ -n "${todo[server]:-}${todo[monitor]:-}${todo[desktop]:-}$tests_changed" ]; then
-    step "full test suite" retry_once "$repo/tests/run-local.sh" || return 1
+    local monitor_tests=0
+    [ -n "${todo[monitor]:-}" ] || [[ "$tests_changed" == *monitor.test.mjs* ]] && monitor_tests=1
+    step "full test suite" full_suite "$monitor_tests" || return 1
     step "unit tests" bash -c "cd '$repo/tests' && node --test echo.test.mjs video-links.test.mjs i18n.test.mjs games.test.mjs markdown.test.mjs brand-icons.test.mjs capture-match.test.mjs device.test.mjs league-events.test.mjs" || return 1
   fi
   if [ -n "${todo[server]:-}${todo[desktop]:-}" ]; then
@@ -83,7 +85,9 @@ pipeline() {
   fi
   [ -n "${todo[server]:-}" ] && { step "server unit tests" bash -c "cd '$repo/server' && cargo test -q" || return 1; }
   [ -n "${todo[monitor]:-}" ] && { step "monitor unit tests" bash -c "cd '$repo/monitor' && cargo test -q" || return 1; }
-  [ -n "${todo[android]:-}" ] && { step "android unit tests" bash -c "cd '$repo/android' && ./gradlew -q :core:test :app:testDebugUnitTest" || return 1; }
+  # Android: the logic tests (core, plain JVM) and a release compile, which the publish step below reuses. The
+  # screenshot tests (app/src/test) only render pictures for a person to look at; they stay a local check.
+  [ -n "${todo[android]:-}" ] && { step "android tests + compile" bash -c "cd '$repo/android' && ./gradlew --console=plain :core:test :app:compileReleaseKotlin" || return 1; }
 
   # 2. Server and web client, then the dashboard: zero-downtime swaps.
   if [ -n "${todo[server]:-}" ]; then step "deploy server + web" "$repo/deploy/install-service.sh" || return 1; echo "$new" >"$state/last-server"; fi
@@ -94,8 +98,7 @@ pipeline() {
   if [ -n "${todo[desktop]:-}" ]; then
     local notes; notes=$(node "$repo/deploy/ci/notes.mjs" desktop "${todo[desktop]}" "$new")
     printf 'Desktop notes:\n%s\n' "$notes"
-    step "publish desktop (Windows)" "$repo/app/publish-windows.sh" "$notes" || return 1
-    step "publish desktop (Linux)" "$repo/app/publish-linux.sh" "$notes" || return 1
+    step "publish desktop (Windows + Linux)" publish_desktop "$notes" || return 1
     echo "$new" >"$state/last-desktop"
     released+=("desktop $(node -p "require('$repo/app/src-tauri/tauri.conf.json').version")")
   fi
@@ -110,7 +113,50 @@ pipeline() {
   return 0
 }
 
-retry_once() { "$@" || { log "Failed once; running it again (the box has a known flaky UI step)."; "$@"; }; }
+# The full suite (tests/run-local.sh). When only browser steps failed (the box has a known flaky one), only those run
+# again, with their setup steps (ui.e2e E2E_ONLY), instead of the whole five minutes. API, handover and monitor
+# failures aren't retried: they don't flake. $1 = 1 to include the monitor's tests (it changed).
+full_suite() {
+  local out rc
+  out=$(mktemp)
+  LINKORD_TEST_MONITOR="$1" "$repo/tests/run-local.sh" 2>&1 | tee "$out"
+  rc=${PIPESTATUS[0]}
+  if [ "$rc" -ne 0 ] && grep -q '^✘ ' "$out" && ! grep -qE '^✖ |^ℹ fail [1-9]' "$out"; then
+    local only
+    only=$(grep '^✘ ' "$out" | node -e '
+      const names = require("fs").readFileSync(0, "utf8").trim().split("\n").map((l) => l.slice(2).replace(/ \([0-9.]+ s\).*$/, ""));
+      console.log("^(" + names.map((n) => n.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")).join("|") + ")$");')
+    log "Only browser steps failed; running them again: $(grep -c '^✘ ' "$out") step(s)."
+    LINKORD_TEST_MONITOR=0 "$repo/tests/run-local.sh" --ui "$only"
+    rc=$?
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
+# Both desktop builds at once (each spends most of its time on one core): Windows bumps the version first, Linux
+# starts once it has, and each one's output is printed whole when both are done.
+publish_desktop() {
+  local notes=$1 before tmp w l rw rl
+  before=$(node -p "require('$repo/app/src-tauri/tauri.conf.json').version")
+  tmp=$(mktemp -d)
+  "$repo/app/publish-windows.sh" "$notes" >"$tmp/windows.log" 2>&1 & w=$!
+  for _ in $(seq 1 120); do
+    [ "$(node -p "require('$repo/app/src-tauri/tauri.conf.json').version")" != "$before" ] && break
+    kill -0 "$w" 2>/dev/null || break
+    sleep 0.5
+  done
+  # Windows stopped before bumping: nothing new for Linux to build (it would republish the old version number).
+  if [ "$(node -p "require('$repo/app/src-tauri/tauri.conf.json').version")" = "$before" ]; then
+    wait "$w"; sed 's/^/[windows] /' "$tmp/windows.log"; rm -rf "$tmp"; return 1
+  fi
+  "$repo/app/publish-linux.sh" "$notes" >"$tmp/linux.log" 2>&1 & l=$!
+  wait "$w"; rw=$?
+  wait "$l"; rl=$?
+  sed 's/^/[windows] /' "$tmp/windows.log"; sed 's/^/[linux] /' "$tmp/linux.log"
+  rm -rf "$tmp"
+  [ "$rw" -eq 0 ] && [ "$rl" -eq 0 ]
+}
 
 step() {
   local name=$1; shift
