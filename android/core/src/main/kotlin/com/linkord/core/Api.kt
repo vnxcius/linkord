@@ -81,6 +81,13 @@ class Api(
         raw(method, path, jsonBody(body))
     }
 
+    /** A picture or other binary answer (stream previews), or null when there's none (404 and other errors). */
+    suspend fun bytes(path: String): ByteArray? {
+        val req = Request.Builder().url("$base/api$path").apply { token()?.let { header("Authorization", "Bearer $it") } }.build()
+        val res = http.newCall(req).await()
+        return withContext(Dispatchers.IO) { res.use { if (it.isSuccessful) it.body.bytes() else null } }
+    }
+
     inline fun <reified T> decode(text: String): T = decodeWith(serializer<T>(), text)
 
     @Suppress("UNCHECKED_CAST")

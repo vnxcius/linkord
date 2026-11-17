@@ -1,5 +1,19 @@
 package com.linkord.app.ui.home
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -280,6 +294,7 @@ private fun ChannelRow(st: State, ch: Channel, active: Boolean, onOpenChannel: (
                     else -> c.text2
                 },
             )
+            if (ch.kind == Kind.VOICE) st.voiceMembers(ch.id).mapNotNull { it.callStartedAt }.minOrNull()?.let { CallTimer(it) }
             if (mentions > 0) CountBadge(mentions, ring = Color.Transparent)
             else if (st.channelAlert(ch) && !active) Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(c.text))
             DropdownMenu(menu, { menu = false }) {
@@ -308,18 +323,65 @@ private fun ChannelRow(st: State, ch: Channel, active: Boolean, onOpenChannel: (
             val people = st.voiceMembers(ch.id)
             if (people.isNotEmpty()) Column(Modifier.padding(start = 34.dp, end = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (v in people) {
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.raised).padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Avatar(st.users[v.userId], 22.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text(st.nameOf(v.userId, ch.guildId, t("Unknown")), style = Linkord.type.small, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (v.selfStream) Text("LIVE", style = Linkord.type.label, color = c.danger)
-                        if (v.selfMute || v.selfDeaf) LIcon(if (v.selfDeaf) LinkordIcons.HeadphonesOff else LinkordIcons.MicOff, size = 14.dp, tint = c.text3)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.raised)) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Avatar(st.users[v.userId], 22.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(st.nameOf(v.userId, ch.guildId, t("Unknown")), style = Linkord.type.small, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (v.selfStream) Text(t("LIVE"), style = Linkord.type.label, color = c.danger)
+                            if (v.selfMute || v.selfDeaf) LIcon(if (v.selfDeaf) LinkordIcons.HeadphonesOff else LinkordIcons.MicOff, size = 14.dp, tint = c.text3)
+                        }
+                        if (v.selfStream) StreamPreview(v.userId) { nav.push(Screen.Call(ch.id)) }
                     }
                 }
             }
         }
     }
 }
+
+/** How long the call in a voice channel has run (the server's start, the same for everyone), like the web's. */
+@Composable
+private fun CallTimer(since: Long) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(since) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000 - now % 1000)
+        }
+    }
+    val s = ((now - since) / 1000).coerceAtLeast(0)
+    val text = if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+    Text(text, style = Linkord.type.label, color = Linkord.colors.text3, maxLines = 1, modifier = Modifier.padding(start = 6.dp).semantics { contentDescription = t("Call duration") + " " + text })
+}
+
+/**
+ * The picture of a live member's stream (the streamer's app sends one now and then, server previews.rs): the phone's
+ * stand-in for the web's hover card. Fetched while the list is in front, every 20 s; a tap opens the call to watch.
+ */
+@Composable
+private fun StreamPreview(userId: String, onClick: () -> Unit) {
+    val c = Linkord.colors
+    val session = LocalContext.current.session
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var shot by remember(userId) { mutableStateOf<ImageBitmap?>(null) }
+    var tried by remember(userId) { mutableStateOf(false) }
+    LaunchedEffect(userId) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                val bytes = runCatching { session.api.bytes("/users/$userId/stream-preview") }.getOrNull()
+                if (bytes != null) withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }?.let { shot = it }
+                tried = true
+                delay(20_000)
+            }
+        }
+    }
+    Box(
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))
+            .background(c.desk).clickable(onClickLabel = t("Watch Stream"), onClick = onClick),
+    ) {
+        val img = shot
+        if (img != null) Image(img, null, Modifier.fillMaxSize().background(Color.Black), contentScale = ContentScale.Fit)
+        else if (tried) Text(t("No preview yet"), style = Linkord.type.small, color = c.text3, modifier = Modifier.align(Alignment.Center))
+    }
+}
+
