@@ -84,8 +84,10 @@ windows = { version = "0.62", features = [
 ] }
 
 [profile.release]
-codegen-units = 1
-lto = true
+# Thin LTO over 4 units, like the server: the runtime is the same in practice, and the release build spreads over the
+# cores instead of one fat-LTO pass on a single core (it was 2+ minutes per platform on the box, every release).
+codegen-units = 4
+lto = "thin"
 opt-level = "s"
 panic = "abort"
 strip = true
