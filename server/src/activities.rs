@@ -397,7 +397,7 @@ async fn clear_playing(State(st): State<AppState>, AuthUser(me): AuthUser) -> St
 /// Background task: drops games the app stopped refreshing.
 pub async fn sweep_games(st: AppState) {
     loop {
-        tokio::time::sleep(Duration::from_secs(15)).await;
+        tokio::time::sleep(st.cfg.sweep_every).await;
         if crate::handover::retired() {
             return;
         }
@@ -536,7 +536,7 @@ pub async fn keep_custom_statuses(st: AppState) {
         Err(e) => tracing::error!("loading custom statuses: {e}"),
     }
     loop {
-        tokio::time::sleep(Duration::from_secs(15)).await;
+        tokio::time::sleep(st.cfg.sweep_every).await;
         if crate::handover::retired() {
             return;
         }

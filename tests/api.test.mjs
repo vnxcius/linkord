@@ -436,29 +436,33 @@ test('nameplates: defaults come from the server folder, can be picked, uploaded 
 });
 
 test('nameplates: WebM videos work as defaults and uploads; a fake WebM is refused', { skip: !process.env.LINKORD_TEST_DATA_DIR }, async () => {
+  // Its own user: uploads are rate limited per person, and the shared test users have spent theirs by now.
+  const u = await login('webm');
   const webm = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0xe3b341:s=132x24:d=1', '-c:v', 'libvpx-vp9', '-f', 'webm', 'pipe:1']);
   fs.writeFileSync(path.join(process.env.LINKORD_TEST_DATA_DIR, 'nameplates', 'zz-shimmer.webm'), webm);
-  const defaults = await ok(member.token, 'GET', '/nameplates');
+  const defaults = await ok(u.token, 'GET', '/nameplates');
   assert.equal(defaults.at(-1), '/nameplates/zz-shimmer.webm');
   const served = await fetch(`${BASE}/nameplates/zz-shimmer.webm`);
   assert.equal(served.headers.get('content-type'), 'video/webm');
-  assert.equal((await ok(member.token, 'PUT', '/users/@me/nameplate', { url: '/nameplates/zz-shimmer.webm' })).nameplate, '/nameplates/zz-shimmer.webm');
+  assert.equal((await ok(u.token, 'PUT', '/users/@me/nameplate', { url: '/nameplates/zz-shimmer.webm' })).nameplate, '/nameplates/zz-shimmer.webm');
 
   // Uploaded ones are saved as .webm whatever the file was called, so every client knows to play them.
   const fd = new FormData();
   fd.append('file', new Blob([webm], { type: 'video/webm' }), 'loop.png');
-  assert.match((await ok(member.token, 'POST', '/users/@me/nameplate', fd)).nameplate, /^\/uploads\/nameplates\/.+\/nameplate\.webm$/);
+  assert.match((await ok(u.token, 'POST', '/users/@me/nameplate', fd)).nameplate, /^\/uploads\/nameplates\/.+\/nameplate\.webm$/);
   const fake = new FormData();
   fake.append('file', new Blob(['not a video'], { type: 'video/webm' }), 'fake.webm');
-  assert.equal((await call(member.token, 'POST', '/users/@me/nameplate', fake)).body.error, "that file isn't a WebM video");
+  assert.equal((await call(u.token, 'POST', '/users/@me/nameplate', fake)).body.error, "that file isn't a WebM video");
   // Only nameplates can be videos.
   const avatar = new FormData();
   avatar.append('file', new Blob([webm], { type: 'video/webm' }), 'a.webm');
-  assert.equal((await call(member.token, 'POST', '/users/@me/avatar', avatar)).status, 400);
-  await ok(member.token, 'DELETE', '/users/@me/nameplate');
+  assert.equal((await call(u.token, 'POST', '/users/@me/avatar', avatar)).status, 400);
+  await ok(u.token, 'DELETE', '/users/@me/nameplate');
 });
 
 test('GIF pictures and banners stay animated: the server crops them into animated WebP', async () => {
+  // Its own user: uploads are rate limited per person, and the shared test users have spent theirs by now.
+  const u = await login('gif');
   const gif = execFileSync('ffmpeg', ['-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=240x135:rate=10', '-t', '1', '-f', 'gif', 'pipe:1']);
   const frames = async (url) => {
     const webp = Buffer.from(await (await fetch(`${BASE}${url}`)).arrayBuffer());
@@ -470,19 +474,19 @@ test('GIF pictures and banners stay animated: the server crops them into animate
   const fd = new FormData();
   fd.append('crop', JSON.stringify({ x: 60, y: 0, w: 135, h: 135, rotate: 90 }));
   fd.append('file', new Blob([gif], { type: 'image/gif' }), 'a.gif');
-  const me = await ok(member.token, 'POST', '/users/@me/avatar', fd);
+  const me = await ok(u.token, 'POST', '/users/@me/avatar', fd);
   assert.match(me.avatar, /\.webp$/);
   assert.deepEqual(await frames(me.avatar), { w: 135, h: 135, n: 10 });
   // No crop: the largest centred 3:1 frame.
   const banner = new FormData();
   banner.append('file', new Blob([gif], { type: 'image/gif' }), 'b.gif');
-  const withBanner = await ok(member.token, 'POST', '/users/@me/banner', banner);
+  const withBanner = await ok(u.token, 'POST', '/users/@me/banner', banner);
   assert.deepEqual(await frames(withBanner.banner), { w: 240, h: 80, n: 10 });
   const fake = new FormData();
   fake.append('file', new Blob(['not a gif'], { type: 'image/gif' }), 'f.gif');
-  assert.equal((await call(member.token, 'POST', '/users/@me/avatar', fake)).body.error, "couldn't read that GIF");
-  await ok(member.token, 'DELETE', '/users/@me/avatar');
-  await ok(member.token, 'DELETE', '/users/@me/banner');
+  assert.equal((await call(u.token, 'POST', '/users/@me/avatar', fake)).body.error, "couldn't read that GIF");
+  await ok(u.token, 'DELETE', '/users/@me/avatar');
+  await ok(u.token, 'DELETE', '/users/@me/banner');
 });
 
 test('usernames: change yours (unique, Discord rules); signing up with a taken one links the account and asks for another', async () => {

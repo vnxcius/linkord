@@ -43,6 +43,8 @@ pub struct Config {
     pub spotify_api_url: String,
     /// How often to check what a connected user is playing.
     pub spotify_poll: std::time::Duration,
+    /// How often expired games and custom statuses are cleared (LINKORD_SWEEP_MS; the tests use a short one).
+    pub sweep_every: std::time::Duration,
     /// Discord's list of detectable games (executable names), for "Playing" activities.
     pub detectable_url: String,
     /// Riot's API (league.rs: the League profile widget). Empty = the widget is off.
@@ -102,6 +104,7 @@ impl Config {
             spotify_accounts_url: opt("SPOTIFY_ACCOUNTS_URL").unwrap_or_else(|| "https://accounts.spotify.com".into()),
             spotify_api_url: opt("SPOTIFY_API_URL").unwrap_or_else(|| "https://api.spotify.com".into()),
             spotify_poll: std::time::Duration::from_millis(opt("SPOTIFY_POLL_MS").and_then(|v| v.parse().ok()).unwrap_or(5000)),
+            sweep_every: std::time::Duration::from_millis(opt("LINKORD_SWEEP_MS").and_then(|v| v.parse().ok()).unwrap_or(15_000)),
             detectable_url: opt("LINKORD_DETECTABLE_URL").unwrap_or_else(|| "https://discord.com/api/v9/applications/detectable".into()),
             riot_api_key: opt("RIOT_API_KEY").unwrap_or_default(),
             riot_api_url: opt("RIOT_API_URL").map(|u| u.trim_end_matches('/').to_string()),

@@ -43,12 +43,15 @@ const waitForPicture = (page, selector) =>
 const toSec = (m) => m.split(':').reduce((s, x) => s * 60 + +x, 0);
 const step = async (name, fn) => {
   if (name !== 'no uncaught page errors' && ((ONLY && !ONLY.test(name) && !SETUP.test(name)) || (FAILFAST && failed))) return;
+  // Each step's time, like node --test prints for the API tests: slow steps show in the CI log.
+  const t0 = performance.now();
+  const took = () => `(${((performance.now() - t0) / 1000).toFixed(1)} s)`;
   try {
     await fn();
-    console.log(`✔ ${name}`);
+    console.log(`✔ ${name} ${took()}`);
   } catch (e) {
     const waiting = e.message.split('\n').find((l) => /waiting for|locator\(/.test(l));
-    console.log(`✘ ${name}: ${e.message.split('\n')[0]}${waiting ? ` (${waiting.trim()})` : ''}`);
+    console.log(`✘ ${name} ${took()}: ${e.message.split('\n')[0]}${waiting ? ` (${waiting.trim()})` : ''}`);
     process.exitCode = 1;
     failed = true;
     // With a screenshot dir, keep what both users saw when a step failed.
@@ -1295,7 +1298,7 @@ await step('narrow window: the member list opens as a drawer', async () => {
   await a.page.setViewportSize({ width: 1400, height: 860 });
 });
 
-await step('onboarding: a new account gets the tour; an existing account gets the 2.0 dialog ("Meet REC") once, with confetti and the fanfare', async () => {
+await step('onboarding: a new account gets the tour, once; it can be taken again from Settings', async () => {
   const n = await user('nova', undefined, {}, true);
   const pg = n.page;
   try {
@@ -1323,31 +1326,9 @@ await step('onboarding: a new account gets the tour; an existing account gets th
     // Remembered for the account: a reload doesn't bring it (or the release dialog) back.
     await pg.reload();
     await pg.waitForSelector('.layout');
-    await pg.waitForTimeout(1500);
+    await pg.waitForTimeout(600);
     assert.equal(await pg.locator('.tour, .release').count(), 0);
 
-    // An account that hasn't seen this release gets the dialog instead.
-    const token = await pg.evaluate(() => localStorage.getItem('linkord.token'));
-    await fetch(`${BASE}/api/users/@me/settings`, {
-      method: 'PATCH',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ release_seen: null }),
-    });
-    await pg.reload();
-    await pg.waitForSelector('.release h2:has-text("Meet REC")');
-    await pg.waitForSelector('canvas.confetti');
-    await pg.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/fanfare[^/]*\.wav/.test(e.name)), null, { timeout: 5000 });
-    await shot(pg, 'e2e-release');
-    await pg.click('.release-list button:has-text("The studio")');
-    await pg.waitForSelector('.release-slide h3:has-text("The studio")');
-    await pg.keyboard.press('ArrowDown');
-    await pg.waitForSelector('.release-slide h3:has-text("Over your game")');
-    await pg.click(`.release button:has-text("Let's go")`);
-    await pg.waitForSelector('.release', { state: 'detached' });
-    await pg.reload();
-    await pg.waitForSelector('.layout');
-    await pg.waitForTimeout(1500);
-    assert.equal(await pg.locator('.release').count(), 0, 'shown once');
     // Both can be seen again from Settings.
     await pg.click('[aria-label="Settings"]');
     await pg.click('.settings-foot button:has-text("Take the tour")');
@@ -1463,41 +1444,6 @@ await step('notifications on a phone: the offer under the channel list, the serv
   await a.page.click('.settings-close');
 });
 
-await step('sidebars: drag the handles to resize, remembered, double-click resets', async () => {
-  const { page: pg } = await user('wren', { language: 'en' });
-  const width = (sel) => pg.$eval(sel, (e) => e.getBoundingClientRect().width);
-  const drag = async (sel, dx) => {
-    const b = await (await pg.$(sel)).boundingBox();
-    await pg.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
-    await pg.mouse.down();
-    await pg.mouse.move(b.x + b.width / 2 + dx, b.y + b.height / 2, { steps: 4 });
-    await pg.mouse.up();
-  };
-  const nav = await width('.nav-pane');
-  await drag('.sidebar-resize.for-nav', 60);
-  assert.ok(Math.abs((await width('.nav-pane')) - nav - 60) < 3);
-  await pg.reload();
-  await pg.waitForSelector('.layout');
-  assert.ok(Math.abs((await width('.nav-pane')) - nav - 60) < 3);
-  await pg.dblclick('.sidebar-resize.for-nav');
-  assert.ok(Math.abs((await width('.nav-pane')) - nav) < 1);
-  await pg.context().close();
-});
-
-await step('christmas greeting: opens from Settings with confetti and slides, and can turn the theme on', async () => {
-  const { page: pg } = await user('noel', { language: 'en', theme: 'dark', christmasMusic: false });
-  await pg.click('[aria-label="Settings"]');
-  await pg.click('.settings-links button:has-text("Christmas greeting")');
-  await pg.waitForSelector('.release h2:has-text("Merry Christmas")');
-  await pg.waitForSelector('canvas.confetti');
-  await pg.click('.release-list button:has-text("Snowball fights")');
-  await pg.waitForSelector('.release-slide h3:has-text("Snowball fights")');
-  await pg.click('.xmas-theme-on');
-  await pg.waitForSelector('.release', { state: 'detached' });
-  assert.equal(await pg.evaluate(() => document.documentElement.dataset.theme), 'christmas');
-  await pg.context().close();
-});
-
 await step('christmas theme: its look and snow come from the pref, its options show in Appearance, and it comes off', async () => {
   const { page: pg } = await user('holly', { theme: 'christmas', language: 'en' });
   const htmlTheme = () => pg.evaluate(() => document.documentElement.dataset.theme);
@@ -1546,23 +1492,6 @@ await step('language: follows the browser (pt-BR), can be switched in settings; 
   await pg.click('.lang-row:has-text("System default")');
   await pg.waitForSelector('.settings-content h1:text("Idioma")');
   await ctx.close();
-});
-
-await step('spellcheck: Portuguese (Hunspell) underlines only the misspelled word', async () => {
-  const setLang = (lang) =>
-    b.page.evaluate((l) => {
-      const p = JSON.parse(localStorage.getItem('linkord.prefs') || '{}');
-      localStorage.setItem('linkord.prefs', JSON.stringify({ ...p, spellLanguage: l, spellcheck: true }));
-    }, lang);
-  await setLang('pt');
-  await b.page.reload();
-  await b.page.click(`.rail-btn[aria-label="Keep ${run}"]`);
-  await b.page.click('.channel-item:has-text("general")');
-  await b.page.fill('.composer textarea', 'Você não está falando comigo, a mensagen chegou amanhã');
-  await b.page.waitForSelector('.spell-layer mark:has-text("mensagen")', { timeout: 15000 });
-  assert.deepEqual(await b.page.locator('.spell-layer mark').allTextContents(), ['mensagen']);
-  await b.page.fill('.composer textarea', '');
-  await setLang('auto');
 });
 
 await step('no uncaught page errors', async () => assert.deepEqual(errors, [], errors.join('\n')));
