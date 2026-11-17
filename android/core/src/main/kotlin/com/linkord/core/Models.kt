@@ -34,6 +34,8 @@ data class User(
     val bot: Boolean = false,
     @SerialName("needs_username") val needsUsername: Boolean = false,
     @SerialName("rec_opt_out") val recOptOut: Boolean = false,
+    /** Privacy: read receipts in DMs (only ever set on your own user; server receipts.rs). */
+    @SerialName("read_receipts") val readReceipts: Boolean = true,
 ) {
     val name: String get() = displayName?.takeIf { it.isNotBlank() } ?: username
 }
@@ -348,6 +350,8 @@ data class Ready(
     val activities: Map<String, List<Activity>> = emptyMap(),
     @SerialName("custom_status") val customStatus: Activity? = null,
     @SerialName("read_states") val readStates: Map<String, String> = emptyMap(),
+    /** The others' delivered/read positions in DMs and group DMs (server receipts.rs). */
+    @SerialName("dm_receipts") val dmReceipts: Map<String, List<Receipt>> = emptyMap(),
     @SerialName("voice_states") val voiceStates: List<VoiceState> = emptyList(),
     @SerialName("voice_channel_statuses") val voiceChannelStatuses: List<ChannelStatus> = emptyList(),
     val calls: List<CallInfo> = emptyList(),
@@ -356,6 +360,17 @@ data class Ready(
     @SerialName("bot_commands") val botCommands: List<BotCommand> = emptyList(),
     val watches: List<WatchEntry> = emptyList(),
 )
+
+/** How far someone's devices have received and read a DM (server receipts.rs); read counts as delivered too. */
+@Serializable
+data class Receipt(
+    @SerialName("user_id") val userId: String,
+    @SerialName("delivered_id") val deliveredId: String? = null,
+    @SerialName("read_id") val readId: String? = null,
+)
+
+/** A message of yours in a DM, WhatsApp-style: the server has it, a device of theirs got it, they read it. */
+enum class Tick { SENT, DELIVERED, READ }
 
 /** A slash command of a bot driven from outside (Steve, steve.rs), while it's connected. */
 @Serializable

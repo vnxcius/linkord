@@ -192,7 +192,8 @@ private fun ModRow(icon: ImageVector, label: String, hint: String?, danger: Bool
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(label, style = Linkord.type.body, color = if (danger) c.danger else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!hint.isNullOrEmpty()) Text(hint, style = Linkord.type.small, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Two lines: what an action does is the point of the hint, and a small phone cut it mid-word at one.
+            if (!hint.isNullOrEmpty()) Text(hint, style = Linkord.type.small, color = c.text3, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

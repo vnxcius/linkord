@@ -69,6 +69,7 @@ import com.linkord.core.Message
 import com.linkord.core.State
 import com.linkord.core.memberRoles
 import com.linkord.core.nameOf
+import com.linkord.core.tickFor
 import com.linkord.core.presenceOf
 import com.linkord.core.memberGroups
 import com.linkord.core.t
@@ -89,6 +90,7 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
     val scope = rememberCoroutineScope()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var more by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf(false) }
     val mine = m.author.id == st.me?.id
     fun close(then: () -> Unit = {}) {
         scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss(); then() }
@@ -103,17 +105,22 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                 return@Column
             }
             // Quick reactions on top, every emoji under "more" (EmojiPicker).
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                for (e in QUICK_REACTIONS) {
-                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(23.dp)).background(c.raised).clickable { close { session.actions.toggleReaction(m, e) } }, contentAlignment = Alignment.Center) {
-                        Text(com.linkord.designsystem.emojiText(e), fontSize = 22.sp)
+            // As big as 46dp, smaller when seven don't fit across (a small phone).
+            if (!info) androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                val dot = minOf(46.dp, (maxWidth - 6.dp * QUICK_REACTIONS.size) / (QUICK_REACTIONS.size + 1))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (e in QUICK_REACTIONS) {
+                        Box(Modifier.size(dot).clip(RoundedCornerShape(dot / 2)).background(c.raised).clickable { close { session.actions.toggleReaction(m, e) } }, contentAlignment = Alignment.Center) {
+                            Text(com.linkord.designsystem.emojiText(e), fontSize = (22 * dot.value / 46).sp)
+                        }
+                    }
+                    Box(Modifier.size(dot).clip(RoundedCornerShape(dot / 2)).background(c.raised).clickable { more = !more }, contentAlignment = Alignment.Center) {
+                        LIcon(if (more) LinkordIcons.Chevron else LinkordIcons.Smile, tint = c.text)
                     }
                 }
-                Box(Modifier.size(46.dp).clip(RoundedCornerShape(23.dp)).background(c.raised).clickable { more = !more }, contentAlignment = Alignment.Center) {
-                    LIcon(if (more) LinkordIcons.Chevron else LinkordIcons.Smile, tint = c.text)
-                }
             }
-            if (more) EmojiPicker(st, guildId, height = 420.dp) { e -> close { session.actions.toggleReaction(m, e) } }
+            if (info) MessageInfo(m)
+            else if (more) EmojiPicker(st, guildId, height = 420.dp) { e -> close { session.actions.toggleReaction(m, e) } }
             else {
                 // Held on a picture: its own actions first.
                 if (image != null) {
@@ -133,6 +140,8 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                     scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", plainText(m.content, st, guildId)))) }
                     close()
                 }
+                // Your DMs: when it was sent, delivered and read (server receipts.rs).
+                if (st.tickFor(m) != null) SheetAction(LinkordIcons.Info, t("Message info")) { info = true }
                 SheetAction(LinkordIcons.Pin, if (m.pinned) t("Unpin Message") else t("Pin Message")) {
                     close { session.launch { session.actions.togglePin(m) } }
                 }
@@ -147,6 +156,65 @@ fun MessageSheet(m: Message, guildId: String?, onDismiss: () -> Unit, onReply: (
                 }
             }
         }
+    }
+}
+
+@kotlinx.serialization.Serializable
+private data class MessageReceipt(
+    @kotlinx.serialization.SerialName("user_id") val userId: String,
+    val delivered: Boolean = false,
+    val read: Boolean = false,
+    /** False when either of you has read receipts off (Privacy): then there's no Read line. */
+    @kotlinx.serialization.SerialName("read_receipts") val readReceipts: Boolean = true,
+    @kotlinx.serialization.SerialName("delivered_at") val deliveredAt: String? = null,
+    @kotlinx.serialization.SerialName("read_at") val readAt: String? = null,
+)
+
+/** Message info, WhatsApp-style: when your DM was sent, and when each person got it and read it. */
+@Composable
+private fun MessageInfo(m: Message) {
+    val session = LocalContext.current.session
+    val st by session.store.state.collectAsState()
+    val c = Linkord.colors
+    var list by remember { mutableStateOf<List<MessageReceipt>?>(null) }
+    var failed by remember { mutableStateOf<String?>(null) }
+    // Asked again whenever a receipt in this conversation moves, so it fills in while it's open.
+    LaunchedEffect(m.id, st.receipts[m.channelId]) {
+        runCatching { session.api.get<List<MessageReceipt>>("/channels/${m.channelId}/messages/${m.id}/receipts") }
+            .onSuccess { list = it; failed = null }
+            .onFailure { failed = session.describe(it) }
+    }
+    fun at(iso: String?) = iso?.let { runCatching { formatTime(java.time.Instant.parse(it).epochSecond, "f") }.getOrNull() }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(t("Message info"), style = Linkord.type.title)
+        InfoLine(LinkordIcons.Check, c.text3, t("Sent"), at(m.createdAt))
+        val people = list
+        when {
+            people == null && failed != null -> Text(failed!!, style = Linkord.type.small, color = c.text3)
+            people == null -> CircularProgressIndicator(color = c.text3, modifier = Modifier.size(20.dp))
+            else -> for (r in people) {
+                val group = people.size > 1
+                if (group) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(st.users[r.userId], 22.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(st.nameOf(r.userId, null, t("Unknown")), style = Linkord.type.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                InfoLine(LinkordIcons.CheckDouble, c.text3, t("Delivered"), if (r.delivered) at(r.deliveredAt) ?: "" else null)
+                if (r.readReceipts) InfoLine(LinkordIcons.CheckDouble, c.brand, t("Read"), if (r.read) at(r.readAt) ?: "" else null)
+            }
+        }
+    }
+}
+
+/** One step of Message info: its tick, its name and when (null = not yet; "" = before times were kept). */
+@Composable
+private fun InfoLine(icon: ImageVector, tint: Color, label: String, time: String?) {
+    val c = Linkord.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        LIcon(icon, size = 18.dp, tint = if (time == null) c.text3.copy(alpha = 0.5f) else tint)
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = Linkord.type.body, color = if (time == null) c.text3 else c.text, modifier = Modifier.weight(1f))
+        Text(time ?: t("Not yet"), style = Linkord.type.mono, color = c.text3)
     }
 }
 

@@ -134,6 +134,9 @@ data class SharedClip(
     val height: Int? = null,
 )
 
+@Serializable
+private data class MyClips(val clips: List<SharedClip> = emptyList())
+
 fun duration(ms: Long): String {
     val s = ms / 1000
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
@@ -175,15 +178,25 @@ fun SharedClipsScreen() {
     val scope = rememberCoroutineScope()
     val c = Linkord.colors
     var clips by remember { mutableStateOf<List<SharedClip>?>(null) }
+    var failed by remember { mutableStateOf<String?>(null) }
     suspend fun load() {
-        clips = runCatching { session.api.get<List<SharedClip>>("/users/@me/clips") }.getOrElse { emptyList() }
+        // GET /users/@me/clips is {clips, used, quota, max_size} (server clips.rs mine), not a bare list.
+        runCatching { session.api.get<MyClips>("/users/@me/clips") }
+            .onSuccess { clips = it.clips; failed = null }
+            .onFailure {
+                failed = session.describe(it)
+                if (it !is java.io.IOException) session.reporter.report("error", "Shared clips failed to load", it)
+            }
     }
     LaunchedEffect(Unit) { load() }
     var confirm by remember { mutableStateOf<String?>(null) }
     ScreenScaffold(t("Shared clips")) {
         val list = clips
         when {
-            list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.text3) }
+            list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                val why = failed
+                if (why != null) Text(why, style = Linkord.type.small, color = c.text3, modifier = Modifier.padding(24.dp)) else CircularProgressIndicator(color = c.text3)
+            }
             list.isEmpty() -> Text(t("Clips you share from REC on the desktop app show up here."), style = Linkord.type.small, modifier = Modifier.padding(16.dp))
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(list, key = { it.id }) { clip ->
@@ -234,9 +247,12 @@ private data class Stats(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("top_channels") val topChannels: List<JsonObject> = emptyList(),
     @SerialName("top_emoji") val topEmoji: List<JsonObject> = emptyList(),
-    /** [name, icon, seconds, last played] (users.rs stats). */
-    val games: List<kotlinx.serialization.json.JsonArray> = emptyList(),
+    /** The games played most (users.rs stats). */
+    val games: List<GameStat> = emptyList(),
 )
+
+@Serializable
+private data class GameStat(val name: String = "", val icon: String? = null, val seconds: Long = 0)
 
 private fun hours(seconds: Long) = t("{n} h", "n" to "%.1f".format(seconds / 3600.0))
 
@@ -246,12 +262,22 @@ fun StatsScreen() {
     val session = LocalContext.current.session
     val c = Linkord.colors
     var stats by remember { mutableStateOf<Stats?>(null) }
+    // A failure is said (and reported), not a spinner that never ends.
+    var failed by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val tz = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
-        stats = runCatching { session.api.get<Stats>("/users/@me/stats?tz=${-tz}") }.getOrNull()
+        runCatching { session.api.get<Stats>("/users/@me/stats?tz=${-tz}") }
+            .onSuccess { stats = it }
+            .onFailure {
+                failed = session.describe(it)
+                if (it !is java.io.IOException) session.reporter.report("error", "Stats failed to load", it)
+            }
     }
     ScreenScaffold(t("Stats")) {
-        val s = stats ?: return@ScreenScaffold Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.text3) }
+        val s = stats ?: return@ScreenScaffold Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            val why = failed
+            if (why != null) Text(why, style = Linkord.type.small, color = c.text3, modifier = Modifier.padding(24.dp)) else CircularProgressIndicator(color = c.text3)
+        }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val tiles = listOf(
                 t("Messages") to s.messages.toString(),
@@ -272,8 +298,8 @@ fun StatsScreen() {
             if (s.games.isNotEmpty()) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.panel).padding(14.dp)) {
                 Kicker(t("Games"))
                 for (g in s.games.take(8)) Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    Text((g.getOrNull(0) as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "", style = Linkord.type.body, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(hours((g.getOrNull(2) as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull()?.toLong() ?: 0L), style = Linkord.type.mono)
+                    Text(g.name, style = Linkord.type.body, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(hours(g.seconds), style = Linkord.type.mono)
                 }
             }
             runCatching { Instant.parse(s.createdAt) }.getOrNull()?.let {

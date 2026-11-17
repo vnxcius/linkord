@@ -73,7 +73,7 @@ fun YouTab() {
         var statusSheet by remember { mutableStateOf(false) }
         Section {
             val cs = st.customStatus
-            Entry(LinkordIcons.Smile, cs?.let { listOfNotNull(it.emoji?.name, it.state).joinToString(" ") }?.ifBlank { null } ?: t("Set a custom status")) { statusSheet = true }
+            Entry(LinkordIcons.Smile, cs?.let { listOfNotNull(it.emoji?.takeIf { e -> e.id == null }?.name, it.state).joinToString(" ") }?.ifBlank { null } ?: t("Set a custom status")) { statusSheet = true }
         }
         if (statusSheet) CustomStatusSheet { statusSheet = false }
         Spacer(Modifier.height(12.dp))

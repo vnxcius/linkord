@@ -71,6 +71,7 @@ suspend fun shareInvite(session: Session, guildId: String) {
 }
 
 /** A new channel: text or voice, in a category or at the top. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NewChannelDialog(guildId: String, onDismiss: () -> Unit) {
     val session = LocalContext.current.session
@@ -86,7 +87,7 @@ fun NewChannelDialog(guildId: String, onDismiss: () -> Unit) {
         title = { Text(t("Create Channel")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for ((v, label) in listOf(false to t("Text"), true to t("Voice"))) Text(
                         label, style = Linkord.type.small, color = if (voice == v) c.onBrand else c.text,
                         modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (voice == v) c.brand else c.raised).clickable { voice = v }.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -95,9 +96,10 @@ fun NewChannelDialog(guildId: String, onDismiss: () -> Unit) {
                 OutlinedTextField(name, { name = if (voice) it else it.lowercase().replace(' ', '-') }, label = { Text(t("Channel Name")) }, singleLine = true)
                 if (cats.isNotEmpty()) {
                     Kicker(t("Category"))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Wraps: a server can have more categories than fit across a phone.
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         for ((id, label) in listOf<Pair<String?, String>>(null to t("None")) + cats.map { it.id to it.name }) Text(
-                            label, style = Linkord.type.small, color = if (parent == id) c.onBrand else c.text,
+                            label, style = Linkord.type.small, color = if (parent == id) c.onBrand else c.text, maxLines = 1, softWrap = false,
                             modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (parent == id) c.brand else c.raised).clickable { parent = id }.padding(horizontal = 10.dp, vertical = 6.dp),
                         )
                     }

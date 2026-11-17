@@ -214,6 +214,7 @@ fun VoiceSettingsScreen() {
 }
 
 /** How much each server notifies you (settings.guild_notifications): every message, only mentions, or nothing. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NotificationLevelsScreen() {
     val session = LocalContext.current.session
@@ -231,11 +232,13 @@ fun NotificationLevelsScreen() {
                         Text(g.name, style = Linkord.type.bodyStrong, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(if (muted) t("Unmute") else t("Mute"), style = Linkord.type.small, color = c.text2, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { session.actions.toggleMuteGuild(g.id) }.padding(6.dp))
                     }
-                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Wraps whole options onto the next line: in a plain row a small phone squeezed them and pushed the last
+                    // one off the card.
+                    androidx.compose.foundation.layout.FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         for ((id, label) in listOf("all" to t("All Messages"), "mentions" to t("Only @mentions"), "none" to t("Nothing"))) {
                             val on = level == id
                             Text(
-                                label, style = Linkord.type.small, color = if (on) c.onBrand else c.text,
+                                label, style = Linkord.type.small, color = if (on) c.onBrand else c.text, maxLines = 1, softWrap = false,
                                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (on) c.brand else c.raised)
                                     .clickable { session.actions.patchSettings(mapOf("guild_notifications" to st.settings.guildNotifications + (g.id to id))) }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -243,6 +246,38 @@ fun NotificationLevelsScreen() {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Privacy: read receipts in DMs and your voice in other people's REC recordings (web Settings → Privacy). */
+@Composable
+fun PrivacyScreen() {
+    val session = LocalContext.current.session
+    val st by session.store.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val me = st.me ?: return
+    fun save(block: suspend () -> Unit) {
+        scope.launch { runCatching { block() }.onFailure { session.toast(session.describe(it)) } }
+    }
+    ScreenScaffold(t("Privacy")) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            com.linkord.app.ui.home.Section {
+                Kicker(t("Direct Messages"), Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
+                SwitchRow(
+                    t("Read receipts"),
+                    t("When this is off, people won't see when you've read their messages, and you won't see when they've read yours. Delivered still shows."),
+                    me.readReceipts,
+                ) { on -> save { session.actions.setReadReceipts(on) } }
+            }
+            com.linkord.app.ui.home.Section {
+                Kicker("REC", Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
+                SwitchRow(
+                    t("Let others record my voice"),
+                    t("When this is off, everyone's Linkord leaves your voice out of their recordings from now on. What was already recorded stays."),
+                    !me.recOptOut,
+                ) { on -> save { session.actions.setRecordable(on) } }
             }
         }
     }

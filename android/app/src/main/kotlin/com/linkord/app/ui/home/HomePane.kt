@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.linkord.app.session
 import com.linkord.app.ui.components.Avatar
 import com.linkord.app.ui.components.CountBadge
+import com.linkord.app.ui.components.FitText
 import com.linkord.app.ui.components.LIcon
 import com.linkord.core.dmMentions
 import com.linkord.core.t
@@ -79,8 +80,9 @@ private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit) {
     val st by session.store.state.collectAsState()
     val c = Linkord.colors
     Row(
-        Modifier.fillMaxWidth().background(c.desk).navigationBarsPadding().height(60.dp).padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
+        Modifier.fillMaxWidth().background(c.desk).navigationBarsPadding().height(60.dp).padding(horizontal = 4.dp),
+        // Four equal slots: on a small phone the labels shrink to fit instead of pushing the last one off the edge.
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Item(LinkordIcons.HomeSolid, t("Home"), tab == Tab.Home, badge = st.totalMentions() - st.dmMentions()) { onTab(Tab.Home) }
@@ -90,7 +92,7 @@ private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit) {
         var statusMenu by remember { mutableStateOf(false) }
         var customSheet by remember { mutableStateOf(false) }
         val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-        Box {
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Column(
                 Modifier.clip(RoundedCornerShape(12.dp)).combinedClickable(
                     // Already on You: a second tap opens Edit Profile.
@@ -99,17 +101,17 @@ private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit) {
                         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         statusMenu = true
                     },
-                ).padding(horizontal = 14.dp, vertical = 6.dp),
+                ).padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Avatar(st.me, 24.dp, status = st.me?.status?.let { if (it == "invisible") "offline" else it })
-                Text(t("You"), style = Linkord.type.label, color = if (tab == Tab.You) c.text else c.text3, modifier = Modifier.padding(top = 3.dp))
+                FitText(t("You"), Linkord.type.label, color = if (tab == Tab.You) c.text else c.text3, modifier = Modifier.padding(top = 3.dp))
                 Box(Modifier.padding(top = 3.dp).width(if (tab == Tab.You) 18.dp else 0.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(c.brand))
             }
             DropdownMenu(statusMenu, { statusMenu = false }) {
                 val cs = st.customStatus
                 DropdownMenuItem(
-                    text = { Text(cs?.let { listOfNotNull(it.emoji?.name, it.state).joinToString(" ") }?.ifBlank { null } ?: t("Set a custom status"), maxLines = 1) },
+                    text = { Text(cs?.let { listOfNotNull(it.emoji?.takeIf { e -> e.id == null }?.name, it.state).joinToString(" ") }?.ifBlank { null } ?: t("Set a custom status"), maxLines = 1) },
                     leadingIcon = { LIcon(LinkordIcons.Smile, size = 18.dp) },
                     onClick = { statusMenu = false; customSheet = true },
                 )
@@ -132,15 +134,15 @@ private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit) {
 }
 
 @Composable
-private fun Item(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) {
+private fun androidx.compose.foundation.layout.RowScope.Item(icon: ImageVector, label: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) {
     val c = Linkord.colors
-    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box {
             // The active tab's mark is its own bar above the icon, fully rounded.
             Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { LIcon(icon, size = 24.dp, tint = if (active) c.text else c.text3) }
             if (badge > 0) CountBadge(badge, Modifier.align(Alignment.TopEnd).padding(start = 14.dp))
         }
-        Text(label, style = Linkord.type.label, color = if (active) c.text else c.text3, modifier = Modifier.padding(top = 3.dp))
+        FitText(label, Linkord.type.label, color = if (active) c.text else c.text3, modifier = Modifier.padding(top = 3.dp))
         Box(Modifier.padding(top = 3.dp).width(if (active) 18.dp else 0.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(c.brand))
     }
 }

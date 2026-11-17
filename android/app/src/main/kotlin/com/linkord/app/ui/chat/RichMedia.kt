@@ -423,62 +423,89 @@ fun InviteCard(code: String, mine: Boolean) {
     }
     val i = info
     val joined = i != null && st.guilds.containsKey(i.guild.id)
-    Column(
-        Modifier.padding(top = 6.dp).widthIn(max = 360.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.raised).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Kicker(
-            when {
-                loaded && i == null -> t("You received an invite, but it's invalid.")
-                mine -> t("You sent an invite to join a server")
-                else -> t("You've been invited to join a server")
-            },
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (i == null) {
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(c.raised2), contentAlignment = Alignment.Center) {
-                    if (loaded) Text("?", style = Linkord.type.title, color = c.text3)
+    InviteCardContent(i, loaded, mine, joined, joining) {
+        if (i == null) return@InviteCardContent
+        if (joined) {
+            session.actions.selectView(i.guild.id)
+            nav.openHome()
+        } else {
+            joining = true
+            session.launch {
+                try {
+                    session.actions.acceptInvite(code)
+                    nav.openHome()
+                } finally {
+                    joining = false
                 }
-                Spacer(Modifier.width(12.dp))
-                if (loaded) Column {
-                    Text(t("Invalid invite"), style = Linkord.type.bodyStrong, color = c.danger)
-                    Text(t("Ask for a new invite."), style = Linkord.type.small)
-                }
-                return@Row
             }
-            ServerTile(i.guild.name, i.guild.icon, 48.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(i.guild.name, style = Linkord.type.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    i.onlineCount?.let { n ->
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(c.online))
-                        Text(plural(n, "{n} Online", "{n} Online"), style = Linkord.type.label, modifier = Modifier.padding(start = 4.dp, end = 10.dp))
+        }
+    }
+}
+
+/**
+ * The invite card itself. Narrow (a small phone, a long translation), Join goes under the server on its own row and
+ * the counts wrap as whole items: side by side they were squeezed until "10 members" broke a letter per line.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun InviteCardContent(i: InvitePreview?, loaded: Boolean, mine: Boolean, joined: Boolean, joining: Boolean, onJoin: () -> Unit) {
+    val c = Linkord.colors
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.padding(top = 6.dp).widthIn(max = 360.dp).fillMaxWidth()) {
+        val narrow = maxWidth < 330.dp
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.raised).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Kicker(
+                when {
+                    loaded && i == null -> t("You received an invite, but it's invalid.")
+                    mine -> t("You sent an invite to join a server")
+                    else -> t("You've been invited to join a server")
+                },
+            )
+            val join = @Composable { modifier: Modifier ->
+                Button(
+                    onClick = onJoin,
+                    enabled = !joining,
+                    modifier = modifier,
+                    colors = ButtonDefaults.buttonColors(containerColor = if (joined) c.raised2 else c.online, contentColor = if (joined) c.text else Color.White),
+                ) { Text(if (joined) t("Joined") else if (joining) t("Joining…") else t("Join"), maxLines = 1, softWrap = false) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (i == null) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(c.raised2), contentAlignment = Alignment.Center) {
+                        if (loaded) Text("?", style = Linkord.type.title, color = c.text3)
                     }
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(c.text3))
-                    Text(plural(i.memberCount, "{n} Member", "{n} Members"), style = Linkord.type.label, modifier = Modifier.padding(start = 4.dp))
+                    Spacer(Modifier.width(12.dp))
+                    if (loaded) Column(Modifier.weight(1f)) {
+                        Text(t("Invalid invite"), style = Linkord.type.bodyStrong, color = c.danger)
+                        Text(t("Ask for a new invite."), style = Linkord.type.small)
+                    }
+                    return@Row
                 }
-            }
-            Button(
-                onClick = {
-                    if (joined) {
-                        session.actions.selectView(i.guild.id)
-                        nav.openHome()
-                    } else {
-                        joining = true
-                        session.launch {
-                            try {
-                                session.actions.acceptInvite(code)
-                                nav.openHome()
-                            } finally {
-                                joining = false
+                ServerTile(i.guild.name, i.guild.icon, 48.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(i.guild.name, style = Linkord.type.bodyStrong, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        i.onlineCount?.let { n ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(c.online))
+                                Text(plural(n, "{n} Online", "{n} Online"), style = Linkord.type.label, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
                             }
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(c.text3))
+                            Text(plural(i.memberCount, "{n} Member", "{n} Members"), style = Linkord.type.label, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 4.dp))
+                        }
                     }
-                },
-                enabled = !joining,
-                colors = ButtonDefaults.buttonColors(containerColor = if (joined) c.raised2 else c.online, contentColor = if (joined) c.text else Color.White),
-            ) { Text(if (joined) t("Joined") else if (joining) t("Joining…") else t("Join")) }
+                }
+                if (!narrow) {
+                    Spacer(Modifier.width(8.dp))
+                    join(Modifier)
+                }
+            }
+            if (i != null && narrow) join(Modifier.fillMaxWidth())
         }
     }
 }

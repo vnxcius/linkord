@@ -113,8 +113,24 @@ class LinkordMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val s = applicationContext.session
-        val sealed = message.data["p"]?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() } ?: return
-        val note = s.push.open(sealed) ?: return
+        val open = { key: String -> message.data[key]?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() }?.let { s.push.open(it) } }
+        // A quiet instruction (push.rs on_read): read on another device, so its notification goes.
+        open("q")?.let { q ->
+            val channel = q.optString("channel_id")
+            val read = q.optString("message_id")
+            if (q.optBoolean("read") && channel.isNotEmpty() && read.isNotEmpty()) s.notifier.read(channel, read)
+            return
+        }
+        val note = open("p") ?: return
         s.notifier.push(note)
+        // A DM reached this phone: the sender sees it delivered (server receipts.rs). FCM runs this on its own thread
+        // and keeps the process for a few seconds, so it's sent right here.
+        val channel = note.optString("channel_id")
+        val id = note.optString("message_id")
+        if (note.optBoolean("private") && !note.optBoolean("call") && channel.isNotEmpty() && id.isNotEmpty() && s.vault.get() != null) {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(5_000) { runCatching { s.api.send("POST", "/channels/$channel/delivered", mapOf("message_id" to id)) } }
+            }
+        }
     }
 }

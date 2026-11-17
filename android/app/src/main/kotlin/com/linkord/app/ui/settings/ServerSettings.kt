@@ -179,10 +179,6 @@ fun ServerSettingsScreen(guildId: String) {
                         channels = layout.all.take(4).map { (st.channelNumber(it) ?: "") to it },
                         onIcon = { picking = ImageKind.Avatar }, onBanner = { picking = ImageKind.Banner },
                     )
-                    Text(
-                        t("This is how your server looks in the list. Tap the icon or the banner to change them."),
-                        style = Linkord.type.small, color = c.text3, modifier = Modifier.padding(horizontal = 16.dp),
-                    )
                     Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Pill(if (iconShown != null) t("Change icon") else t("Upload icon")) { picking = ImageKind.Avatar }
                         Pill(if (bannerShown != null) t("Change banner") else t("Upload banner")) { picking = ImageKind.Banner }
@@ -276,10 +272,10 @@ fun ServerSettingsScreen(guildId: String) {
     }
     // Over the picker: cancelling the crop goes back to the photos, finishing stages the picture for Save.
     cropping?.let { (kind, uri) ->
-        ImageCropper(uri, kind, onCancel = { cropping = null }) { bytes ->
+        ImageCropper(uri, kind, onCancel = { cropping = null }) { picked ->
             cropping = null
             picking = null
-            if (kind == ImageKind.Avatar) icon = Staged(bytes) else banner = Staged(bytes)
+            if (kind == ImageKind.Avatar) icon = Staged(picked.bytes) else banner = Staged(picked.bytes)
         }
     }
 }

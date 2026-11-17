@@ -66,6 +66,8 @@ import com.linkord.core.Markdown
 import com.linkord.core.Message
 import com.linkord.core.MessageType
 import com.linkord.core.State
+import com.linkord.core.Tick
+import com.linkord.core.tickFor
 import com.linkord.core.nameColor
 import com.linkord.core.nameOf
 import com.linkord.core.profileOf
@@ -300,8 +302,28 @@ fun MessageItem(
                     }
                 }
             }
+            // Your DMs, WhatsApp-style: a clock while sending, one check sent, two delivered, two in the accent read.
+            val tick = st.tickFor(m)
+            if (tick != null || (m.pending && !m.failed && m.author.id == me && st.channels[m.channelId]?.kind?.let(com.linkord.core.Kind::isPrivate) == true)) {
+                MessageTick(tick, Modifier.align(Alignment.Bottom).padding(start = 6.dp, bottom = 2.dp))
+            }
         }
     }
+}
+
+@Composable
+private fun MessageTick(tick: Tick?, modifier: Modifier = Modifier) {
+    val c = Linkord.colors
+    val (icon, label) = when (tick) {
+        null -> LinkordIcons.Clock to t("Sending")
+        Tick.SENT -> LinkordIcons.Check to t("Sent")
+        Tick.DELIVERED -> LinkordIcons.CheckDouble to t("Delivered")
+        Tick.READ -> LinkordIcons.CheckDouble to t("Read")
+    }
+    androidx.compose.material3.Icon(
+        icon, contentDescription = label, tint = if (tick == Tick.READ) c.brand else c.text3,
+        modifier = modifier.size(if (tick == null) 13.dp else 16.dp),
+    )
 }
 
 @Composable

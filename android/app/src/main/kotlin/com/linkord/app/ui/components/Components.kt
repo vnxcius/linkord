@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -136,8 +137,10 @@ fun ServerTile(name: String, icon: String?, size: Dp, modifier: Modifier = Modif
     }
 }
 
+/** "Hyrule Castle" -> "HC". Whole characters only (an emoji is two chars), and words starting with a letter or digit. */
 fun initials(name: String): String =
-    name.split(Regex("\\s+")).filter { it.isNotEmpty() }.take(3).joinToString("") { it.take(1) }.ifEmpty { "?" }
+    name.split(Regex("\\s+")).filter { it.isNotEmpty() && Character.isLetterOrDigit(it.codePointAt(0)) }.take(3)
+        .joinToString("") { String(Character.toChars(it.codePointAt(0))) }.ifEmpty { "?" }
 
 /**
  * The active / unread mark beside a tile: its own bar, fully rounded, clear of the tile's corners (the app's rule
@@ -160,8 +163,21 @@ fun LIcon(icon: ImageVector, modifier: Modifier = Modifier, size: Dp = 20.dp, ti
 
 /** A small mono label, like the web client's kickers: "TEXT CHANNELS", "No. 03". */
 @Composable
-fun Kicker(text: String, modifier: Modifier = Modifier, color: Color = Linkord.colors.text3) {
-    Text(text.uppercase(), modifier = modifier, style = Linkord.type.label, color = color)
+fun Kicker(text: String, modifier: Modifier = Modifier, color: Color = Linkord.colors.text3, maxLines: Int = Int.MAX_VALUE) {
+    Text(text.uppercase(), modifier = modifier, style = Linkord.type.label, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/**
+ * One line that never wraps or gets cut: the text shrinks (down to [minSize]) to fit what's left, for labels in tight
+ * rows (tab bars, buttons) that a small phone or a long translation would otherwise squeeze.
+ */
+@Composable
+fun FitText(text: String, style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified, minSize: androidx.compose.ui.unit.TextUnit = 9.sp) {
+    androidx.compose.foundation.text.BasicText(
+        text, modifier, style = style.copy(color = if (color != Color.Unspecified) color else style.color), maxLines = 1, softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = minSize, maxFontSize = style.fontSize, stepSize = 0.5.sp),
+    )
 }
 
 @Composable

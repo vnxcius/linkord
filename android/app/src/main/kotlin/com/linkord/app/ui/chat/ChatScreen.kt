@@ -109,7 +109,7 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
                     ch.kind == Kind.GROUP_DM -> t("Group")
                     else -> st.dmRecipient(ch)?.username ?: ""
                 }
-                if (kicker.isNotEmpty()) Kicker(kicker)
+                if (kicker.isNotEmpty()) Kicker(kicker, maxLines = 1)
                 Text(
                     if (guildId != null) ch.name else st.dmName(ch, t("Empty group")),
                     style = Linkord.type.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -150,13 +150,13 @@ fun ChatScreen(channelId: String, onOpenHome: () -> Unit, onOpenMembers: () -> U
         }
         val typing = st.typingIn(channelId, now)
         TypingLine(typing.map { st.nameOf(it, guildId, t("Unknown")) })
+        // The composer makes its own room for the keyboard and the navigation bar (its emoji panel takes the keyboard's place).
         Composer(
             channel = ch,
             replyTo = replyTo,
             editing = editing,
             onCancelReply = { replyTo = null },
             onCancelEdit = { editing = null },
-            modifier = Modifier.navigationBarsPadding().imePadding(),
         )
     }
 

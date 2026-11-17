@@ -362,6 +362,17 @@ class Notifier(private val session: Session) {
 
     fun clearChannel(channelId: String) = nm.cancel(channelId.hashCode())
 
+    /**
+     * The conversation was read up to `messageId`, here or on another device (MESSAGE_ACK, or push.rs on_read while
+     * the app is closed): its notification goes, unless it holds a message newer than that.
+     */
+    fun read(channelId: String, messageId: String) {
+        val showing = runCatching { nm.activeNotifications.firstOrNull { it.id == channelId.hashCode() && it.tag == null }?.notification }.getOrNull() ?: return
+        val last = showing.extras.getString(EXTRA_LAST)
+        if (last != null && com.linkord.core.cmpId(last, messageId) > 0) return
+        clearChannel(channelId)
+    }
+
     /** The pushed "is calling you" for a DM call that stopped ringing us (answered, declined, hung up). */
     fun clearCall(channelId: String) = nm.cancel("call-$channelId".hashCode())
 

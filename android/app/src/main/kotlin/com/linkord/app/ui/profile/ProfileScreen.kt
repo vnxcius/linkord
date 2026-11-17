@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.linkord.app.session
 import com.linkord.app.ui.LocalNav
+import com.linkord.app.ui.Screen
 import com.linkord.app.ui.chat.MarkdownText
 import com.linkord.app.ui.chat.MdTap
 import com.linkord.app.ui.chat.openLink
@@ -87,6 +88,9 @@ data class Profile(
     val links: List<ProfileLink> = emptyList(),
     val note: String = "",
     val badges: List<Badge> = emptyList(),
+    /** Only on your own profile: the widget switches (Edit Profile). */
+    @SerialName("show_stats") val showStats: Boolean? = null,
+    @SerialName("show_top_songs") val showTopSongs: Boolean? = null,
 )
 
 private val TIERS = listOf("bronze", "silver", "gold", "platinum", "diamond")
@@ -121,12 +125,20 @@ fun ProfileScreen(userId: String, guildId: String?) {
     Column(Modifier.fillMaxSize().background(c.page).verticalScroll(rememberScrollState()).navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().height(180.dp)) {
             val banner = mediaUrl(user.banner ?: profile?.user?.banner)
-            if (banner != null) AsyncImage(banner, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            // A tap opens the banner or picture full screen, where it can be zoomed (ImageViewer).
+            if (banner != null) AsyncImage(
+                banner, t("Banner"), contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clickable { nav.push(Screen.Image(banner, "${user.username}-banner")) },
+            )
             else Box(Modifier.fillMaxSize().background((user.accentColor ?: profile?.user?.accentColor)?.let { Color(0xFF000000 or it.toLong()) } ?: c.raised2))
             Box(Modifier.statusBarsPadding().padding(8.dp).size(40.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.35f)).clickable { nav.pop() }, contentAlignment = Alignment.Center) {
                 LIcon(LinkordIcons.Back, tint = Color.White)
             }
-            Box(Modifier.align(Alignment.BottomStart).offset(x = 16.dp, y = 46.dp)) {
+            val avatar = mediaUrl(user.avatar)
+            Box(
+                Modifier.align(Alignment.BottomStart).offset(x = 16.dp, y = 46.dp).clip(RoundedCornerShape(30))
+                    .then(if (avatar != null) Modifier.clickable { nav.push(Screen.Image(avatar, "${user.username}-avatar")) } else Modifier),
+            ) {
                 Box(Modifier.size(104.dp).clip(RoundedCornerShape(30)).background(c.page))
                 Avatar(user, 92.dp, Modifier.padding(6.dp), status = st.presenceOf(userId), ring = c.page)
             }

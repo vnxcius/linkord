@@ -73,15 +73,11 @@ fun HomeShell(openRequest: com.linkord.app.data.AppLink?, onOpened: () -> Unit) 
         fun showChat() = settle(0f)
         fun showHome() = settle(width)
 
-        // Start where you left off: in the last channel when there is one.
+        // Start on the Home tab, on the server you were in last (its last channel marked in the list), not inside a
+        // chat: opening the app shows what's new everywhere first. A notification or a link still opens its chat.
         LaunchedEffect(Unit) {
             val view = session.prefs.lastView
             if (view == "@me" || st.guilds[view] != null) session.actions.selectView(view)
-            val ch = session.store.s.selected[session.store.s.view]
-            if (ch != null && session.store.s.channels[ch] != null) {
-                session.actions.selectChannel(ch)
-                x.snapTo(0f)
-            }
         }
         val nav = com.linkord.app.ui.LocalNav.current
         nav.openChat = { id ->

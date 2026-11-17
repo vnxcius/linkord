@@ -40,6 +40,8 @@ sealed interface Screen {
     data object Kass : Screen
     data object SharedClips : Screen
     data object Stats : Screen
+    data object PatchNotes : Screen
+    data object Privacy : Screen
     data class ServerSettings(val guildId: String) : Screen
     data class Roles(val guildId: String) : Screen
     data class Bans(val guildId: String) : Screen

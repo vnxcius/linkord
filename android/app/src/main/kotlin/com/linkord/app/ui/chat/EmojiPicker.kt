@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -83,7 +84,15 @@ private class Tab(val id: String, val label: String, val start: Int, val icon: @
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun EmojiPicker(st: State, guildId: String?, modifier: Modifier = Modifier, height: Dp = 380.dp, onPick: (String) -> Unit) {
+fun EmojiPicker(
+    st: State,
+    guildId: String?,
+    modifier: Modifier = Modifier,
+    height: Dp = 380.dp,
+    /** The search box got or lost focus (the composer's panel makes room for the keyboard then). */
+    onSearchFocus: (Boolean) -> Unit = {},
+    onPick: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val session = ctx.session
     val c = Linkord.colors
@@ -158,7 +167,10 @@ fun EmojiPicker(st: State, guildId: String?, modifier: Modifier = Modifier, heig
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
                 if (query.isEmpty()) Text(t("Find the perfect emoji"), style = Linkord.type.body, color = c.text3)
-                BasicTextField(query, { query = it }, singleLine = true, textStyle = Linkord.type.body.copy(color = c.text), cursorBrush = SolidColor(c.text), modifier = Modifier.fillMaxWidth())
+                BasicTextField(
+                    query, { query = it }, singleLine = true, textStyle = Linkord.type.body.copy(color = c.text), cursorBrush = SolidColor(c.text),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { onSearchFocus(it.isFocused) },
+                )
             }
             if (query.isNotEmpty()) Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).clickable { query = "" }, contentAlignment = Alignment.Center) {
                 LIcon(LinkordIcons.Close, size = 16.dp, tint = c.text3)

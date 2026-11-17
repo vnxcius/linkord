@@ -315,14 +315,17 @@ class Actions(private val session: Session) {
     }
 
     /** Your custom status: emoji and/or text, clearing itself at [expiresAt] (unix ms) if given. */
-    suspend fun setCustomStatus(emoji: String?, text: String?, expiresAt: Long?) {
-        if (emoji.isNullOrBlank() && text.isNullOrBlank()) {
+    /** [emoji]: a Unicode one (name only) or a server's (id + name); the server checks it and fills in its real name. */
+    suspend fun setCustomStatus(emoji: com.linkord.core.StatusEmoji?, text: String?, expiresAt: Long?) {
+        val e = emoji?.takeIf { it.name.isNotBlank() }?.let { it.copy(name = it.name.trim()) }
+        if (e == null && text.isNullOrBlank()) {
             api.send("DELETE", "/activities/custom")
             store.update { it.copy(customStatus = null) }
             return
         }
-        api.send("PUT", "/activities/custom", mapOf("text" to text?.trim(), "emoji" to emoji?.takeIf { it.isNotBlank() }?.let { mapOf("name" to it.trim()) }, "expires_at" to expiresAt))
-        store.update { it.copy(customStatus = com.linkord.core.Activity(type = 4, name = "Custom Status", state = text?.trim(), emoji = emoji?.takeIf { e -> e.isNotBlank() }?.let { e -> com.linkord.core.StatusEmoji(name = e.trim()) }, expiresAt = expiresAt)) }
+        val wire = e?.let { if (it.id != null) mapOf("id" to it.id, "name" to it.name, "animated" to it.animated) else mapOf("name" to it.name) }
+        api.send("PUT", "/activities/custom", mapOf("text" to text?.trim(), "emoji" to wire, "expires_at" to expiresAt))
+        store.update { it.copy(customStatus = com.linkord.core.Activity(type = 4, name = "Custom Status", state = text?.trim(), emoji = e, expiresAt = expiresAt)) }
     }
 
     suspend fun editMessage(m: Message, content: String) {
@@ -411,6 +414,18 @@ class Actions(private val session: Session) {
     suspend fun setStatus(status: String) {
         api.send("PATCH", "/users/@me", mapOf("status" to status))
         store.update { st -> st.copy(me = st.me?.copy(status = status)) }
+    }
+
+    /** Privacy: read receipts in DMs (off both ways, server receipts.rs). */
+    suspend fun setReadReceipts(on: Boolean) {
+        api.send("PATCH", "/users/@me", mapOf("read_receipts" to on))
+        store.update { st -> st.copy(me = st.me?.copy(readReceipts = on)) }
+    }
+
+    /** Privacy: let others' REC record my voice (users.rec_opt_out is the opposite). */
+    suspend fun setRecordable(on: Boolean) {
+        api.send("PATCH", "/users/@me", mapOf("rec_opt_out" to !on))
+        store.update { st -> st.copy(me = st.me?.copy(recOptOut = !on)) }
     }
 
     companion object {

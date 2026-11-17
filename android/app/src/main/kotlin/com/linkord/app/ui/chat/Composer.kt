@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -33,6 +38,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,6 +77,7 @@ import kotlinx.coroutines.launch
  * The message box. Mentions are typed as "@Name" and sent as <@id> (the web client's lib/mentions.ts); long text
  * goes as message.txt, like Discord.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun Composer(
     channel: Channel,
@@ -83,9 +97,16 @@ fun Composer(
     // "@Name" -> user id, for what was picked from the suggestions.
     val picked = remember(channel.id) { HashMap<String, String>() }
     var attachMenu by remember { mutableStateOf(false) }
+    // The attached picture or video open in its editor (AttachmentEdit.kt).
+    var fileEdit by remember { mutableStateOf<Outgoing?>(null) }
     // ":name:" -> <:name:id>, for server emoji picked from the sheet.
     val pickedEmoji = remember(channel.id) { HashMap<String, String>() }
-    var emojiSheet by remember { mutableStateOf(false) }
+    // The emoji panel takes the keyboard's place under the box, like WhatsApp, so what you're typing stays in view.
+    var emojiPanel by remember { mutableStateOf(false) }
+    // Its search box has the keyboard: the panel shrinks to a strip of results above it.
+    var searching by remember { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val fieldFocus = remember { FocusRequester() }
 
     LaunchedEffect(editing?.id) {
         editing?.let { value = TextFieldValue(displayMentions(it.content, st, channel.guildId, picked), TextRange(it.content.length)) }
@@ -161,7 +182,54 @@ fun Composer(
     val query = mentionQuery(value)
     val suggestions = remember(query, st.members, channel.id) { if (query == null) emptyList() else suggest(query, st, channel) }
 
-    Column(modifier.fillMaxWidth().background(c.page).animateContentSize()) {
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val imeTarget = WindowInsets.imeAnimationTarget
+    val navInsets = WindowInsets.navigationBars
+    val imePx = imeInsets.getBottom(density)
+    val navPx = navInsets.getBottom(density)
+    // The panel is as tall as the keyboard was (so switching between them doesn't move the box), within what the
+    // screen can spare on a small phone.
+    val screenPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
+    LaunchedEffect(Unit) {
+        snapshotFlow { imeInsets.getBottom(density) to imeTarget.getBottom(density) }.collect { (now, target) ->
+            if (now == target && now > navInsets.getBottom(density) + with(density) { 120.dp.roundToPx() } && !searching) KeyboardHeight.px = now
+        }
+    }
+    val panelPx = (KeyboardHeight.px.takeIf { it > 0 } ?: (with(density) { 300.dp.roundToPx() } + navPx))
+        .coerceIn(with(density) { 220.dp.roundToPx() } + navPx, maxOf(screenPx / 2, with(density) { 220.dp.roundToPx() } + navPx))
+    val searchPx = with(density) { 156.dp.roundToPx() }
+    // Opening hides the keyboard; once it has gone, the keyboard coming back for the message box (a tap on it, or the
+    // keyboard button) closes the panel when it's fully up, so the box doesn't jump.
+    LaunchedEffect(emojiPanel) {
+        if (!emojiPanel) {
+            searching = false
+            return@LaunchedEffect
+        }
+        var wentDown = false
+        snapshotFlow { Triple(imeInsets.getBottom(density), imeTarget.getBottom(density), searching) }.collect { (now, target, search) ->
+            val nav = navInsets.getBottom(density)
+            if (target <= nav) wentDown = true
+            else if (wentDown && !search && now == target) emojiPanel = false
+        }
+    }
+    BackHandler(enabled = emojiPanel) { emojiPanel = false }
+    fun insertEmoji(e: String) {
+        val custom = Regex("^(\\w+):(\\d+)$").find(e)
+        val insert = if (custom != null) {
+            val (name, id) = custom.destructured
+            val animated = st.emojis.values.any { l -> l.any { it.id == id && it.animated } }
+            pickedEmoji[":$name:"] = "<${if (animated) "a" else ""}:$name:$id>"
+            ":$name: "
+        } else e
+        val at = value.selection.start.coerceIn(0, value.text.length)
+        val text = value.text.substring(0, at) + insert + value.text.substring(at)
+        value = TextFieldValue(text, TextRange(at + insert.length))
+        Drafts.set(channel.id, text)
+    }
+
+    Column(modifier.fillMaxWidth().background(c.page)) {
+    Column(Modifier.fillMaxWidth().animateContentSize()) {
         if (commands.isNotEmpty()) Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.raised).padding(vertical = 4.dp)) {
             for (cmd in commands.take(8)) Column(
                 Modifier.fillMaxWidth().clickable {
@@ -210,12 +278,13 @@ fun Composer(
                 LIcon(LinkordIcons.Close, size = 18.dp, modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable { bar?.second?.invoke(); if (editing != null) value = TextFieldValue("") })
             }
         }
-        if (files.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (f in files.toList()) Row(Modifier.clip(RoundedCornerShape(10.dp)).background(c.raised).padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                LIcon(LinkordIcons.Paperclip, size = 14.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(f.name, style = Linkord.type.small, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn160())
-                LIcon(LinkordIcons.Close, size = 16.dp, modifier = Modifier.padding(start = 4.dp).clickable { files.remove(f) })
+        // What's attached: pictures and videos as thumbnails (a tap edits one), other files by name.
+        if (files.isNotEmpty()) AttachmentStrip(files.toList(), onRemove = { files.remove(it) }, onEdit = { fileEdit = it })
+        fileEdit?.let { f ->
+            AttachmentEditor(f, onCancel = { fileEdit = null }) { edited ->
+                val i = files.indexOf(f)
+                if (i >= 0) files[i] = edited
+                fileEdit = null
             }
         }
         if (vn.mode == RecMode.Locked) LockedRecorder(vn, ::sendRecording)
@@ -252,12 +321,24 @@ fun Composer(
                     cursorBrush = SolidColor(c.brand),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     maxLines = 6,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 21.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 21.dp).focusRequester(fieldFocus),
                 )
             }
             Spacer(Modifier.width(4.dp))
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).clickable { emojiSheet = true }, contentAlignment = Alignment.Center) {
-                LIcon(LinkordIcons.Smile, size = 22.dp, tint = c.text2)
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(22.dp)).clickable {
+                    if (!emojiPanel) {
+                        keyboard?.hide()
+                        emojiPanel = true
+                    } else {
+                        // Back to the keyboard: the panel closes once it's up.
+                        fieldFocus.requestFocus()
+                        keyboard?.show()
+                    }
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                LIcon(if (emojiPanel) LinkordIcons.Keyboard else LinkordIcons.Smile, size = 22.dp, tint = if (emojiPanel) c.text else c.text2)
             }
             }
             val canSend = value.text.isNotBlank() || files.isNotEmpty()
@@ -280,26 +361,24 @@ fun Composer(
                 }
             }
         }
-        if (emojiSheet) EmojiSheet(st, channel.guildId, onDismiss = { emojiSheet = false }) { e ->
-            val custom = Regex("^(\\w+):(\\d+)$").find(e)
-            val insert = if (custom != null) {
-                val (name, id) = custom.destructured
-                val animated = st.emojis.values.any { l -> l.any { it.id == id && it.animated } }
-                pickedEmoji[":$name:"] = "<${if (animated) "a" else ""}:$name:$id>"
-                ":$name: "
-            } else e
-            val at = value.selection.start
-            val text = value.text.substring(0, at) + insert + value.text.substring(at)
-            value = TextFieldValue(text, TextRange(at + insert.length))
-        }
         if (value.text.length > Actions.MAX_MESSAGE) Text(
             t("{n} / {max}: sends as message.txt", "n" to value.text.length, "max" to Actions.MAX_MESSAGE),
             style = Linkord.type.label, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp),
         )
     }
+        // Under the box: the keyboard's room (or the navigation bar's), or the emoji panel in its place.
+        val bottomPx = if (emojiPanel) maxOf(panelPx, imePx + if (searching) searchPx else 0) else maxOf(imePx, navPx)
+        if (emojiPanel) Box(Modifier.fillMaxWidth().height(with(density) { bottomPx.toDp() }).clipToBounds()) {
+            val pickerPx = if (searching) maxOf(bottomPx - imePx, searchPx) else panelPx - navPx
+            EmojiPicker(st, channel.guildId, height = with(density) { pickerPx.toDp() }, onSearchFocus = { searching = it }, onPick = ::insertEmoji)
+        } else Spacer(Modifier.height(with(density) { bottomPx.toDp() }))
+    }
 }
 
-private fun Modifier.widthIn160() = this.then(Modifier.width(140.dp))
+/** The keyboard's last full height (px, from the screen's bottom), for the emoji panel that takes its place. */
+private object KeyboardHeight {
+    var px = 0
+}
 
 @Composable
 private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
@@ -353,11 +432,3 @@ object Drafts {
     }
 }
 
-/** Emoji for the message box: every emoji by category, the servers' own included (EmojiPicker). */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-private fun EmojiSheet(st: com.linkord.core.State, guildId: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
-    androidx.compose.material3.ModalBottomSheet(onDismiss, containerColor = Linkord.colors.panel) {
-        Box(Modifier.padding(bottom = 24.dp)) { EmojiPicker(st, guildId, height = 440.dp) { onPick(it) } }
-    }
-}

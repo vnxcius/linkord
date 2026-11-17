@@ -84,9 +84,13 @@ fun SettingsScreen() {
                     runCatching { ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)) }
                 }
                 Entry(LinkordIcons.BellOff, t("Server notifications")) { nav.push(Screen.NotificationLevels) }
+                Entry(LinkordIcons.Lock, t("Privacy")) { nav.push(Screen.Privacy) }
                 Entry(LinkordIcons.MobileDevice, t("Sessions")) { nav.push(Screen.Sessions) }
                 Entry(LinkordIcons.Close, t("Blocked")) { nav.push(Screen.Blocked) }
                 Entry(LinkordIcons.Music, "Kass") { nav.push(Screen.Kass) }
+            }
+            Section {
+                Entry(LinkordIcons.Sparkles, t("Patch notes")) { nav.push(Screen.PatchNotes) }
             }
             Section {
                 Entry(LinkordIcons.Logout, t("Log Out"), danger = true) { session.signOut() }

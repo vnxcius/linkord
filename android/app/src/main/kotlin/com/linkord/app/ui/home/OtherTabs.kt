@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -80,10 +84,18 @@ fun DmList(onOpenChannel: (String) -> Unit, showHeader: Boolean) {
             val unread = st.isUnread(ch)
             val mentions = st.mentions[ch.id] ?: 0
             val active = st.view == "@me" && st.selected["@me"] == ch.id
+            var menu by remember { mutableStateOf(false) }
+            val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp).clip(RoundedCornerShape(12.dp))
                     .background(if (active) c.active else Color.Transparent)
-                    .clickable { onOpenChannel(ch.id) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    .combinedClickable(
+                        onClick = { onOpenChannel(ch.id) },
+                        onLongClick = {
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            menu = true
+                        },
+                    ).padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (ch.kind == Kind.GROUP_DM) {
@@ -104,6 +116,14 @@ fun DmList(onOpenChannel: (String) -> Unit, showHeader: Boolean) {
                     if (line != null) Text(line, style = Linkord.type.small, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 CountBadge(mentions, ring = Color.Transparent)
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem(text = { Text(t("Mark as read")) }, enabled = unread, onClick = { menu = false; session.actions.markRead(listOf(ch.id)) })
+                    val unreadDms = dms.filter { st.isUnread(it) }
+                    if (unreadDms.size > 1) DropdownMenuItem(
+                        text = { Text(t("Mark all conversations as read")) },
+                        onClick = { menu = false; session.actions.markRead(unreadDms.map { it.id }) },
+                    )
+                }
             }
         }
     }
@@ -132,7 +152,7 @@ fun MessagesTab(onOpenChannel: (String) -> Unit) {
     var friendsMode by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (friendsMode) t("Friends") else t("Messages"), style = Linkord.type.display, modifier = Modifier.weight(1f))
+            Text(if (friendsMode) t("Friends") else t("Messages"), style = Linkord.type.display, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             val pending = st.relationships.count { it.value == Rel.INCOMING }
             Box {
                 Row(
@@ -141,9 +161,10 @@ fun MessagesTab(onOpenChannel: (String) -> Unit) {
                 ) {
                     LIcon(if (friendsMode) LinkordIcons.ChatBubble else LinkordIcons.Users, size = 18.dp, tint = c.text)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (friendsMode) t("Messages") else t("Friends"), style = Linkord.type.small, color = c.text)
+                    Text(if (friendsMode) t("Messages") else t("Friends"), style = Linkord.type.small, color = c.text, maxLines = 1)
                 }
-                if (pending > 0 && !friendsMode) CountBadge(pending, Modifier.align(Alignment.TopEnd))
+                // On the button's corner, not over its label.
+                if (pending > 0 && !friendsMode) CountBadge(pending, Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp))
             }
         }
         Box(Modifier.weight(1f).padding(horizontal = 8.dp).clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)).background(c.panel)) {

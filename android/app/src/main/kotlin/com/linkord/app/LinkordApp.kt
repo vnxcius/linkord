@@ -23,6 +23,7 @@ class LinkordApp : Application(), SingletonImageLoader.Factory {
         session = Session(this)
         session.reporter.install()
         session.start()
+        watchNetwork()
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             private var idle: Job? = null
             override fun onStart(owner: LifecycleOwner) {
@@ -43,6 +44,32 @@ class LinkordApp : Application(), SingletonImageLoader.Factory {
                 }
             }
         })
+    }
+
+    /**
+     * A switch to another network (Wi-Fi <-> mobile data, or back online) resumes the gateway on it right away: the old
+     * socket is dead without knowing it, and a retry could be waiting out a long backoff. The first callback is the
+     * network we already have.
+     */
+    private fun watchNetwork() {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                private var seen = false
+                private var current: android.net.Network? = null
+                override fun onAvailable(network: android.net.Network) {
+                    val changed = seen && network != current
+                    seen = true
+                    current = network
+                    if (changed) session.scope.launch { session.gateway.networkChanged() }
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    // Back online after this, on any network, counts as a change.
+                    if (current == network) current = null
+                }
+            })
+        }
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader = ImageLoader.Builder(context)

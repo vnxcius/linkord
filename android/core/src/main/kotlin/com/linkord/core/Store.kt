@@ -28,6 +28,8 @@ data class ChannelMessages(
     /** Newer messages exist (after jumping back to an old one). */
     val hasNewer: Boolean = false,
     val loading: Boolean = false,
+    /** Messages that came over the gateway while the latest page was on its way (not loaded yet): mergeLatest keeps them. */
+    val arrived: Set<String> = emptySet(),
 )
 
 enum class Connection { Idle, Connecting, Open, Reconnecting }
@@ -57,6 +59,8 @@ data class State(
     val customStatus: Activity? = null,
     val notes: PersistentMap<String, String> = persistentMapOf(),
     val readStates: PersistentMap<String, String> = persistentMapOf(),
+    /** DM channel id -> the others' receipts by user id (server receipts.rs). */
+    val receipts: PersistentMap<String, PersistentMap<String, Receipt>> = persistentMapOf(),
     val messages: PersistentMap<String, ChannelMessages> = persistentMapOf(),
     /** channel id -> user id -> expiry (ms since epoch) */
     val typing: PersistentMap<String, PersistentMap<String, Long>> = persistentMapOf(),
@@ -217,6 +221,24 @@ class Store {
                     st.copy(readStates = rs, mentions = st.mentions.putting(cid, 0))
                 }
             }
+            "DM_RECEIPT" -> {
+                val o = d.jsonObject
+                val cid = o.str("channel_id") ?: return
+                val uid = o.str("user_id") ?: return
+                update { it.withReceipt(cid, uid, delivered = o.str("delivered_id"), read = o.str("read_id")) }
+            }
+            // Someone (maybe you) turned read receipts on or off: all of your DMs' receipts again.
+            "DM_RECEIPTS" -> {
+                val o = d.jsonObject
+                val all: Map<String, List<Receipt>> = LinkordJson.decodeFromJsonElement(o["receipts"] ?: return)
+                val own = (o["read_receipts"] as? JsonPrimitive)?.booleanOrNull
+                update { st ->
+                    st.copy(
+                        receipts = all.mapValues { (_, l) -> l.associateBy { it.userId }.toPersistentMap() }.toPersistentMap(),
+                        me = if (own != null) st.me?.copy(readReceipts = own) else st.me,
+                    )
+                }
+            }
             "REACTION_ADD", "REACTION_REMOVE" -> {
                 val o = d.jsonObject
                 onReaction(t == "REACTION_ADD", o.str("channel_id")!!, o.str("message_id")!!, o.str("user_id")!!, o.str("emoji")!!)
@@ -329,6 +351,7 @@ class Store {
                 activities = d.activities.toPersistentMap(),
                 customStatus = d.customStatus,
                 readStates = d.readStates.toPersistentMap(),
+                receipts = d.dmReceipts.mapValues { (_, l) -> l.associateBy { it.userId }.toPersistentMap() }.toPersistentMap(),
                 voice = d.voiceStates.filter { it.channelId != null }.associateBy { it.userId }.toPersistentMap(),
                 voiceStatus = d.voiceChannelStatuses.associate { it.channelId to it.status }.toPersistentMap(),
             )
@@ -454,12 +477,19 @@ fun State.bucket(channelId: String) = messages[channelId] ?: ChannelMessages()
 /** Inserts a message, replacing the optimistic copy with the same nonce (actions.ts receiveMessage). */
 fun State.receive(msg: Message): State {
     val b = messages[msg.channelId] ?: return this
-    // While viewing history the new message isn't next to what's loaded; jumping to the present picks it up.
-    if (!b.loaded || b.hasNewer) return this
     if (b.list.any { it.id == msg.id }) return this
+    // Our own message coming back always takes its optimistic copy's place, even while the channel waits to be
+    // reloaded (after a READY) or shows history: otherwise the grey copy stayed beside the real one.
     val pending = if (msg.nonce != null) b.list.indexOfFirst { it.nonce == msg.nonce && it.author.id == msg.author.id } else -1
-    val list = if (pending >= 0) b.list.replacingAt(pending, msg.copy(pending = false, failed = false)) else b.list.adding(msg)
-    return copy(messages = messages.putting(msg.channelId, b.copy(list = list)))
+    if (pending >= 0) {
+        val confirmed = b.copy(list = b.list.replacingAt(pending, msg.copy(pending = false, failed = false)), arrived = if (b.loaded) b.arrived else b.arrived + msg.id)
+        return copy(messages = messages.putting(msg.channelId, confirmed))
+    }
+    // While viewing history the new message isn't next to what's loaded; jumping to the present picks it up. While
+    // the latest page is on its way it's kept (mergeLatest keeps what's newer than the page).
+    if ((!b.loaded && !b.loading) || b.hasNewer) return this
+    val arrived = if (b.loaded) b.arrived else b.arrived + msg.id
+    return copy(messages = messages.putting(msg.channelId, b.copy(list = b.list.adding(msg), arrived = arrived)))
 }
 
 const val PAGE = 50
@@ -482,12 +512,15 @@ fun State.mergeLatest(channelId: String, page: List<Message>): State {
     val first = page.firstOrNull()?.id
     val joined = page.size == PAGE && first != null && first in held
     val older = if (joined) b.list.filter { !it.pending && !it.failed && cmpId(it.id, first) < 0 } else emptyList()
+    // Messages that came over the gateway while the page was on its way and aren't in it, then our unsent ones.
+    val inPage = page.mapTo(HashSet()) { it.id }
+    val newer = b.list.filter { it.id in b.arrived && it.id !in inPage && !it.pending && !it.failed }
     val local = b.list.filter { it.pending || it.failed }
-    val list = (older + page + local).toPersistentList()
+    val list = (older + page + newer + local).toPersistentList()
     return copy(
         messages = messages.putting(
             channelId,
-            b.copy(list = list, loaded = true, hasMore = if (joined) b.hasMore else page.size == PAGE, hasNewer = false, loading = false),
+            b.copy(list = list, loaded = true, hasMore = if (joined) b.hasMore else page.size == PAGE, hasNewer = false, loading = false, arrived = emptySet()),
         ),
     )
 }
@@ -554,6 +587,32 @@ fun State.isMuted(c: Channel): Boolean {
     val st = settings
     return c.id in st.mutedChannels || (c.parentId != null && c.parentId in st.mutedChannels) ||
         (c.guildId != null && c.guildId in st.mutedGuilds)
+}
+
+/** A receipt moved forward (DM_RECEIPT); positions never go back. */
+fun State.withReceipt(channelId: String, userId: String, delivered: String? = null, read: String? = null): State {
+    val later = { cur: String?, new: String? -> if (new == null || (cur != null && cmpId(cur, new) >= 0)) cur else new }
+    val inChannel = receipts[channelId] ?: persistentMapOf()
+    val cur = inChannel[userId] ?: Receipt(userId)
+    val next = cur.copy(deliveredId = later(cur.deliveredId, delivered), readId = later(cur.readId, read))
+    return if (next == cur && userId in inChannel) this else copy(receipts = receipts.putting(channelId, inChannel.putting(userId, next)))
+}
+
+/**
+ * Your message's tick in a DM: read once everyone else has read it, delivered once a device of each of them got it,
+ * else sent. Null outside DMs and for others' messages, pending ones and messages from before you joined in.
+ */
+fun State.tickFor(m: Message): Tick? {
+    val ch = channels[m.channelId] ?: return null
+    if (!Kind.isPrivate(ch.kind) || m.pending || m.failed || m.author.id != me?.id) return null
+    val others = receipts[m.channelId]?.values?.filter { it.userId != m.author.id }.orEmpty()
+    if (others.isEmpty()) return Tick.SENT
+    val reached = { pos: String? -> pos != null && cmpId(pos, m.id) >= 0 }
+    return when {
+        others.all { reached(it.readId) } -> Tick.READ
+        others.all { reached(it.readId) || reached(it.deliveredId) } -> Tick.DELIVERED
+        else -> Tick.SENT
+    }
 }
 
 fun State.isUnread(c: Channel): Boolean {

@@ -1,6 +1,7 @@
 package com.linkord.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,6 +45,8 @@ class Gateway(
     private var quiet = false
     private var quietJob: Job? = null
     private var reconnectJob: Job? = null
+    /** Drops an attempt that hasn't connected within [OPEN_TIMEOUT_MS] (a connect stuck on a network that went away). */
+    private var openWatch: Job? = null
     private var lastActive = 0L
     /** The app is in front (input counts as "in use" for push.rs only then). */
     var foreground = false
@@ -81,10 +84,27 @@ class Gateway(
         // The first start: its connection is already on the way.
         if (!stopped && !cameBack && retry == 0) return
         if (!stopped && store.s.connection == Connection.Open && away < 10_000) return
+        restart()
+    }
+
+    /**
+     * The phone switched networks (Wi-Fi <-> mobile data, or back online): the socket on the old one is dead even if it
+     * doesn't know yet, and a retry may be waiting out a long backoff. Resume now on the new one, quietly.
+     */
+    fun networkChanged() {
+        if (token() == null || stopped) return
+        restart()
+    }
+
+    /** Drops the socket (and any attempt or retry in progress) and resumes right now, without the banner at first. */
+    private fun restart() {
         val old = ws
         ws = null
         old?.cancel()
         reconnectJob?.cancel()
+        // REST calls share the connection pool: idle connections from before are as dead as the socket was, and a send
+        // on one waited out the whole read timeout, its message grey all along. Closing them is I/O: off the main thread.
+        scope.launch(Dispatchers.IO) { http.connectionPool.evictAll() }
         retry = 0
         stopped = false
         quiet = true
@@ -98,23 +118,16 @@ class Gateway(
         open()
     }
 
-    /** Reconnect now if the socket is down (the network came back, the app returned to the front). */
-    fun nudge() {
-        if (!stopped && ws == null) {
-            reconnectJob?.cancel()
-            retry = 0
-            open()
-        }
-    }
-
     private fun open() {
         val tok = token() ?: return
         if (!quiet) store.setConnection(if (retry > 0) Connection.Reconnecting else Connection.Connecting)
         val url = baseUrl().replaceFirst(Regex("^http"), "ws") + "/api/gateway"
         val req = Request.Builder().url(url).build()
         lateinit var sock: WebSocket
+        val up = java.util.concurrent.atomic.AtomicBoolean(false)
         sock = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                up.set(true)
                 val st = store.s
                 val msg = if (st.sessionId != null && st.ready) {
                     mapOf("op" to "resume", "token" to tok, "session_id" to st.sessionId, "seq" to seq, "client" to CLIENT)
@@ -157,6 +170,12 @@ class Gateway(
             }
         })
         ws = sock
+        openWatch?.cancel()
+        openWatch = scope.launch {
+            delay(OPEN_TIMEOUT_MS)
+            // Cancelling ends in onFailure, which schedules the next try like any other drop.
+            if (ws === sock && !up.get()) sock.cancel()
+        }
     }
 
     private fun onConnected() {
@@ -231,6 +250,8 @@ class Gateway(
     companion object {
         /** Settings -> Sessions shows "Linkord for Android" for this (server accepts it since the Android app). */
         const val CLIENT = "android"
+        /** How long a connection attempt gets to open (TCP + TLS + upgrade) before it's dropped and tried again. */
+        const val OPEN_TIMEOUT_MS = 10_000L
     }
 }
 
