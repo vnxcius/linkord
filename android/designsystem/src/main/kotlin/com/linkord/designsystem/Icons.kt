@@ -50,34 +50,6 @@ val LinkordMark: ImageVector by lazy {
     }.build()
 }
 
-/** The site a profile link goes to, if it's one with a mark (web: lib/brand-icons.ts brandOf). Subdomains count. */
-fun brandOf(url: String): Brand? {
-    val u = url.trim()
-    if (u.isEmpty()) return null
-    val full = if (Regex("^[a-z][a-z0-9+.-]*://", RegexOption.IGNORE_CASE).containsMatchIn(u)) u else "https://$u"
-    val host = runCatching { java.net.URI(full).host }.getOrNull()?.lowercase()?.trimEnd('.') ?: return null
-    return BrandIcons.all.firstOrNull { b -> b.hosts.any { host == it || host.endsWith(".$it") } }
-}
-
-private val brandVectors = HashMap<String, ImageVector>()
-
-/**
- * A link's icon: the site's own mark for sites we know (Instagram, Twitter, Steam...), otherwise the chain link, like
- * the web's SiteIcon. Brand marks fill their whole grid, so they get Heroicons' 2px of air to match in size.
- */
-fun siteIcon(url: String): ImageVector {
-    val b = brandOf(url) ?: return LinkordIcons.Link
-    return synchronized(brandVectors) {
-        brandVectors.getOrPut(b.id) {
-            ImageVector.Builder(b.name, 24.dp, 24.dp, 28f, 28f).apply {
-                group(translationX = 2f, translationY = 2f) {
-                    addPath(addPathNodes(b.path), fill = SolidColor(Color.Black))
-                }
-            }.build()
-        }
-    }
-}
-
 /**
  * Presence marks (the web's app/src/lib/presence-marks.ts; keep the numbers in step): triangles from the app icon with
  * rounded corners, in a 100-unit box. online = solid, idle = the Triforce (middle missing), dnd = upside down,

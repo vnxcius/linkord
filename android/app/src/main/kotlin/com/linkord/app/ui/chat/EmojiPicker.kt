@@ -1,6 +1,5 @@
 package com.linkord.app.ui.chat
 
-import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,6 +52,9 @@ import com.linkord.app.session
 import com.linkord.app.ui.components.Kicker
 import com.linkord.app.ui.components.LIcon
 import com.linkord.core.Emoji
+import com.linkord.core.EmojiData
+import com.linkord.core.EmojiEntry
+import com.linkord.core.EmojiGroup
 import com.linkord.core.State
 import com.linkord.core.t
 import com.linkord.designsystem.Linkord
@@ -61,74 +63,6 @@ import com.linkord.designsystem.emojiText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
-
-/** One emoji: its character, shortcodes (first = the one shown), search words and its five skin tones, if any. */
-class EmojiEntry(val char: String, val names: List<String>, val tags: List<String>, val tones: List<String>?)
-
-class EmojiGroup(val id: String, val emojis: List<EmojiEntry>)
-
-/**
- * Every emoji the bundled Twemoji font has, by category: the web client's list (app/src/lib/emoji-list.json, built from
- * emojibase by scripts/build-emoji-data.mjs), copied into the assets at build time.
- */
-object EmojiData {
-    /** Category names (translated like the web's) and the emoji each one's tab shows. */
-    val GROUPS = linkedMapOf(
-        "Smileys" to "😀", "People" to "👋", "Nature" to "🐻", "Food" to "🍔", "Activities" to "⚽",
-        "Travel" to "🚗", "Objects" to "💡", "Symbols" to "🔣", "Flags" to "🏁",
-    )
-    private val SKIN_TONES = listOf("🏻", "🏼", "🏽", "🏾", "🏿")
-
-    @Volatile private var cached: List<EmojiGroup>? = null
-
-    fun groups(ctx: Context): List<EmojiGroup> = cached ?: synchronized(this) {
-        cached ?: runCatching { parse(ctx.assets.open("emoji/emoji-list.json").bufferedReader().readText()) }.getOrDefault(emptyList()).also { cached = it }
-    }
-
-    /** [[group, [[emoji, "names", "tags", skins?], ...]], ...]; skins: 1 = the tone right after the first character. */
-    fun parse(json: String): List<EmojiGroup> = Json.parseToJsonElement(json).jsonArray.map { g ->
-        val (id, list) = g.jsonArray
-        EmojiGroup(id.jsonPrimitive.content, list.jsonArray.map { e ->
-            val a = e.jsonArray
-            val char = a[0].jsonPrimitive.content
-            val skins = a.getOrNull(3)
-            val tones = when {
-                skins == null -> null
-                skins is JsonArray -> skins.map { it.jsonPrimitive.content }
-                skins.jsonPrimitive.intOrNull == 1 -> SKIN_TONES.map { placeTone(char, it) }
-                else -> null
-            }
-            EmojiEntry(char, a[1].jsonPrimitive.content.split(' '), a[2].jsonPrimitive.content.split(' ').filter { it.isNotEmpty() }, tones)
-        })
-    }
-
-    /** The tone after the first character, replacing its FE0F (web: emoji-data.ts withTone). */
-    private fun placeTone(emoji: String, tone: String): String {
-        val first = emoji.codePointAt(0)
-        var rest = emoji.substring(Character.charCount(first))
-        if (rest.startsWith("️")) rest = rest.substring(1)
-        return String(Character.toChars(first)) + tone + rest
-    }
-
-    /** Shortcodes that start with the query, then ones containing it, then keyword matches ("like" -> 👍). */
-    fun search(groups: List<EmojiGroup>, q: String, limit: Int = 120): List<EmojiEntry> {
-        val query = q.lowercase().trim().removePrefix(":").replace(Regex("\\s+"), "_")
-        if (query.isEmpty()) return emptyList()
-        val word = query.replace('_', ' ')
-        val tiers = List(3) { mutableListOf<EmojiEntry>() }
-        for (g in groups) for (e in g.emojis) when {
-            e.names.any { it.startsWith(query) } -> tiers[0] += e
-            e.names.any { it.contains(query) } -> tiers[1] += e
-            e.tags.any { it.startsWith(word) } -> tiers[2] += e
-        }
-        return tiers.flatten().take(limit)
-    }
-}
 
 /** A cell in the picker's grid. */
 private sealed interface Cell {
@@ -155,7 +89,7 @@ fun EmojiPicker(st: State, guildId: String?, modifier: Modifier = Modifier, heig
     val c = Linkord.colors
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val groups by produceState<List<EmojiGroup>?>(null) { value = withContext(Dispatchers.IO) { EmojiData.groups(ctx) } }
+    val groups by produceState<List<EmojiGroup>?>(null) { value = withContext(Dispatchers.IO) { EmojiData.load { ctx.assets.open("emoji/emoji-list.json").bufferedReader().readText() } } }
     var query by remember { mutableStateOf("") }
     var recent by remember { mutableStateOf(session.prefs.recentEmoji) }
     var tones by remember { mutableStateOf(session.prefs.emojiTones) }
@@ -286,7 +220,8 @@ fun EmojiPicker(st: State, guildId: String?, modifier: Modifier = Modifier, heig
                                 Modifier.align(Alignment.BottomEnd).padding(5.dp).size(4.dp).clip(RoundedCornerShape(2.dp)).background(c.text3.copy(alpha = 0.6f)),
                             )
                             // Skin tones, above the emoji: the plain one and the five tones.
-                            if (toneFor == cell.key && e.tones != null) Popup(
+                            val variants = e.tones // a local: core's property can't be smart-cast here
+                            if (toneFor == cell.key && variants != null) Popup(
                                 alignment = Alignment.TopCenter, offset = IntOffset(0, -popupLift),
                                 onDismissRequest = { toneFor = null }, properties = PopupProperties(focusable = true),
                             ) {
@@ -294,7 +229,7 @@ fun EmojiPicker(st: State, guildId: String?, modifier: Modifier = Modifier, heig
                                     Modifier.clip(RoundedCornerShape(14.dp)).background(c.raised2).padding(4.dp),
                                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
-                                    for (v in listOf(e.char) + e.tones) Box(
+                                    for (v in listOf(e.char) + variants) Box(
                                         Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(if (v == shownChar) c.active else androidx.compose.ui.graphics.Color.Transparent)
                                             .clickable {
                                                 toneFor = null

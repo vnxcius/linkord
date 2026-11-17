@@ -1,8 +1,5 @@
-package com.linkord.app
+package com.linkord.core
 
-import com.linkord.app.ui.profile.ProfileLink
-import com.linkord.app.ui.profile.linkName
-import com.linkord.designsystem.brandOf
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -29,8 +26,8 @@ class BrandTest {
     }
 
     @Test fun names() {
-        assertEquals("My channel", linkName(ProfileLink("https://youtube.com/@x", "My channel")))
-        assertEquals("Instagram", linkName(ProfileLink("https://instagram.com/x")))
-        assertEquals("example.org/me", linkName(ProfileLink("https://www.example.org/me/")))
+        assertEquals("My channel", linkName("https://youtube.com/@x", "My channel"))
+        assertEquals("Instagram", linkName("https://instagram.com/x", ""))
+        assertEquals("example.org/me", linkName("https://www.example.org/me/", ""))
     }
 }

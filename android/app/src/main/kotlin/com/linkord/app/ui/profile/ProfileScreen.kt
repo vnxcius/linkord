@@ -76,16 +76,7 @@ data class Badge(val id: String, val tier: Int? = null)
 @Serializable
 data class ProfileLink(val url: String, val label: String = "")
 
-/** "instagram.com/someone": the address without its scheme, www or trailing slash (web: ProfileWidgets shortLink). */
-fun shortLink(url: String): String {
-    val u = runCatching { java.net.URI(url) }.getOrNull()
-    val host = u?.host ?: return url
-    val s = host.removePrefix("www.") + (u.rawPath ?: "").trimEnd('/')
-    return if (s.length > 42) s.take(41) + "…" else s
-}
-
-/** A link's name when it has none of its own: the site's ("Instagram"), else its address (web: linkName). */
-fun linkName(l: ProfileLink): String = l.label.ifBlank { com.linkord.designsystem.brandOf(l.url)?.name ?: shortLink(l.url) }
+fun linkName(l: ProfileLink): String = com.linkord.core.linkName(l.url, l.label)
 
 @Serializable
 data class Profile(
@@ -240,7 +231,7 @@ fun ProfileScreen(userId: String, guildId: String?) {
                             .clickable { openLink(ctx, l.url) }.padding(start = 10.dp, end = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        LIcon(com.linkord.designsystem.siteIcon(l.url), size = 18.dp, tint = c.text2)
+                        LIcon(com.linkord.app.ui.components.siteIcon(l.url), size = 18.dp, tint = c.text2)
                         Spacer(Modifier.width(7.dp))
                         Text(linkName(l), style = Linkord.type.bodyStrong, color = c.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }

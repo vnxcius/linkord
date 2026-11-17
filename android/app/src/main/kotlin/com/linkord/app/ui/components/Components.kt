@@ -175,3 +175,22 @@ fun Chip(text: String, modifier: Modifier = Modifier, selected: Boolean = false)
         verticalAlignment = Alignment.CenterVertically,
     ) { Text(text, style = Linkord.type.small, color = c.text) }
 }
+
+private val brandVectors = HashMap<String, androidx.compose.ui.graphics.vector.ImageVector>()
+
+/**
+ * A link's icon: the site's own mark for sites we know (core brandOf: Instagram, Twitter, Steam...), otherwise the chain
+ * link, like the web's SiteIcon. Brand marks fill their whole grid, so they get Heroicons' 2px of air to match in size.
+ */
+fun siteIcon(url: String): androidx.compose.ui.graphics.vector.ImageVector {
+    val b = com.linkord.core.brandOf(url) ?: return com.linkord.designsystem.LinkordIcons.Link
+    return synchronized(brandVectors) {
+        brandVectors.getOrPut(b.id) {
+            androidx.compose.ui.graphics.vector.ImageVector.Builder(b.name, 24.dp, 24.dp, 28f, 28f).apply {
+                addGroup(translationX = 2f, translationY = 2f)
+                addPath(androidx.compose.ui.graphics.vector.addPathNodes(b.path), fill = androidx.compose.ui.graphics.SolidColor(Color.Black))
+                clearGroup()
+            }.build()
+        }
+    }
+}

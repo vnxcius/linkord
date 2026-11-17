@@ -1,6 +1,5 @@
-package com.linkord.app
+package com.linkord.core
 
-import com.linkord.app.ui.chat.EmojiData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
