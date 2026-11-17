@@ -406,6 +406,9 @@ async fn post_message(st: &AppState, a: &Access, me: Id, d: Draft) -> ApiResult<
     let mut msg = hydrate(st, vec![row]).await?.pop().ok_or(ApiError::NotFound)?;
     msg.nonce = d.nonce;
     st.hub.send(&audience, "MESSAGE_CREATE", &msg);
+    if kind::is_private(ch.kind) {
+        crate::receipts::on_message(st, ch.id, me, mid, &audience);
+    }
     crate::push::on_message(st, &ch, &msg, &audience);
     crate::videos::spawn(st.clone(), ch.clone(), mid, msg.attachments.clone());
     if !d.content.is_empty() && d.embeds.is_none() {
@@ -761,7 +764,8 @@ pub async fn upsert_read_state(st: &AppState, me: Id, channel: Id, message: Id) 
     .execute(&st.db)
     .await?;
     st.hub.send(&[me], "MESSAGE_ACK", &json!({ "channel_id": channel, "message_id": message }));
-    Ok(())
+    crate::push::on_read(st, me, channel, message);
+    crate::receipts::on_read(st, me, channel, message).await
 }
 
 #[derive(Deserialize)]

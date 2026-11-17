@@ -524,8 +524,6 @@ export const UI: Record<string, string> = {
   'Remove banner': 'Remover banner',
   'Remove picture': 'Remover foto',
   'Change icon': 'Trocar ícone',
-  'This is how your server looks in the list. Tap the icon or the banner to change them.':
-    'É assim que seu servidor aparece na lista. Toque no ícone ou no banner para trocar.',
   'Save them before you leave, or discard them.': 'Salve antes de sair, ou descarte as alterações.',
   'Reorder channels': 'Reorganizar canais',
   'Hold a channel and drag it, or drag it by its handle. A channel goes in the category above it; a category takes its channels along.':
@@ -2113,6 +2111,8 @@ export const UI: Record<string, string> = {
   Address: 'Endereço',
   'Remove link': 'Remover link',
   'Add link': 'Adicionar link',
+  Original: 'Original',
+  "That video can't be edited.": 'Não dá para editar esse vídeo.',
   'Pick a file up to 15 MB; you choose the part that plays next':
     'Escolha um arquivo de até 15 MB; depois você escolhe o trecho que toca',
   'Profile song saved': 'Música do perfil salva',
@@ -2484,6 +2484,17 @@ export const UI: Record<string, string> = {
   'Join a Server': 'Entrar em um servidor',
   'Join Server': 'Entrar no servidor',
   'Mark as read': 'Marcar como lido',
+  'Mark all conversations as read': 'Marcar todas as conversas como lidas',
+  Sending: 'Enviando',
+  Delivered: 'Entregue',
+  Read: 'Lido',
+  'Message info': 'Dados da mensagem',
+  'Read receipts': 'Confirmação de leitura',
+  "When this is off, people won't see when you've read their messages, and you won't see when they've read yours. Delivered still shows.":
+    'Desativada, as pessoas não veem quando você leu as mensagens delas, e você não vê quando leram as suas. Entregue continua aparecendo.',
+  'Not yet': 'Ainda não',
+  'What changed in the Linkord app for Android, newest first. It updates itself when a new version comes out.':
+    'O que mudou no app do Linkord para Android, do mais novo ao mais antigo. Ele se atualiza sozinho quando sai uma versão nova.',
   'Member Since': 'Membro desde',
   Mentions: 'Menções',
   'Mentions and replies': 'Menções e respostas',

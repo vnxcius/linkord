@@ -1365,6 +1365,80 @@ test('DM calls: starting one rings the other person; joining or declining stops 
   await assert.rejects(voiceJoin(outsider, dm.id), /closed 4004/);
 });
 
+test('DM receipts: sent, delivered once a device of theirs has it, read once they read it', async () => {
+  const x = await login('rcptx');
+  const y = await login('rcpty');
+  await ok(x.token, 'PUT', `/users/@me/relationships/${y.id}`, {});
+  await ok(y.token, 'PUT', `/users/@me/relationships/${x.id}`, {});
+  const dm = await ok(x.token, 'POST', '/users/@me/channels', { recipient_id: y.id });
+  const gx = await gateway(x.token);
+  const receipt = (key) => gx.events.filter((e) => e.t === 'DM_RECEIPT' && e.d.channel_id === dm.id && e.d.user_id === y.id && e.d[key]).pop()?.d[key];
+  try {
+    // y has no socket open: sent only.
+    const first = await ok(x.token, 'POST', `/channels/${dm.id}/messages`, { content: 'one' });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(receipt('delivered_id'), undefined);
+    // Their phone got the push (the Android app says so)...
+    await ok(y.token, 'POST', `/channels/${dm.id}/delivered`, { message_id: first.id });
+    await until(() => receipt('delivered_id') === first.id);
+    // ...but never past the newest message.
+    await ok(y.token, 'POST', `/channels/${dm.id}/delivered`, { message_id: '999999999999999999' });
+    // With a socket open, a new message is delivered at once.
+    const gy = await gateway(y.token);
+    try {
+      const second = await ok(x.token, 'POST', `/channels/${dm.id}/messages`, { content: 'two' });
+      await until(() => receipt('delivered_id') === second.id);
+      await ok(y.token, 'POST', `/channels/${dm.id}/ack`, { message_id: second.id });
+      await until(() => receipt('read_id') === second.id);
+    } finally {
+      gy.ws.close();
+    }
+    // Message info (the author only): when each was delivered and read.
+    const info = await ok(x.token, 'GET', `/channels/${dm.id}/messages/${first.id}/receipts`);
+    assert.equal(info.length, 1);
+    assert.equal(info[0].user_id, y.id);
+    assert.ok(info[0].delivered && info[0].read && info[0].delivered_at && info[0].read_at);
+    assert.ok(Date.parse(info[0].delivered_at) <= Date.parse(info[0].read_at));
+    assert.equal((await call(y.token, 'GET', `/channels/${dm.id}/messages/${first.id}/receipts`)).status, 404);
+    // READY has where they are.
+    const ready = await gateway(x.token).then((g) => (g.ws.close(), g.first.d));
+    const mine = ready.dm_receipts[dm.id].find((r) => r.user_id === y.id);
+    assert.equal(mine.read_id, receipt('read_id'));
+    assert.equal(mine.delivered_id, receipt('delivered_id'));
+    // Privacy: with read receipts off, y's reads are hidden from x (and x's from y); delivered still shows.
+    const before = gx.events.length;
+    await ok(y.token, 'PATCH', '/users/@me', { read_receipts: false });
+    await until(() => gx.events.slice(before).some((e) => e.t === 'DM_RECEIPTS'));
+    const reset = gx.events.slice(before).find((e) => e.t === 'DM_RECEIPTS').d.receipts[dm.id].find((r) => r.user_id === y.id);
+    assert.equal(reset.read_id, null);
+    assert.ok(reset.delivered_id);
+    const hidden = await ok(x.token, 'GET', `/channels/${dm.id}/messages/${first.id}/receipts`);
+    assert.equal(hidden[0].read_receipts, false);
+    assert.equal(hidden[0].read, false);
+    assert.equal(hidden[0].read_at, null);
+    assert.equal(hidden[0].delivered, true);
+    const third = await ok(x.token, 'POST', `/channels/${dm.id}/messages`, { content: 'three' });
+    const seen = gx.events.length;
+    await ok(y.token, 'POST', `/channels/${dm.id}/ack`, { message_id: third.id });
+    // Reading still counts as delivered, but no read receipt goes out.
+    await until(() => receipt('delivered_id') === third.id);
+    assert.ok(!gx.events.slice(seen).some((e) => e.t === 'DM_RECEIPT' && e.d.read_id));
+    assert.equal((await ok(y.token, 'GET', '/users/@me')).read_receipts, false);
+    await ok(y.token, 'PATCH', '/users/@me', { read_receipts: true });
+    // Outsiders can't mark someone else's DM.
+    assert.equal((await call(outsider.token, 'POST', `/channels/${dm.id}/delivered`, { message_id: first.id })).status, 204);
+    const again = await gateway(x.token).then((g) => (g.ws.close(), g.first.d));
+    assert.equal(again.dm_receipts[dm.id].length, 1);
+  } finally {
+    gx.ws.close();
+  }
+});
+
+test('changelog: the Android app has its own patch notes', async () => {
+  assert.ok(Array.isArray(await ok(null, 'GET', '/changelog?app=android')));
+  assert.ok(Array.isArray(await ok(null, 'GET', '/changelog')));
+});
+
 test('group DMs: the owner can hand the group over and remove people', async () => {
   const [p, q, r] = await Promise.all([login('gp'), login('gq'), login('gr')]);
   for (const u of [q, r]) {

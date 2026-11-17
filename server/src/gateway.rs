@@ -194,6 +194,11 @@ impl Hub {
         }
     }
 
+    /// A session of theirs has a socket open right now (an event sent now reaches a device: receipts.rs).
+    pub fn has_socket(&self, user: Id) -> bool {
+        self.by_user.get(&user).is_some_and(|ids| ids.iter().any(|id| self.sessions.get(id).is_some_and(|s| s.tx.is_some())))
+    }
+
     pub fn is_online(&self, user: Id) -> bool {
         self.by_user.get(&user).is_some_and(|ids| {
             ids.iter().any(|id| {
@@ -514,6 +519,8 @@ struct Ready<'a> {
     /// Your own custom status, also while invisible (activities only lists it when others can see it).
     custom_status: Option<serde_json::Value>,
     read_states: HashMap<Id, Id>,
+    /// The others' delivered/read positions in your DMs and group DMs (receipts.rs).
+    dm_receipts: HashMap<Id, Vec<crate::receipts::Receipt>>,
     voice_states: Vec<VoiceState>,
     /// Statuses of the voice calls going on ("what we're up to").
     voice_channel_statuses: Vec<ChannelStatus>,
@@ -561,6 +568,7 @@ async fn build_ready(st: &AppState, user_id: Id, session_id: &str) -> ApiResult<
         activities,
         custom_status: crate::activities::own_custom_status(st, user_id),
         read_states,
+        dm_receipts: crate::receipts::for_ready(&st.db, user_id).await?,
         voice_states: st.voice.for_channels(&[voice_channels.clone(), dm_ids.clone()].concat()),
         voice_channel_statuses: st.voice.statuses_for(&guild_ids).into_iter().filter(|s| voice_channels.contains(&s.channel_id)).collect(),
         calls: st.voice.calls_for(&dm_ids),
@@ -659,6 +667,8 @@ async fn run(st: AppState, mut socket: WebSocket, agent: Option<String>) {
         }
     };
 
+    // Whatever waited in their DMs has reached a device of theirs (receipts.rs).
+    crate::receipts::on_connect(&st, user_id);
     let (mut sink, mut stream) = socket.split();
     let mut ping = tokio::time::interval(Duration::from_secs(25));
     let mut last_seen = Instant::now();

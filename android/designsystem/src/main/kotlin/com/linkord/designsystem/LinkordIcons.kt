@@ -20,6 +20,7 @@ object LinkordIcons {
     val Chart: ImageVector by lazy { icon("Chart", 0f, P("M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z")) }
     val ChatBubble: ImageVector by lazy { icon("ChatBubble", 0f, P("M5.337 21.718a6.707 6.707 0 0 1-.533-.074.75.75 0 0 1-.44-1.223 3.73 3.73 0 0 0 .814-1.686c.023-.115-.022-.317-.254-.543C3.274 16.587 2.25 14.41 2.25 12c0-5.03 4.428-9 9.75-9s9.75 3.97 9.75 9c0 5.03-4.428 9-9.75 9-.833 0-1.643-.097-2.417-.279a6.721 6.721 0 0 1-4.246.997Z", stroke = false, fill = true, evenOdd = true)) }
     val Check: ImageVector by lazy { icon("Check", 0f, P("m4.5 12.75 6 6 9-13.5")) }
+    val CheckDouble: ImageVector by lazy { icon("CheckDouble", 0f, P("M2.25 12.75 6.75 17.25 14.25 6.75M11.25 14.25l3 3 7.5-10.5")) }
     val Chevron: ImageVector by lazy { icon("Chevron", 0f, P("m19.5 8.25-7.5 7.5-7.5-7.5")) }
     val ChevronRight: ImageVector by lazy { icon("ChevronRight", 0f, P("m8.25 4.5 7.5 7.5-7.5 7.5")) }
     val ChevronUpIcon: ImageVector by lazy { icon("ChevronUpIcon", 0f, P("m4.5 15.75 7.5-7.5 7.5 7.5")) }

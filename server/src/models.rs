@@ -6,7 +6,7 @@ use sqlx::{FromRow, PgPool};
 use crate::error::{ApiError, ApiResult};
 use crate::id::Id;
 
-pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, pronouns, birthday, status, bot, needs_username, rec_opt_out";
+pub const USER_COLS: &str = "id, username, display_name, avatar, banner, nameplate, accent_color, bio, pronouns, birthday, status, bot, needs_username, rec_opt_out, read_receipts";
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct User {
@@ -26,6 +26,9 @@ pub struct User {
     pub bot: bool,
     /// Doesn't want their voice in other people's REC recordings (everyone's client leaves it out).
     pub rec_opt_out: bool,
+    /// Privacy: read receipts in DMs (receipts.rs). Only sent to the user themselves.
+    #[serde(skip)]
+    pub read_receipts: bool,
     /// The user's chosen status. Only sent to the user themselves; others see presence.
     #[serde(skip)]
     pub status: String,
@@ -41,6 +44,7 @@ pub struct SelfUser<'a> {
     pub user: &'a User,
     pub status: &'a str,
     pub needs_username: bool,
+    pub read_receipts: bool,
 }
 
 impl User {
@@ -50,7 +54,7 @@ impl User {
     }
 
     pub fn me(&self) -> SelfUser<'_> {
-        SelfUser { user: self, status: &self.status, needs_username: self.needs_username }
+        SelfUser { user: self, status: &self.status, needs_username: self.needs_username, read_receipts: self.read_receipts }
     }
 
     pub async fn get(db: &PgPool, id: Id) -> ApiResult<User> {

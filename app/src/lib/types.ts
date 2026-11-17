@@ -23,6 +23,15 @@ export interface User {
   needs_username?: boolean;
   /** REC: keeps their voice out of other people's recordings (servers before 2.0 don't send it). */
   rec_opt_out?: boolean;
+  /** Only on your own user. Privacy: read receipts in DMs (off both ways; server receipts.rs). */
+  read_receipts?: boolean;
+}
+
+/** How far someone's devices have received and read a DM (server receipts.rs); read counts as delivered too. */
+export interface Receipt {
+  user_id: string;
+  delivered_id?: string | null;
+  read_id?: string | null;
 }
 
 export const enum Kind {

@@ -51,7 +51,7 @@ import { openPage } from '../lib/route';
 import { getMic } from '../lib/media-devices';
 import { prefs, setPrefs, type SoundKind } from '../lib/prefs';
 import { sounds } from '../lib/sounds';
-import { state } from '../lib/store';
+import { setState, state } from '../lib/store';
 import { attempt, isMobile, setUi, toast } from '../lib/ui';
 import { openCamera, restartMic, setOutputDevice, syncVad, toggleDeafen, toggleMute, voiceUi } from '../lib/voice';
 import { clearDictionary, SPELL_LANGUAGES, spellLanguage } from '../lib/spellcheck';
@@ -82,6 +82,7 @@ import { type Draft, SoundEditor } from './Soundboard';
 type Page =
   | 'account'
   | 'sessions'
+  | 'privacy'
   | 'profile'
   | 'badges'
   | 'stats'
@@ -122,6 +123,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
       ['badges', msg('Badges'), I.Trophy],
       ['favorite-games', msg('Favorite Games'), I.Gamepad],
       ['stats', msg('Stats'), I.Chart],
+      ['privacy', msg('Privacy'), I.Lock],
       ['sessions', msg('Sessions'), I.Desktop],
       ['kass', msg('Kass'), I.Music],
       ['steve', msg('Steve'), I.Pickaxe],
@@ -151,6 +153,7 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
 const TITLES: Record<Page, string> = {
   account: msg('My Account'),
   sessions: msg('Sessions'),
+  privacy: msg('Privacy'),
   profile: msg('Profile'),
   badges: msg('Badges'),
   stats: msg('Stats'),
@@ -173,6 +176,7 @@ export function Settings(p: { tab?: string }) {
     profile: 'profile',
     badges: 'badges',
     sessions: 'sessions',
+    privacy: 'privacy',
     stats: 'stats',
     kass: 'kass',
     steve: 'steve',
@@ -300,6 +304,9 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'language'}>
               <LanguagePage />
+            </Match>
+            <Match when={page() === 'privacy'}>
+              <PrivacyPage />
             </Match>
             <Match when={page() === 'sessions'}>
               <SessionsPage />
@@ -429,6 +436,43 @@ export function Section(p: { title: string; description?: string; children: JSX.
       </Show>
       {p.children}
     </section>
+  );
+}
+
+/** Privacy: read receipts in DMs (off both ways, server receipts.rs) and your voice in other people's REC recordings. */
+function PrivacyPage() {
+  const save = (patch: Record<string, boolean>, local: () => void) =>
+    attempt(async () => {
+      await api('PATCH', '/users/@me', patch);
+      local();
+    });
+  return (
+    <>
+      <Section title={t('Direct Messages')}>
+        <div class="set-card">
+          <SwitchRow
+            label={t('Read receipts')}
+            hint={t(
+              "When this is off, people won't see when you've read their messages, and you won't see when they've read yours. Delivered still shows.",
+            )}
+            checked={state.me?.read_receipts !== false}
+            onChange={(v) => void save({ read_receipts: v }, () => setState('me', 'read_receipts', v))}
+          />
+        </div>
+      </Section>
+      <Section title="REC">
+        <div class="set-card">
+          <SwitchRow
+            label={t('Let others record my voice')}
+            hint={t(
+              "When this is off, everyone's Linkord leaves your voice out of their recordings from now on. What was already recorded stays.",
+            )}
+            checked={!state.me?.rec_opt_out}
+            onChange={(v) => void save({ rec_opt_out: !v }, () => setState('me', 'rec_opt_out', !v))}
+          />
+        </div>
+      </Section>
+    </>
   );
 }
 

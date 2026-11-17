@@ -3,7 +3,7 @@
 //! `app/publish-linux.sh` adds the signed Linux packages and `linux.json`; Linux apps get both as one static
 //! manifest (`linux-x86_64-deb` / `-rpm`) and the updater picks the one it was installed from. /api/downloads
 //! lists what the web client's download page offers. `changelog.json` (newest first, appended by publish-windows.sh)
-//! feeds the patch notes page. `android/publish.sh` writes the Android app's APK and `android.json` (version, version_code,
+//! feeds the patch notes page (`?app=android`: `android-changelog.json`, appended by android/publish.sh). `android/publish.sh` writes the Android app's APK and `android.json` (version, version_code,
 //! sha256); Android apps ask /api/updates/android/<abi>/<their version code>, download the APK and check its sha256
 //! before installing (Android itself checks it's signed with the same key).
 //!
@@ -11,7 +11,7 @@
 //! sends APP_UPDATE {version} to everyone connected; desktop apps check the feed then and show the banner. Apps also
 //! check whenever their gateway connects (READY), so whoever was offline gets it on their next connection.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -199,9 +199,22 @@ struct Release {
     notes: String,
 }
 
+#[derive(Deserialize)]
+struct Which {
+    /// "android": the Android app's releases; anything else (or none): the desktop's.
+    app: Option<String>,
+}
+
 /// Patch notes, newest first. Before the first changelog entry, the latest release's notes stand in.
-async fn changelog(State(st): State<AppState>) -> Json<Vec<Release>> {
+async fn changelog(State(st): State<AppState>, Query(w): Query<Which>) -> Json<Vec<Release>> {
     let dir = st.cfg.data_dir.join("updates");
+    if w.app.as_deref() == Some("android") {
+        if let Some(list) = tokio::fs::read(dir.join("android-changelog.json")).await.ok().and_then(|raw| serde_json::from_slice::<Vec<Release>>(&raw).ok()) {
+            return Json(list);
+        }
+        let latest = android_release(&st).await;
+        return Json(latest.map(|r| vec![Release { version: r.version, date: r.pub_date, notes: r.notes }]).unwrap_or_default());
+    }
     if let Some(list) = tokio::fs::read(dir.join("changelog.json")).await.ok().and_then(|raw| serde_json::from_slice::<Vec<Release>>(&raw).ok()) {
         return Json(list);
     }

@@ -39,6 +39,7 @@ import chartBar from 'heroicons/24/outline/chart-bar.svg?raw';
 import chatBubbleLeftRight from 'heroicons/24/outline/chat-bubble-left-right.svg?raw';
 import chatBubbleOvalLeft from 'heroicons/24/outline/chat-bubble-oval-left.svg?raw';
 import check from 'heroicons/24/outline/check.svg?raw';
+import clock from 'heroicons/24/outline/clock.svg?raw';
 import chevronDown from 'heroicons/24/outline/chevron-down.svg?raw';
 import chevronLeft from 'heroicons/24/outline/chevron-left.svg?raw';
 import chevronRight from 'heroicons/24/outline/chevron-right.svg?raw';
@@ -278,6 +279,9 @@ export const Connection = hero(link);
 export const Warning = hero(exclamationTriangle);
 export const Tune = hero(adjustmentsHorizontal);
 export const Check = hero(check);
+// Delivered/read on your DMs (Android): two checks, the second starting clear of the first.
+export const Clock = hero(clock);
+export const CheckDouble = icon(path('M2.25 12.75 6.75 17.25 14.25 6.75M11.25 14.25l3 3 7.5-10.5'));
 export const Pause = hero(pause);
 export const VolumeMute = hero(speakerXMark);
 // Heroicons' speaker without its outer wave.

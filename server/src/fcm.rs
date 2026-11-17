@@ -174,6 +174,12 @@ pub enum Sent {
 /// No collapse key: a phone that was offline gets every message it missed (the app stacks them per conversation),
 /// not only the last one per channel. FCM keeps up to 100 per phone.
 pub async fn send(st: &AppState, token: &str, sealed: &[u8], ttl: u32, urgent: bool) -> Sent {
+    send_as(st, token, "p", sealed, ttl, urgent).await
+}
+
+/// `key` names the data field: "p" is a notification to show, "q" a quiet instruction (push.rs on_read) that app
+/// versions from before it never open (they only read "p").
+pub async fn send_as(st: &AppState, token: &str, key: &str, sealed: &[u8], ttl: u32, urgent: bool) -> Sent {
     let Some(f) = fcm() else { return Sent::Failed };
     let bearer = match access_token(st, f).await {
         Ok(t) => t,
@@ -183,7 +189,7 @@ pub async fn send(st: &AppState, token: &str, sealed: &[u8], ttl: u32, urgent: b
         }
     };
     let android = json!({ "priority": if urgent { "HIGH" } else { "NORMAL" }, "ttl": format!("{ttl}s") });
-    let body = json!({ "message": { "token": token, "data": { "p": STANDARD.encode(sealed) }, "android": android } });
+    let body = json!({ "message": { "token": token, "data": { key: STANDARD.encode(sealed) }, "android": android } });
     let url = format!("{}/v1/projects/{}/messages:send", f.base, f.creds.project_id);
     match st.http.post(url).bearer_auth(bearer).json(&body).timeout(Duration::from_secs(10)).send().await {
         Ok(r) if r.status().is_success() => Sent::Ok,

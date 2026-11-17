@@ -6,6 +6,7 @@ import { produce, reconcile } from 'solid-js/store';
 import { getToken, media, serverUrl, setToken } from './api';
 import { loadMessages, maybeAck, receiveMessage, trimHistory } from './actions';
 import { cmpId } from './ids';
+import { putReceipt, setReceipts } from './receipts';
 import { isTauri, notify } from './platform';
 import { prefs } from './prefs';
 import { sounds } from './sounds';
@@ -27,7 +28,7 @@ import {
   state,
   type BotCommand,
 } from './store';
-import type { Activity, Channel, Guild, Message, Settings, Status, User, VoiceState } from './types';
+import type { Activity, Channel, Guild, Message, Receipt, Settings, Status, User, VoiceState } from './types';
 import { displayName, Kind, Rel } from './types';
 import { toast } from './ui';
 import { onVoiceStateFromServer } from './voice';
@@ -138,6 +139,7 @@ interface Ready {
   activities?: Record<string, Activity[]>;
   custom_status?: Activity | null;
   read_states: Record<string, string>;
+  dm_receipts?: Record<string, Receipt[]>;
   voice_states: VoiceState[];
   voice_channel_statuses?: { channel_id: string; status: string }[];
   admin?: boolean;
@@ -228,6 +230,13 @@ function handle(t: string, d: any) {
         if (!cur || cmpId(d.message_id, cur) > 0) setState('readStates', d.channel_id, d.message_id);
         setState('mentions', d.channel_id, 0);
       });
+    case 'DM_RECEIPT':
+      return putReceipt(d.channel_id, d.user_id, d.delivered_id, d.read_id);
+    // Someone (maybe you) turned read receipts on or off: all of your DMs' receipts again.
+    case 'DM_RECEIPTS':
+      setReceipts(d.receipts ?? {});
+      if (typeof d.read_receipts === 'boolean' && state.me) setState('me', 'read_receipts', d.read_receipts);
+      return;
     case 'REACTION_ADD':
     case 'REACTION_REMOVE':
       return onReaction(t === 'REACTION_ADD', d);
@@ -333,6 +342,7 @@ function onReady(d: Ready) {
     setState('activities', reconcile(d.activities ?? {}));
     setState('customStatus', d.custom_status ?? null);
     setState('readStates', reconcile(d.read_states));
+    setReceipts(d.dm_receipts ?? {});
     setState('voice', reconcile(Object.fromEntries(d.voice_states.map((v) => [v.user_id, v]))));
     setState(
       'voiceStatus',

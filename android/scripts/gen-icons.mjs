@@ -49,7 +49,7 @@ for (const [name, file] of Object.entries(extra)) {
   icons[name] = { shapes: svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').trim(), filled: true };
 }
 // Android-only outline icons (the emoji picker's Recent tab; moderation: ban, kick, the section's shield).
-const extraOutline = { Clock: '24/outline/clock.svg', NoSymbol: '24/outline/no-symbol.svg', UserMinus: '24/outline/user-minus.svg', Shield: '24/outline/shield-check.svg' };
+const extraOutline = { NoSymbol: '24/outline/no-symbol.svg', UserMinus: '24/outline/user-minus.svg', Shield: '24/outline/shield-check.svg' };
 for (const [name, file] of Object.entries(extraOutline)) {
   const svg = readFileSync(join(root, 'app/node_modules/heroicons', file), 'utf8');
   icons[name] = { shapes: svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').trim(), filled: false };

@@ -478,6 +478,8 @@ struct ProfileUpdate {
     rec_opt_out: Option<bool>,
     /// REC: the recent clips widget on my profile.
     show_clips: Option<bool>,
+    /// Privacy: read receipts in DMs (receipts.rs).
+    read_receipts: Option<bool>,
 }
 
 async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body): Json<ProfileUpdate>) -> ApiResult<Json<serde_json::Value>> {
@@ -527,7 +529,8 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     sqlx::query(
         "UPDATE users SET display_name = $2, bio = $3, status = $4, accent_color = $5, pronouns = $6, birthday = $7,
              links = COALESCE($8, links), show_stats = COALESCE($9, show_stats), show_top_songs = COALESCE($10, show_top_songs),
-             show_league = COALESCE($11, show_league), rec_opt_out = COALESCE($12, rec_opt_out), show_clips = COALESCE($13, show_clips)
+             show_league = COALESCE($11, show_league), rec_opt_out = COALESCE($12, rec_opt_out), show_clips = COALESCE($13, show_clips),
+             read_receipts = COALESCE($14, read_receipts)
          WHERE id = $1",
     )
     .bind(me)
@@ -543,10 +546,14 @@ async fn update_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     .bind(body.show_league)
     .bind(body.rec_opt_out)
     .bind(body.show_clips)
+    .bind(body.read_receipts)
     .execute(&st.db)
     .await?;
     let after = User::get(&st.db, me).await?;
     notify_update(&st, &after).await?;
+    if after.read_receipts != before.read_receipts {
+        crate::receipts::on_setting(&st, me, after.read_receipts);
+    }
     if after.status != before.status {
         broadcast_presence(&st, &after).await?;
     }
@@ -1149,7 +1156,7 @@ async fn delete_me(State(st): State<AppState>, AuthUser(me): AuthUser, Json(body
     .await?;
     sqlx::query("DELETE FROM user_notes WHERE user_id = $1 OR target_id = $1").bind(me).execute(&st.db).await?;
     st.hub.close_user(me);
-    for table in ["sessions", "read_states", "user_settings", "custom_statuses", "favorite_games", "kass_plays", "profile_songs", "connections", "user_stats", "user_games"] {
+    for table in ["sessions", "read_states", "delivered_states", "receipt_marks", "user_settings", "custom_statuses", "favorite_games", "kass_plays", "profile_songs", "connections", "user_stats", "user_games"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1")).bind(me).execute(&st.db).await?;
     }
     for dir in ["avatars", "banners", "nameplates", "profile-songs"] {

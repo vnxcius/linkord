@@ -629,6 +629,17 @@ input, textarea, select { font: inherit; color: inherit; }
 .message.pending .content { opacity: 0.5; }
 .message.failed .content { color: var(--danger); }
 .message-row { display: flex; }
+/* Your DMs' ticks (lib/receipts.ts): grey sent/delivered, the accent once read. */
+.msg-tick { flex: none; align-self: flex-end; display: inline-flex; margin: 0 0 3px 8px; color: var(--text-3); }
+.msg-tick.read { color: var(--brand); }
+.message-info { display: flex; flex-direction: column; gap: 10px; min-width: min(360px, 80vw); }
+.message-info .info-line { display: flex; align-items: center; gap: 12px; color: var(--text-3); }
+.message-info .info-line.done { color: var(--text); }
+.message-info .info-line.read .info-tick { color: var(--brand); }
+.message-info .info-tick { display: inline-flex; color: var(--text-3); }
+.message-info .info-label { flex: 1; }
+.message-info .info-time { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+.message-info .info-person { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .message-gutter { width: 72px; flex: none; display: flex; justify-content: center; padding-top: 2px; }
 .avatar-btn { border-radius: var(--avatar-radius); height: 40px; }
 .avatar-btn:active { transform: translateY(1px); }

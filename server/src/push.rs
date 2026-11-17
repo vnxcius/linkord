@@ -54,6 +54,14 @@ struct Vapid {
 
 static VAPID: OnceLock<Vapid> = OnceLock::new();
 
+/// (user, channel) pairs with a notification on an Android phone (an FCM message went out since they last read the
+/// channel), so reading it on another device takes that notification down (on_read). In memory only: after a restart
+/// one that was already up stays until it's opened or swiped away.
+fn notified() -> &'static dashmap::DashMap<(Id, Id), ()> {
+    static N: OnceLock<dashmap::DashMap<(Id, Id), ()>> = OnceLock::new();
+    N.get_or_init(Default::default)
+}
+
 /// Loads (or creates) the signing key. Call once at startup.
 pub fn init(st: &AppState) -> anyhow::Result<()> {
     let path = st.cfg.data_dir.join("push-vapid.key");
@@ -387,7 +395,11 @@ async fn message_pushes(st: &AppState, ch: &Channel, msg: &Message, audience: &[
                 "title": title, "body": body, "icon": icon, "tag": ch.id, "url": url, "channel_id": ch.id, "message_id": msg.id,
                 "mentioned": mentioned, "private": private, "author": author, "author_id": msg.author.id, "conversation": conversation,
             });
-            send(st, s, &payload, MESSAGE_TTL, if mentioned { "high" } else { "normal" }, Some(&ch.id.to_string())).await;
+            if send(st, s, &payload, MESSAGE_TTL, if mentioned { "high" } else { "normal" }, Some(&ch.id.to_string())).await
+                && s.endpoint.starts_with(crate::fcm::PREFIX)
+            {
+                notified().insert((user, ch.id), ());
+            }
         }
     }
     Ok(())
@@ -568,6 +580,30 @@ pub fn on_ring_end(st: &AppState, channel: Id, users: Vec<Id>) {
         for s in subs.iter().filter(|s| s.endpoint.starts_with(crate::fcm::PREFIX)) {
             let payload = json!({ "call_end": true, "channel_id": channel, "tag": format!("call-{channel}") });
             send(&st, s, &payload, CALL_TTL, "high", None).await;
+        }
+    });
+}
+
+/// Someone read a channel (on any device: messages.rs upsert_read_state). If their phone has a notification up for
+/// it, it goes away: a quiet FCM message ("q", which the app never shows) with the read position, so a message that
+/// arrived after it keeps its notification. Web Push can't do this (every push must show something).
+pub fn on_read(st: &AppState, user: Id, channel: Id, message: Id) {
+    if notified().remove(&(user, channel)).is_none() {
+        return;
+    }
+    let st = st.clone();
+    tokio::spawn(async move {
+        let subs = match subscriptions(&st, "user_id = $1", user).await {
+            Ok(s) => s,
+            Err(e) => return tracing::warn!("push: {e:?}"),
+        };
+        let payload = json!({ "read": true, "channel_id": channel, "message_id": message });
+        for s in subs.iter() {
+            let Some(token) = s.endpoint.strip_prefix(crate::fcm::PREFIX) else { continue };
+            let Ok(body) = encrypt(&s.p256dh, &s.auth, payload.to_string().as_bytes()) else { continue };
+            if let crate::fcm::Sent::Gone = crate::fcm::send_as(&st, token, "q", &body, MESSAGE_TTL, false).await {
+                let _ = sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = $1").bind(&s.endpoint).execute(&st.db).await;
+            }
         }
     });
 }

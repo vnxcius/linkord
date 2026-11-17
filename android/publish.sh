@@ -31,6 +31,22 @@ mkdir -p "$updates"
 file="Linkord-$new_name.apk"
 cp "$apk" "$updates/$file"
 sha=$(sha256sum "$apk" | cut -d' ' -f1)
+# The app's patch notes page (GET /api/changelog?app=android): newest first, one entry per version. The first time,
+# the release already in android.json goes in too, so its notes aren't lost.
+node -e '
+const fs = require("fs");
+const [version, notes, dir] = process.argv.slice(1);
+const f = dir + "/android-changelog.json";
+let list = null;
+try { list = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+if (!Array.isArray(list)) {
+  list = [];
+  try { const r = JSON.parse(fs.readFileSync(dir + "/android.json", "utf8")); list.push({ version: r.version, date: r.pub_date ?? null, notes: r.notes ?? "" }); } catch {}
+}
+list = [{ version, date: new Date().toISOString(), notes }, ...list.filter((r) => r.version !== version)];
+fs.writeFileSync(f + ".tmp", JSON.stringify(list, null, 2));
+fs.renameSync(f + ".tmp", f);
+' "$new_name" "$notes" "$updates"
 # Written to a temporary name and renamed, so the server never reads half a feed.
 node -e '
 const [file, version, code, sha, notes, out] = process.argv.slice(1);

@@ -11,6 +11,7 @@ import type {
   Member,
   Message,
   NotifyLevel,
+  Receipt,
   Rel,
   Role,
   Settings,
@@ -57,6 +58,8 @@ export interface State {
   /** Your private notes about people (user id -> note), filled in as profiles are opened. */
   notes: Record<string, string>;
   readStates: Record<string, string>;
+  /** DM channel id -> user id -> the others' receipts (lib/receipts.ts). */
+  receipts: Record<string, Record<string, Receipt>>;
   messages: Record<string, ChannelMessages>;
   /** channel id -> user id -> expiry timestamp */
   typing: Record<string, Record<string, number>>;
@@ -107,6 +110,7 @@ export const [state, setState] = createStore<State>({
   connectionsVersion: 0,
   notes: {},
   readStates: {},
+  receipts: {},
   messages: {},
   typing: {},
   voice: {},

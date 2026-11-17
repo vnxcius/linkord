@@ -24,6 +24,7 @@ export type Modal =
   | { type: 'nickname'; guildId: string; userId: string }
   | { type: 'custom-status' }
   | { type: 'forward'; message: Message }
+  | { type: 'message-info'; message: Message }
   | { type: 'confirm'; title: string; body: string; action: string; run: () => Promise<unknown> };
 
 export interface MenuItem {

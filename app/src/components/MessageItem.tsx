@@ -46,6 +46,7 @@ import { pauseChatVideo, VideoPlayer } from './VideoPlayer';
 import { VoiceMessage } from './VoiceNote';
 import { InviteCard, inviteCodes, isInviteUrl } from './InviteCard';
 import { LobbyInviteCard } from './League';
+import { tickFor } from '../lib/receipts';
 
 export function formatTime(iso: string, withDate = true) {
   const d = new Date(iso);
@@ -302,6 +303,13 @@ function SystemMessage(p: { message: Message; guildId?: string | null }) {
   );
 }
 
+const TICK_LABELS: Record<string, () => string> = {
+  sending: () => t('Sending'),
+  sent: () => t('Sent'),
+  delivered: () => t('Delivered'),
+  read: () => t('Read'),
+};
+
 export function MessageItem(p: { message: Message; grouped: boolean; guildId?: string | null }) {
   if (p.message.type === 6 || p.message.type === 7) return <SystemMessage message={p.message} guildId={p.guildId} />;
   const m = () => p.message;
@@ -451,6 +459,13 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
         label: m().pinned ? t('Unpin Message') : t('Pin Message'),
         icon: () => <I.Pin size={16} />,
         run: () => attempt(() => togglePin(m())),
+      });
+    // Your DMs: when it was sent, delivered and read (server receipts.rs).
+    if (tickFor(m()))
+      items.push({
+        label: t('Message info'),
+        icon: () => <I.Info size={16} />,
+        run: () => setUi('modal', { type: 'message-info', message: m() }),
       });
     items.push('separator');
     if (text())
@@ -723,6 +738,30 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               </div>
             </Show>
           </div>
+          {/* Your DMs, WhatsApp-style: a clock while sending, one check sent, two delivered, two in the accent read. */}
+          <Show
+            when={
+              tickFor(m()) ?? (m().pending && mine() && isPrivate(channel()?.kind ?? Kind.Text) ? 'sending' : undefined)
+            }
+          >
+            {(tick) => (
+              <span
+                class="msg-tick"
+                classList={{ read: tick() === 'read' }}
+                role="img"
+                aria-label={TICK_LABELS[tick()]()}
+                data-tip={TICK_LABELS[tick()]()}
+              >
+                {tick() === 'sending' ? (
+                  <I.Clock size={13} />
+                ) : tick() === 'sent' ? (
+                  <I.Check size={16} />
+                ) : (
+                  <I.CheckDouble size={16} />
+                )}
+              </span>
+            )}
+          </Show>
         </div>
         <Show when={!m().pending && !m().failed && !m().ephemeral && !editing() && !selecting()}>
           <div class="message-actions" classList={{ open: picker() }} ref={actionsEl}>

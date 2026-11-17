@@ -22,6 +22,7 @@ import { Avatar, GuildIcon } from './Avatar';
 import * as I from './Icons';
 import { CustomStatusModal } from './CustomStatus';
 import { ForwardModal } from './Forward';
+import { MessageInfoModal } from './MessageInfo';
 import { accentCss, ProfileModal } from './Profile';
 import { GameModal } from './Game';
 import { ColorPicker } from './ColorPicker';
@@ -142,6 +143,9 @@ export function ModalHost() {
               </Match>
               <Match when={m().type === 'forward' && (m() as Extract<Modal, { type: 'forward' }>)}>
                 {(x) => <ForwardModal message={x().message} />}
+              </Match>
+              <Match when={m().type === 'message-info' && (m() as Extract<Modal, { type: 'message-info' }>)}>
+                {(x) => <MessageInfoModal message={x().message} />}
               </Match>
               <Match when={m().type === 'nickname' && (m() as Extract<Modal, { type: 'nickname' }>)}>
                 {(x) => <MemberEditor guildId={x().guildId} userId={x().userId} />}

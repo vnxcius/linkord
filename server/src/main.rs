@@ -22,6 +22,7 @@ mod previews;
 mod push;
 mod fcm;
 mod ratelimit;
+mod receipts;
 mod security;
 mod snowball;
 mod soundboard;
@@ -160,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
     let api = Router::new()
         .merge(auth::routes())
         .merge(api::routes())
+        .merge(receipts::routes())
         .merge(spotify::routes())
         .merge(activities::routes())
         .merge(league::routes())
