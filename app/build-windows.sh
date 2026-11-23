@@ -25,6 +25,7 @@ case "$(uname -s)" in
     [[ -d node_modules ]] || bun install --frozen-lockfile
     rm -rf src-tauri/target/release/bundle/nsis
     args=(--bundles nsis)
+    [[ -f src-tauri/tauri.local.conf.json ]] && args+=(--config src-tauri/tauri.local.conf.json)
     if $signed; then
       export TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
     else

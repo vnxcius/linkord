@@ -5,7 +5,7 @@
 //   offline / invisible = an empty outline.
 // Android draws the same shapes (android/.../components/Components.kt PresenceMark): keep the numbers in step.
 
-/** Corner radius as a share of the mark (the "63%" the owner picked on the comparison page). */
+/** Corner radius as a share of the mark (the "63%" picked on the comparison page). */
 export const ROUND = 0.2;
 const S = 100;
 const W = S * (1.14 + ROUND * 0.5);

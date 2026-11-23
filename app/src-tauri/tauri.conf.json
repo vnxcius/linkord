@@ -48,6 +48,7 @@
       "icons/icon.ico"
     ],
     "publisher": "Linkord",
+    "license": "GPL-3.0-only",
     "category": "SocialNetworking",
     "shortDescription": "Voice, video and text chat for your party",
     "windows": {
@@ -64,8 +65,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA4RTVFRDM3NDQ1QUUxMEUKUldRTzRWcEVOKzNsQ0FxczRIamxwb2laeGFVaGRmK1I4TVR1UVV3aERLdmh4TG9jWEV0Z09VU1kK",
       "endpoints": [
-        "https://linkord.app/api/updates/{{target}}/{{arch}}/{{current_version}}",
-        "https://direct.example.com:8443/api/updates/{{target}}/{{arch}}/{{current_version}}"
+        "https://linkord.app/api/updates/{{target}}/{{arch}}/{{current_version}}"
       ],
       "windows": {
         "installMode": "passive"

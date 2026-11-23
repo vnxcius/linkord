@@ -1,5 +1,5 @@
 //! Steve, the Minecraft bot. This server only gives him an account and a voice: what he says comes from mc-manager
-//! (the Minecraft panel on this machine, /opt/mc-manager), which drives him the way it drives its Discord bot.
+//! (a separate Minecraft server panel on the same machine), which drives him the way it drives its Discord bot.
 //!
 //! mc-manager talks to him on the internal listener (loopback only, see internal.rs), with the token in
 //! `<data>/steve-token` (not the monitor's: neither can act as the other):

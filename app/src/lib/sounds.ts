@@ -1,5 +1,5 @@
-// UI sounds: the owner's picks (private app, the owner's choice: edits of game sounds, Discord's camera, push to talk and
-// Winter sounds), decoded once and played through a small Web Audio graph so they can overlap and start without delay.
+// UI sounds (edits of game sounds, Discord's camera, push to talk and Winter sounds: third-party, not covered by the
+// GPL, see NOTICE.md), decoded once and played through a small Web Audio graph so they can overlap and start at once.
 import { prefs, type SoundKind } from './prefs';
 import { isChristmas } from './theme';
 import cameraOffUrl from '../assets/sounds/camera-off.mp3';

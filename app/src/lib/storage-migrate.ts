@@ -1,11 +1,14 @@
-// 1.x apps saved the server as old.example.com, an address that's gone: a server saved as it becomes the default
-// again. Runs before anything reads storage, so it is the first import of each entry point (index.tsx, clip-page.tsx).
-// Safe to delete once every installed app has started a build with this file at least once.
-const OLD_ADDRESS = /^https:\/\/old\.example\.com\/?$/;
+// Apps saved the server's address, and an address the server no longer has (VITE_FORMER_SERVERS) would leave them
+// stranded: a server saved as one becomes the default again. Runs before anything reads storage, so it is the first
+// import of each entry point (index.tsx, clip-page.tsx).
+const former = (import.meta.env.VITE_FORMER_SERVERS || '')
+  .split(',')
+  .map((s: string) => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
 try {
-  const server = localStorage.getItem('linkord.server');
-  if (server && OLD_ADDRESS.test(server)) localStorage.removeItem('linkord.server');
+  const server = localStorage.getItem('linkord.server')?.replace(/\/+$/, '');
+  if (server && former.includes(server)) localStorage.removeItem('linkord.server');
 } catch {}
 
 export {};

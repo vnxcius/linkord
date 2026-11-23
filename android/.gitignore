@@ -7,7 +7,7 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
-# Signing material never lives in the repo (see CLAUDE.md, Updater and release).
+# Signing material never lives in the repo (see README, Signing keys).
 *.jks
 *.keystore
 keystore.properties

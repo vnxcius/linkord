@@ -32,7 +32,7 @@ COPY --from=server /linkord-server /usr/local/bin/linkord-server
 COPY --from=web /src/app/dist /linkord/app/dist
 # The server's relative paths (./data, ../app/dist, ./soundboard, ./nameplates, .env) work from here, as on the host.
 WORKDIR /linkord/server
-# The host user (simon, 1000): files in the bind-mounted data folder keep their owner.
+# The host user (uid 1000): files in the bind-mounted data folder keep their owner.
 USER 1000:1000
 ENV RUST_LOG=linkord_server=info HOME=/tmp
 ENTRYPOINT ["/usr/local/bin/linkord-server"]

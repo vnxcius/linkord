@@ -38,7 +38,7 @@ export const defaultServer = (): string => import.meta.env.VITE_DEFAULT_SERVER |
 /** Direct access that skips Cloudflare (server/src/direct.rs), for ISPs that block Cloudflare's addresses. */
 export const directServer = (): string => import.meta.env.VITE_DIRECT_SERVER || '';
 
-/** Addresses this server had before (1.x's old.example.com): links to them in old messages. */
+/** Addresses this server had before (VITE_FORMER_SERVERS): links to them in old messages. */
 const formerServers = (): string[] =>
   (import.meta.env.VITE_FORMER_SERVERS || '')
     .split(',')

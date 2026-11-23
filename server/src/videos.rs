@@ -1,7 +1,7 @@
 //! Videos every app can show. Linkord plays chat videos in the browser's engine (WebView2 in the desktop app), which
 //! only decodes what Chromium ships or Windows provides: a phone video in HEVC (iPhones and many Androids record it by
-//! default), 10-bit H.264, ProRes or an MKV plays its sound with no picture, on Windows 10 especially (owner, 2026-11-13:
-//! a friend saw exactly that). So each video attachment is probed once after it's posted; when Chromium can't show it, a
+//! default), 10-bit H.264, ProRes or an MKV plays its sound with no picture, on Windows 10 especially (seen
+//! 2026-11-13). So each video attachment is probed once after it's posted; when Chromium can't show it, a
 //! copy that any app plays (H.264 8-bit + AAC in a faststart MP4, at most 1920 px) is made next to it at low priority and
 //! the message updates (Attachment.playable). Downloads keep the original. Older videos are checked after each start.
 //!

@@ -21,6 +21,8 @@ COPY package.json bun.lock ./
 RUN --mount=type=cache,id=linkord-bun,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 COPY . .
+# src-tauri/tauri.local.conf.json (gitignored), when present, is merged over tauri.conf.json: an instance's own
+# updater endpoints.
 # The updater signing key comes in as a build secret so it never lands in an image layer.
 RUN --mount=type=secret,id=tauri_key,required=true \
     --mount=type=cache,id=linkord-cargo-registry,target=/usr/local/cargo/registry \
@@ -32,7 +34,7 @@ RUN --mount=type=secret,id=tauri_key,required=true \
       export CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
              CARGO_PROFILE_RELEASE_INCREMENTAL=true CARGO_PROFILE_RELEASE_OPT_LEVEL=1; \
     fi \
-    && bun tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis \
+    && bun tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis $([ -f src-tauri/tauri.local.conf.json ] && echo --config src-tauri/tauri.local.conf.json) \
     && mkdir -p /out && cp src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe* /out/
 
 FROM scratch

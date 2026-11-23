@@ -1,8 +1,13 @@
 .env
 node_modules/
 dist/
-# Cargo build output (on this machine a symlink to the external HDD, so no trailing slash).
+# Cargo build output (may be a symlink, e.g. to another disk, so no trailing slash).
 target
 /server/data/
 /monitor/data/
 /app/out/
+# An instance's private settings and notes, kept out of the public repo (see README, "Your own instance").
+*.local
+.env*.local
+*.local.md
+*.local.conf.json

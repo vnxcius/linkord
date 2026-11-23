@@ -1,9 +1,9 @@
 //! A second way in that skips Cloudflare: `https://<LINKORD_DIRECT_HOST>:<port>` pointing straight at this
-//! machine's public IP, for friends whose ISP blocks Cloudflare's shared addresses. The main site keeps going
+//! machine's public IP, for people whose ISP blocks Cloudflare's shared addresses. The main site keeps going
 //! through the tunnel.
 //!
-//! This listener terminates TLS itself with a Let's Encrypt certificate. The owner's router keeps port 443 for
-//! itself and port 80 isn't reachable, so the certificate is validated over DNS (DNS-01): the server creates the
+//! This listener terminates TLS itself with a Let's Encrypt certificate. Home routers often keep port 443
+//! for themselves and port 80 may not be reachable, so the certificate is validated over DNS (DNS-01): the server creates the
 //! `_acme-challenge` TXT record through the Cloudflare API (CLOUDFLARE_API_TOKEN, "Edit zone DNS" for the zone),
 //! removes it afterwards, and renews 30 days before expiry. Certificates are cached under data/acme.
 //!

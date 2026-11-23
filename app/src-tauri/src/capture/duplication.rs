@@ -1,7 +1,7 @@
 //! Capture through DXGI Desktop Duplication, the default way of streaming and the only way REC records on Windows.
 //!
 //! Why not Windows Graphics Capture: while any of its sessions is alive, Windows draws the mouse cursor in software
-//! for the whole system, even with the session's own cursor capture off (measured on the owner's PC, 2026-11-03, and
+//! for the whole system, even with the session's own cursor capture off (measured on Windows 11, 2026-11-03, and
 //! confirmed in League of Legends: the cursor lags, this path doesn't). Duplication leaves the hardware cursor alone,
 //! so the cursor isn't in the image and is drawn into each frame (here for streams, on the GPU for REC).
 //!

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Linkord's runner on the box: every push to master on GitLab is tested, deployed and published from here, in
-# CLAUDE.md's release order (tests, server, then clients). Installed by deploy/ci/install.sh: cron calls `tick`
+# Linkord's runner on the server machine: every push to master is tested, deployed and published from here, in
+# release order (tests, server, then clients). Installed by deploy/ci/install.sh: cron calls `tick`
 # every minute, and deploy/ci/ship.sh kicks it right after a push.
 #
 #   linkord-ci tick            fetch master; if it moved, fast-forward this checkout and run the pipeline
@@ -26,14 +26,22 @@ state="${XDG_STATE_HOME:-$HOME/.local/state}/linkord-ci"
 runs="$state/runs"
 mkdir -p "$runs"
 export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-export ANDROID_HOME="${ANDROID_HOME:-/mnt/hdd/linkord/android-sdk}"
-# A full JDK (the system only has a JRE): Temurin 21, unpacked on the HDD.
-export JAVA_HOME="${JAVA_HOME:-/mnt/hdd/linkord/jdk-21}"
+# This machine's settings, outside the repo (shell syntax, all optional):
+#   LINKORD_CI_HOST=<hostname>   the production machine's hostname: real steps run only there
+#   LINKORD_CI_REPO=<path>       production's checkout (default ~/repositories/linkord)
+#   ANDROID_HOME=... JAVA_HOME=...  the Android SDK and a full JDK 21 (a JRE isn't enough)
+ci_env="${XDG_CONFIG_HOME:-$HOME/.config}/linkord/ci.env"
+# shellcheck source=/dev/null
+[ -f "$ci_env" ] && . "$ci_env"
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+[ -n "${JAVA_HOME:-}" ] && export JAVA_HOME
 export CI=1
-# Real tests, deploys and publishes only happen in production's checkout on the box; anywhere else (a dev PC, a
-# throwaway clone to try the runner) every step is a dry run, whatever LINKORD_CI_DRY says.
-live_host="${LINKORD_CI_HOST:-simon-server}"
-if [ "$(hostname)" != "$live_host" ] || [ "$repo" != "$HOME/repositories/linkord" ]; then export LINKORD_CI_DRY=1; fi
+# Real tests, deploys and publishes only happen in production's checkout on the machine LINKORD_CI_HOST names;
+# anywhere else (a dev PC, a throwaway clone to try the runner) every step is a dry run, whatever LINKORD_CI_DRY says.
+live_host="${LINKORD_CI_HOST:-}"
+if [ -z "$live_host" ] || [ "$(hostname)" != "$live_host" ] || [ "$repo" != "${LINKORD_CI_REPO:-$HOME/repositories/linkord}" ]; then
+  export LINKORD_CI_DRY=1
+fi
 RELEASE='^chore\(release\): '
 
 server_paths=(server app ':!app/src-tauri' ':!app/*.sh' ':!app/*.Dockerfile' ':!app/*.md' deploy/server.Dockerfile
@@ -113,7 +121,7 @@ pipeline() {
   return 0
 }
 
-# The full suite (tests/run-local.sh). When only browser steps failed (the box has a known flaky one), only those run
+# The full suite (tests/run-local.sh). When only browser steps failed (there's a known flaky one), only those run
 # again, with their setup steps (ui.e2e E2E_ONLY), instead of the whole five minutes. API, handover and monitor
 # failures aren't retried: they don't flake. $1 = 1 to include the monitor's tests (it changed).
 full_suite() {

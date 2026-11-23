@@ -1,4 +1,4 @@
-//! Availability: every 30 s, each part of the path from a friend's app to the data is tried for real. Two failures in
+//! Availability: every 30 s, each part of the path from someone's app to the data is tried for real. Two failures in
 //! a row open an incident, the first success closes it. Also the TLS certificates and the public IP.
 
 use std::sync::Arc;

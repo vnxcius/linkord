@@ -7,16 +7,25 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// Release signing: a keystore outside the repo (CLAUDE.md, "Updater and release"). Without it the release build is
+// Release signing: a keystore outside the repo (README, "Signing keys"). Without it the release build is
 // unsigned, which is fine for checking that it builds but can't be installed or published.
 val signing = Properties().apply {
     val f = file(System.getenv("LINKORD_ANDROID_SIGNING") ?: "${System.getProperty("user.home")}/.config/linkord/android-release.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
-// Debug builds talk to a local server: the emulator reaches the PC at 10.0.2.2, a phone on the same Wi-Fi needs the
-// PC's address (gradle -Plinkord.devServer=http://192.168.0.5:7700).
+// Debug builds talk to a local server: the emulator reaches the PC at 10.0.2.2; a phone over USB can use
+// `adb reverse tcp:7700 tcp:7700` and -Plinkord.devServer=http://127.0.0.1:7700.
 val devServer = (findProperty("linkord.devServer") as String?) ?: "http://10.0.2.2:7700"
+
+// An instance's own addresses, kept out of the repo: android/local.properties (gitignored) or a Gradle property
+// (-P, ~/.gradle/gradle.properties). linkord.directServer = direct access that skips Cloudflare (server/src/direct.rs);
+// linkord.formerServers = addresses this server had before, comma-separated (links to them still open here).
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun instance(name: String): String = (findProperty(name) as String?) ?: localProps.getProperty(name) ?: ""
 
 android {
     namespace = "com.linkord.app"
@@ -29,9 +38,8 @@ android {
         versionCode = 6
         versionName = "0.1.4"
         buildConfigField("String", "DEFAULT_SERVER", "\"https://linkord.app\"")
-        buildConfigField("String", "DIRECT_SERVER", "\"https://direct.example.com:8443\"")
-        // Addresses this server had before: links to them in old messages still open here.
-        buildConfigField("String", "FORMER_SERVERS", "\"https://old.example.com\"")
+        buildConfigField("String", "DIRECT_SERVER", "\"${instance("linkord.directServer")}\"")
+        buildConfigField("String", "FORMER_SERVERS", "\"${instance("linkord.formerServers")}\"")
         resValue("string", "app_name", "Linkord")
         manifestPlaceholders["authScheme"] = "linkord"
     }
@@ -126,7 +134,7 @@ dependencies {
 // - the translations, app/src/lib/locales/pt-BR.ts as i18n/pt-BR.json (scripts/gen-strings.mjs; needs Node 22+ on the
 //   PATH, or -Plinkord.node=/path/to/node);
 // - the badge art, app/src/assets/badges/*.svg as badges/;
-// - the call sounds (the owner's WAVs and the ringtones), app/src/assets/sounds as sounds/;
+// - the call sounds (the WAV edits and the ringtones), app/src/assets/sounds as sounds/;
 // - every emoji with its names, by category (app/src/lib/emoji-list.json, scripts/build-emoji-data.mjs) as emoji/.
 abstract class GenAssets : DefaultTask() {
     @get:InputFile abstract val dictionary: RegularFileProperty

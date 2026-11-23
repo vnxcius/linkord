@@ -1,8 +1,8 @@
 //! Encryption at rest for what people type: message text, link previews, forwarded copies and private notes are
 //! stored as AES-256-GCM ciphertext, so a leaked database (a dump, a backup, the monitor's role) doesn't leak them.
-//! The key is <data>/message.key (hex, created on first start; the owner keeps a copy off the box). The server
+//! The key is <data>/message.key (hex, created on first start; keep a copy off the machine). The server
 //! still reads everything in memory (push, link previews, bots, search), so this doesn't protect against someone
-//! on the box itself. Names, ids, times and flags stay plaintext (the monitor reads those).
+//! on the machine itself. Names, ids, times and flags stay plaintext (the monitor reads those).
 //!
 //! Stored text is `lk1:` + base64url(nonce ‖ ciphertext ‖ tag). Empty text and empty embed lists stay as they are.
 //! Anything without the prefix is read as it is (rows from before, sealed by [`seal_existing`] after a start).
@@ -74,7 +74,7 @@ pub async fn init(data_dir: &Path, db: &PgPool) -> anyhow::Result<()> {
         }
     }
     if created {
-        tracing::warn!("crypt: created message.key; back it up off the box (losing it loses every message)");
+        tracing::warn!("crypt: created message.key; back it up off this machine (losing it loses every message)");
     }
     Ok(())
 }

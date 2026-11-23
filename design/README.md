@@ -7,7 +7,7 @@
   for light backgrounds and print.
 - `linkord-mark.svg` / `linkord-mark-ink.svg`: the wings and Triforce alone, on transparent.
 
-The owner made the first version with an image AI (November 2026); it was traced and redrawn here: each wing is two
+The first version was made with an image AI (November 2026); it was traced and redrawn here: each wing is two
 feathers merged into one shape with a V notch, the inner ends follow the Triforce's sides. The app's accent is still
 Algodão, no hue (cotton on dark, ink on light): the icon's gold stays in the icon.
 

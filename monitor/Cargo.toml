@@ -2,6 +2,7 @@
 name = "linkord-monitor"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-only"
 publish = false
 
 # Its own package and lockfile on purpose: nothing here is linked into the app's server.

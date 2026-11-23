@@ -22,7 +22,7 @@ RUN --mount=type=secret,id=tauri_key,required=true \
     --mount=type=cache,id=linkord-cargo-git,target=/usr/local/cargo/git \
     --mount=type=cache,id=linkord-target-linux,target=/src/src-tauri/target \
     export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/tauri_key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
-    && bun tauri build --bundles deb,rpm \
+    && bun tauri build --bundles deb,rpm $([ -f src-tauri/tauri.local.conf.json ] && echo --config src-tauri/tauri.local.conf.json) \
     && mkdir -p /out && cp src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm /out/
 
 FROM scratch

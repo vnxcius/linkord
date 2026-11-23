@@ -1,6 +1,7 @@
 {
   "name": "linkord-tests",
   "private": true,
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "api": "node --test --test-timeout=20000 api.test.mjs",

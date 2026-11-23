@@ -103,7 +103,7 @@ async fn holds(st: &AppState, gid: Id, me: Id, rid: Id) -> ApiResult<bool> {
 
 async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, rid)): Path<(Id, Id)>, Json(body): Json<RoleBody>) -> ApiResult<Json<Role>> {
     let everyone = rid == gid;
-    // Anyone can rename and recolor the roles they have (owner's choice); the rest needs Manage Roles.
+    // Anyone can rename and recolor the roles they have (by design); the rest needs Manage Roles.
     let display_only = body.permissions.is_none() && body.hoist.is_none() && body.mentionable.is_none();
     let (mine, role) = match editable(&st, gid, me, rid).await {
         Ok(x) => x,
