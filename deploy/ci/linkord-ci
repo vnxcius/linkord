@@ -239,7 +239,7 @@ follow() {
   [ -n "$sha" ] || { git_ fetch -q origin master; sha=$(git_ rev-parse origin/master); }
   sha=$(git_ rev-parse "$sha" 2>/dev/null || echo "$sha")
   local f="" newest s9 done
-  # LINKORD_CI_WAIT: how long to wait for the run to start (GitLab's job waits out a run for an older push).
+  # LINKORD_CI_WAIT: how long to wait for the run to start (GitHub's ship job waits out a run for an older push).
   for _ in $(seq 1 "${LINKORD_CI_WAIT:-120}"); do
     f=$(ls -t "$runs"/*-"${sha:0:9}".log 2>/dev/null | head -1)
     [ -n "$f" ] && break

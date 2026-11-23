@@ -12,5 +12,5 @@ branch=$(git rev-parse --abbrev-ref HEAD)
 git push origin master
 sha=$(git rev-parse HEAD)
 ssh "$box" "$ci kick"
-[ "${1:-}" = --no-wait ] && { echo "Kicked the runner for ${sha:0:9}. Watch it in GitLab (Build -> Pipelines) or: ssh $box $ci follow $sha"; exit 0; }
+[ "${1:-}" = --no-wait ] && { echo "Kicked the runner for ${sha:0:9}. Watch it on GitHub (Actions -> ship) or: ssh $box $ci follow $sha"; exit 0; }
 ssh -t "$box" "$ci follow $sha"

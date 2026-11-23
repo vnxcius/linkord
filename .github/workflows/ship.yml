@@ -1,0 +1,33 @@
+# GitHub's view of the server's runner (deploy/ci/linkord-ci): one job, on the server itself, that wakes the runner for
+# the pushed commit and streams its log here until the run ends (red when a test, deploy or publish failed). The work
+# is linkord-ci's, so the cron tick still ships every push the same way when GitHub or this job is down.
+#
+# The self-hosted runner (label linkord-box, deploy/ci/install-github-runner.sh) only takes pushes to master: its
+# job-start hook (deploy/ci/runner-guard.sh) fails any other job before a step runs, whatever a workflow file says.
+# Pull requests never run here.
+name: ship
+
+on:
+  push:
+    branches: [master]
+
+permissions: {}
+
+concurrency:
+  group: ship
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    # The runner's own version bumps come back as chore(release) commits: nothing to ship for them.
+    # Quoted: the ": " in the pattern would otherwise read as YAML.
+    if: "github.repository == 'vnxcius/linkord' && !startsWith(github.event.head_commit.message, 'chore(release): ')"
+    runs-on: [self-hosted, linkord-box]
+    timeout-minutes: 180
+    steps:
+      # No checkout: the runner works in its own checkout (~/repositories/linkord).
+      - name: Wake the runner
+        run: ~/.local/bin/linkord-ci kick
+      - name: Follow the run
+        # Waits out a run for an older push first (up to the job's timeout).
+        run: LINKORD_CI_WAIT=10500 ~/.local/bin/linkord-ci follow "$GITHUB_SHA"

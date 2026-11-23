@@ -144,6 +144,13 @@ LINKORD_BOX=<ssh host> deploy/ci/ship.sh          # git push, then follow the ru
 ssh <ssh host> '~/.local/bin/linkord-ci status'   # where each part stands, the last runs (also: log -f, retry)
 ```
 
+Each push also shows up on GitHub (Actions -> ship): `.github/workflows/ship.yml` runs one job on a self-hosted
+runner on the server that wakes linkord-ci and streams its log there, red when a step failed. Set it up with
+`deploy/ci/install-github-runner.sh` (no sudo, kept up by cron, `gh` logged in as a repository admin). Since the
+repository is public, the runner is locked down: its job-start hook (`deploy/ci/runner-guard.sh`) fails every job that
+isn't `ship.yml` from a push to master, so pull requests never run on the server, and the installer makes workflow
+runs from external contributors wait for approval. If you fork Linkord, point your runner at your own repository.
+
 The scripts it runs also work by hand (`deploy/install-service.sh`, `app/publish-windows.sh "notes"`,
 `android/publish.sh "notes"`, ...).
 

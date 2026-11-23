@@ -68,7 +68,10 @@ A maintainer's private notes for agents go in `CLAUDE.local.md` (gitignored).
 - **Deploy server + web client:** `deploy/install-service.sh` (Docker image, zero-downtime swap between slots a/b; the
   live slot is in server/data/run/live; logs `docker logs -f linkord-server-<slot>`). Never `docker compose up` the
   server slots by hand. Monitor: `deploy/install-monitor.sh` (independent).
-- **Ship:** `deploy/ci/ship.sh` = push master and follow the runner over ssh (`LINKORD_BOX` = the server's ssh host).
+- **Ship:** `deploy/ci/ship.sh` = push master and follow the runner over ssh (`LINKORD_BOX` = the server's ssh host);
+  also on GitHub (Actions -> ship: `.github/workflows/ship.yml` on a self-hosted runner, `deploy/ci/install-github-runner.sh`).
+  The repo is public: the runner's job-start hook (`deploy/ci/runner-guard.sh`) fails anything but ship.yml from a push
+  to master. Never add pull_request triggers or other workflows for that runner, never weaken the guard.
   On the server: `linkord-ci status`, `log [-f]`, `follow [sha]`, `retry` (a failed commit waits for the next push),
   `kick`. The runner (deploy/ci/linkord-ci, cron every minute, installed by deploy/ci/install.sh) picks targets by path
   (README "Ship"), refuses to touch a dirty or diverged checkout, and is a dry run anywhere but the host and checkout
