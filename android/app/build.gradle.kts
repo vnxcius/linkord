@@ -35,8 +35,8 @@ android {
         applicationId = "com.linkord.app"
         minSdk = 29
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.1.5"
+        versionCode = 8
+        versionName = "0.1.6"
         buildConfigField("String", "DEFAULT_SERVER", "\"https://linkord.app\"")
         buildConfigField("String", "DIRECT_SERVER", "\"${instance("linkord.directServer")}\"")
         buildConfigField("String", "FORMER_SERVERS", "\"${instance("linkord.formerServers")}\"")
