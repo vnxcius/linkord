@@ -242,6 +242,12 @@ export function Settings(p: { tab?: string }) {
             Linkord {__APP_VERSION__} · {isTauri ? (nativeKeybinds ? 'Windows' : t('Desktop')) : 'Web'}
           </div>
           <div class="settings-version">
+            <a href="https://github.com/vnxcius/linkord" target="_blank" rel="noreferrer">
+              {t('Source code')}
+            </a>{' '}
+            (GPL-3.0)
+          </div>
+          <div class="settings-version">
             {t('Emoji by')}{' '}
             <a href="https://github.com/jdecked/twemoji" target="_blank" rel="noreferrer">
               Twemoji

@@ -1418,6 +1418,7 @@ export const UI: Record<string, string> = {
   '{count} gaps': '{count} falhas',
   'Voice plays on a device other than the Windows default': 'A voz toca num dispositivo diferente do padrão do Windows',
   'Emoji by': 'Emojis por',
+  'Source code': 'Código-fonte',
   'Open the stream in the call': 'Abrir a transmissão na chamada',
   Resize: 'Redimensionar',
   Everyone: 'Todos',

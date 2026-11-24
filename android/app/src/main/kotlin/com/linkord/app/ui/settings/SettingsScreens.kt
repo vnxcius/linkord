@@ -91,6 +91,9 @@ fun SettingsScreen() {
             }
             Section {
                 Entry(LinkordIcons.Sparkles, t("Patch notes")) { nav.push(Screen.PatchNotes) }
+                Entry(LinkordIcons.External, t("Source code")) {
+                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/vnxcius/linkord"))) }
+                }
             }
             Section {
                 Entry(LinkordIcons.Logout, t("Log Out"), danger = true) { session.signOut() }
