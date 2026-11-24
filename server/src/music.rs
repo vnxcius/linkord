@@ -7,8 +7,10 @@
 //! Kass is one user, and a user can only be in one voice channel, so he plays in one channel at a time.
 //! He leaves when the queue has been empty for a minute, when everyone else leaves, or on /stop.
 //!
-//! LINKORD_YTDLP points at yt-dlp (default: data/bin/yt-dlp if present, else `yt-dlp` on the PATH); it is
-//! updated daily with `yt-dlp -U`. LINKORD_YTDLP_ARGS adds arguments to every call (e.g. `--js-runtimes node`).
+//! LINKORD_YTDLP points at yt-dlp (default: data/bin/yt-dlp if present, else `yt-dlp` on the PATH). It never updates
+//! itself: the server image carries a checked version (deploy/server.Dockerfile), bumped by hand when YouTube breaks
+//! it. LINKORD_YTDLP_ARGS adds arguments to every call (e.g. `--js-runtimes node`). Every call ignores yt-dlp's config
+//! files and may only use the YouTube extractors, so no other site is ever fetched from this machine.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -265,6 +267,7 @@ fn ytdlp_cmd(st: &AppState) -> Command {
     if let Ok(extra) = std::env::var("LINKORD_YTDLP_ARGS") {
         cmd.args(extra.split_whitespace());
     }
+    cmd.args(["--no-config", "--use-extractors", YTDLP_EXTRACTORS]);
     cmd.kill_on_drop(true).stdin(Stdio::null());
     cmd
 }
@@ -276,24 +279,17 @@ pub fn ytdlp_version_cmd(st: &AppState) -> Command {
     cmd
 }
 
-/// YouTube breaks old yt-dlp versions regularly, so keep it current.
-pub async fn keep_ytdlp_updated(st: AppState) {
-    loop {
-        match ytdlp_cmd(&st).arg("-U").output().await {
-            Ok(out) => {
-                let text = String::from_utf8_lossy(&out.stdout);
-                if let Some(line) = text.lines().rev().find(|l| !l.trim().is_empty()) {
-                    tracing::info!("yt-dlp -U: {line}");
-                }
-            }
-            Err(e) => tracing::warn!("yt-dlp not available ({e}): /play won't work until it's installed"),
-        }
-        crate::internal::probe_tools(&st).await;
-        tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
-        if crate::handover::retired() {
-            return;
-        }
+/// Links (`youtube`) and `ytsearchN:` (`youtube:search`); nothing else, not even yt-dlp's generic extractor.
+const YTDLP_EXTRACTORS: &str = "youtube,youtube:search";
+
+/// Says at startup whether yt-dlp is there and which version (also for the monitor). It doesn't update itself: a
+/// self-update would run whatever its download hands it.
+pub async fn check_ytdlp(st: AppState) {
+    match ytdlp_version_cmd(&st).output().await {
+        Ok(out) => tracing::info!("yt-dlp {}", String::from_utf8_lossy(&out.stdout).trim()),
+        Err(e) => tracing::warn!("yt-dlp not available ({e}): /play won't work until it's installed"),
     }
+    crate::internal::probe_tools(&st).await;
 }
 
 /// Only YouTube: yt-dlp would fetch any URL from this machine otherwise.
@@ -861,7 +857,8 @@ impl Pipeline {
         let input: Stdio = dl.stdout.take().ok_or_else(|| anyhow::anyhow!("no yt-dlp output"))?.try_into()?;
         let skip = format!("{:.3}", ms as f64 / 1000.0);
         let mut ff = Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-i", "pipe:0"])
+            // Only the pipe: whatever yt-dlp hands over can't make ffmpeg open files or URLs.
+            .args(["-hide_banner", "-loglevel", "error", "-protocol_whitelist", "pipe", "-i", "pipe:0"])
             .args(if ms > 0 { vec!["-ss", skip.as_str()] } else { vec![] })
             .args(["-vn", "-af", "volume=0.5", "-ac", "2", "-ar", "48000"])
             .args(["-c:a", "libopus", "-b:a", "128k", "-frame_duration", "20", "-application", "audio", "-f", "ogg", "pipe:1"])

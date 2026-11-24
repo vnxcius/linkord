@@ -2,12 +2,16 @@
 //! online the server checks what you're playing and shows it as your activity ("Listening to Spotify")
 //! to everyone who can see your presence. Uses the Web API's currently-playing endpoint, polled every
 //! few seconds and again right when the current song ends.
+//!
+//! The consent link is bound to the Linkord account that asked for it, so a link someone forwards would connect the
+//! reader's Spotify to the sender's account: the callback first shows which account it's for and only connects on a
+//! click. Tokens are sealed at rest (crypt.rs).
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use axum::extract::{Query, State};
-use axum::response::{IntoResponse, Response};
+use axum::extract::{Form, Query, State};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -29,7 +33,7 @@ const STATE_TTL: Duration = Duration::from_secs(600);
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/connections/spotify/authorize", get(authorize))
-        .route("/connections/spotify/callback", get(callback))
+        .route("/connections/spotify/callback", get(callback).post(confirm))
         .route("/users/@me/connections/spotify", axum::routing::patch(update).delete(disconnect))
 }
 
@@ -78,14 +82,60 @@ struct SpotifyUser {
     display_name: Option<String>,
 }
 
-async fn callback(State(st): State<AppState>, base: PublicBase, Query(q): Query<CallbackQuery>) -> Response {
-    let user = match q.state.as_deref().and_then(|s| st.spotify_states.remove(s)) {
-        Some((_, (user, at))) if at.elapsed() < STATE_TTL => user,
-        _ => return result_page("This link expired. Connect Spotify again from Linkord's settings.").into_response(),
+const EXPIRED: &str = "This link expired. Connect Spotify again from Linkord's settings.";
+
+/// Back from Spotify's consent page: asks before connecting (see the module docs). Nothing is used up yet.
+async fn callback(State(st): State<AppState>, Query(q): Query<CallbackQuery>) -> Response {
+    let Some(state) = q.state.filter(|s| st.spotify_states.get(s).is_some_and(|e| e.1.elapsed() < STATE_TTL)) else {
+        return result_page(EXPIRED).into_response();
     };
     let Some(code) = q.code.filter(|_| q.error.is_none()) else {
+        st.spotify_states.remove(&state);
         return result_page("Spotify wasn't connected.").into_response();
     };
+    let user = st.spotify_states.get(&state).map(|e| e.0);
+    let name: Option<String> = match user {
+        Some(u) => sqlx::query_scalar("SELECT username FROM users WHERE id = $1 AND deleted_at IS NULL").bind(u).fetch_optional(&st.db).await.ok().flatten(),
+        None => None,
+    };
+    let Some(name) = name else { return result_page(EXPIRED).into_response() };
+    confirm_page(&name, &state, &code).into_response()
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
+fn confirm_page(username: &str, state: &str, code: &str) -> Html<String> {
+    Html(format!(
+        r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Linkord</title>
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#16181b;color:#ece8e1;font:16px system-ui,sans-serif}}
+.c{{text-align:center;max-width:420px;padding:24px}}h1{{font-weight:600;letter-spacing:.02em}}
+button{{font:inherit;padding:10px 22px;border-radius:8px;border:0;background:#ece8e1;color:#22201d;cursor:pointer}}
+.n{{color:#a3a7ad;font-size:14px}}</style></head>
+<body><div class="c"><h1>Linkord</h1><p>Connect your Spotify to the Linkord account <b>@{user}</b>?</p>
+<form method="post"><input type="hidden" name="state" value="{state}"><input type="hidden" name="code" value="{code}">
+<button type="submit">Connect</button></form>
+<p class="n">If @{user} isn't you, or you didn't just click Connect in your own Linkord settings, close this tab.</p></div></body></html>"#,
+        user = html_escape(username),
+        state = html_escape(state),
+        code = html_escape(code),
+    ))
+}
+
+#[derive(Deserialize)]
+struct ConfirmForm {
+    state: String,
+    code: String,
+}
+
+/// The click on the confirmation page: uses up the state and connects.
+async fn confirm(State(st): State<AppState>, base: PublicBase, Form(f): Form<ConfirmForm>) -> Response {
+    let user = match st.spotify_states.remove(&f.state) {
+        Some((_, (user, at))) if at.elapsed() < STATE_TTL => user,
+        _ => return result_page(EXPIRED).into_response(),
+    };
+    let code = f.code;
     match finish_connect(&st, user, &code, &base).await {
         Ok(name) => {
             st.hub.send(&[user], "USER_CONNECTIONS_UPDATE", &json!({}));
@@ -130,8 +180,8 @@ async fn finish_connect(st: &AppState, user: Id, code: &str, base: &PublicBase) 
     .bind(KIND)
     .bind(&me.id)
     .bind(&name)
-    .bind(&tok.access_token)
-    .bind(&refresh)
+    .bind(crate::crypt::seal(&tok.access_token))
+    .bind(crate::crypt::seal(&refresh))
     .bind(tok.expires_in as f64)
     .execute(&st.db)
     .await?;
@@ -283,8 +333,8 @@ async fn refresh(st: &AppState, user: Id, refresh_token: &str) -> anyhow::Result
     )
     .bind(user)
     .bind(KIND)
-    .bind(&tok.access_token)
-    .bind(&tok.refresh_token)
+    .bind(crate::crypt::seal(&tok.access_token))
+    .bind(tok.refresh_token.as_deref().map(crate::crypt::seal))
     .bind(tok.expires_in as f64)
     .execute(&st.db)
     .await?;
@@ -328,7 +378,9 @@ async fn poll_user(st: &AppState, c: &Conn) -> Poll {
 #[derive(sqlx::FromRow)]
 struct Conn {
     user_id: Id,
+    #[sqlx(try_from = "crate::crypt::Sealed")]
     access_token: String,
+    #[sqlx(try_from = "crate::crypt::Sealed")]
     refresh_token: String,
     expires_at: DateTime<Utc>,
     show_activity: bool,

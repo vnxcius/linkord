@@ -341,20 +341,37 @@ async fn update(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, so
 
 async fn remove(State(st): State<AppState>, AuthUser(me): AuthUser, Path((id, sound)): Path<(Id, Id)>) -> ApiResult<()> {
     guild_perms(&st.db, id, me).await?.require(perms::MANAGE_EMOJIS)?;
-    let url: String = sqlx::query_scalar("DELETE FROM soundboard_sounds WHERE id = $1 AND guild_id = $2 RETURNING url")
-        .bind(sound)
-        .bind(id)
-        .fetch_optional(&st.db)
-        .await?
-        .ok_or(ApiError::NotFound)?;
+    delete(&st, Some(id), sound).await?;
+    Ok(())
+}
+
+/// Deletes a sound (in `guild`, if given), its files, and gives its creator back the quota it took: the size of the
+/// kept original (the cuts made from it were never counted). Also the monitor's removal (internal.rs). Returns the
+/// bytes given back.
+pub async fn delete(st: &AppState, guild: Option<Id>, sound: Id) -> ApiResult<u64> {
+    let (gid, creator, url, source): (Id, Id, String, Option<String>) = sqlx::query_as(
+        "DELETE FROM soundboard_sounds WHERE id = $1 AND ($2::BIGINT IS NULL OR guild_id = $2) RETURNING guild_id, creator_id, url, source",
+    )
+    .bind(sound)
+    .bind(guild)
+    .fetch_optional(&st.db)
+    .await?
+    .ok_or(ApiError::NotFound)?;
+    let counted = source.as_deref().unwrap_or(&url);
+    let freed = match upload_path(st, counted) {
+        Some(p) => tokio::fs::metadata(p).await.map(|m| m.len()).unwrap_or(0),
+        None => 0,
+    };
     // Only ever the sound's own random directory under this server's sounds.
-    let base = st.cfg.uploads_dir().join("sounds").join(id.to_string());
-    if let Some(dir) = url.strip_prefix("/uploads/").and_then(|r| st.cfg.uploads_dir().join(r).parent().map(|d| d.to_path_buf())) {
-        if dir.starts_with(&base) && dir != base && !url.contains("..") {
+    let base = st.cfg.uploads_dir().join("sounds").join(gid.to_string());
+    if let Some(dir) = upload_path(st, &url).and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        if dir.starts_with(&base) && dir != base {
             let _ = tokio::fs::remove_dir_all(dir).await;
         }
     }
-    announce(&st, id).await
+    uploads::release(st, creator, freed).await;
+    announce(st, gid).await?;
+    Ok(freed)
 }
 
 #[cfg(test)]

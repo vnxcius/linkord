@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Stands in for yt-dlp in tests (LINKORD_YTDLP): `-j ... -- <url|ytsearch1:query>` prints a video's info,
-# `-o - ... -- <url>` streams 8 s of a 440 Hz tone, `-U` does nothing. "nothing" finds nothing; a URL with
+# `-o - ... -- <url>` streams 8 s of a 440 Hz tone. "nothing" finds nothing; a URL with
 # "broken" in it fails to download. `-j` with ytsearch10: lists results, one of them live and one too long.
 target="${*: -1}"
+# The server always passes these (music.rs ytdlp_cmd); fail loudly if it stops.
+case " $* " in *" --no-config --use-extractors youtube,youtube:search "*) ;; *) echo "mock yt-dlp: no extractor limit: $*" >&2; exit 2 ;; esac
 case " $* " in
-  *" -U "*) echo "yt-dlp is up to date (mock)" ;;
   *" -j "*)
     [[ $target == *nothing* ]] && { echo "ERROR: no results" >&2; exit 1; }
     if [[ $target == ytsearch10:* ]]; then

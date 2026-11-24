@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::api::guilds::load_emojis;
 use crate::auth::AuthUser;
-use crate::error::{bad, ApiResult};
+use crate::error::{bad, ApiError, ApiResult};
 use crate::gateway::guild_members;
 use crate::id::Id;
 use crate::models::Emoji;
@@ -98,6 +98,24 @@ async fn rename(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, e
 
 async fn remove(State(st): State<AppState>, AuthUser(me): AuthUser, Path((gid, eid)): Path<(Id, Id)>) -> ApiResult<()> {
     guild_perms(&st.db, gid, me).await?.require(perms::MANAGE_EMOJIS)?;
-    sqlx::query("DELETE FROM emojis WHERE id = $1 AND guild_id = $2").bind(eid).bind(gid).execute(&st.db).await?;
-    announce(&st, gid).await
+    delete(&st, Some(gid), eid).await?;
+    Ok(())
+}
+
+/// Deletes an emoji (in `guild`, if given) and its file, and gives its creator back the quota it took. Also the
+/// monitor's removal (internal.rs). Returns the bytes given back.
+pub async fn delete(st: &AppState, guild: Option<Id>, emoji: Id) -> ApiResult<u64> {
+    let (gid, animated, creator): (Id, bool, Id) =
+        sqlx::query_as("DELETE FROM emojis WHERE id = $1 AND ($2::BIGINT IS NULL OR guild_id = $2) RETURNING guild_id, animated, creator_id")
+            .bind(emoji)
+            .bind(guild)
+            .fetch_optional(&st.db)
+            .await?
+            .ok_or(ApiError::NotFound)?;
+    let file = st.cfg.uploads_dir().join("emojis").join(format!("{emoji}.{}", if animated { "gif" } else { "png" }));
+    let freed = tokio::fs::metadata(&file).await.map(|m| m.len()).unwrap_or(0);
+    let _ = tokio::fs::remove_file(&file).await;
+    uploads::release(st, creator, freed).await;
+    announce(st, gid).await?;
+    Ok(freed)
 }

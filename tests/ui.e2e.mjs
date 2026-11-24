@@ -457,7 +457,8 @@ await step('spotify: connect (the Connections tab is hidden for now, so through 
   const consent = await a.page.context().newPage();
   await consent.goto(url);
   await consent.waitForURL(/\/api\/connections\/spotify\/callback/);
-  assert.match(await consent.textContent('body'), /Mock Listener.*connected/);
+  await consent.click('button:has-text("Connect")');
+  await consent.waitForSelector('text=/Mock Listener.*connected/');
   await consent.close();
 
   await play({ id: 'trk1', name: 'Song of the Wind', artists: ['Kaepora', 'Saria'], album: 'Ocarina Nights', duration_ms: 200000 });

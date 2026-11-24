@@ -316,9 +316,10 @@ async fn finish(State(st): State<AppState>, AuthUser(me): AuthUser, Path(id): Pa
 
 // ---------- reading and managing ----------
 
-/// Anyone may read a clip's details: its link is meant to be shared.
+/// Anyone with the link may read a clip's details: by its slug only, since ids are guessable (they'd give the slug,
+/// and so the video, of clips that were never posted anywhere).
 async fn public_info(State(st): State<AppState>, Path(key): Path<String>) -> ApiResult<Json<Value>> {
-    let clip = by_key(&st, &key).await?;
+    let clip = by_key(&st, &key).await.filter_slug(&key)?;
     let author = User::get(&st.db, clip.user_id).await.ok();
     Ok(Json(clip_json(&st, &clip, author.as_ref())))
 }

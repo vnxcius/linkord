@@ -79,7 +79,7 @@ async fn version_of(mut cmd: tokio::process::Command) -> Option<String> {
     out.status.success().then(|| text.lines().next().unwrap_or("").trim().to_string())
 }
 
-/// Checks ffmpeg, yt-dlp and Node (yt-dlp's JavaScript runtime); at startup and after each yt-dlp update.
+/// Checks ffmpeg, yt-dlp and Node (yt-dlp's JavaScript runtime), at startup.
 pub async fn probe_tools(st: &AppState) {
     let ff = {
         let mut c = tokio::process::Command::new("ffmpeg");
@@ -468,32 +468,8 @@ async fn remove_media(State(st): State<AppState>, Json(b): Json<RemoveMedia>) ->
             let _ = crate::api::guilds::announce_member(&st, guild, user).await?;
             freed
         }
-        "emoji" => {
-            let id = required(b.item_id, "item_id")?;
-            let (guild, animated, creator): (Id, bool, Id) = sqlx::query_as("DELETE FROM emojis WHERE id = $1 RETURNING guild_id, animated, creator_id")
-                .bind(id)
-                .fetch_optional(&st.db)
-                .await?
-                .ok_or(ApiError::NotFound)?;
-            let file = st.cfg.uploads_dir().join("emojis").join(format!("{id}.{}", if animated { "gif" } else { "png" }));
-            let freed = tokio::fs::metadata(&file).await.map(|m| m.len()).unwrap_or(0);
-            let _ = tokio::fs::remove_file(&file).await;
-            crate::uploads::release(&st, creator, freed).await;
-            crate::api::emojis::announce(&st, guild).await?;
-            freed
-        }
-        "sound" => {
-            let id = required(b.item_id, "item_id")?;
-            let (guild, creator, url): (Id, Id, String) = sqlx::query_as("DELETE FROM soundboard_sounds WHERE id = $1 RETURNING guild_id, creator_id, url")
-                .bind(id)
-                .fetch_optional(&st.db)
-                .await?
-                .ok_or(ApiError::NotFound)?;
-            let freed = remove_upload(&st, &format!("sounds/{guild}"), &url).await;
-            crate::uploads::release(&st, creator, freed).await;
-            crate::soundboard::announce(&st, guild).await?;
-            freed
-        }
+        "emoji" => crate::api::emojis::delete(&st, None, required(b.item_id, "item_id")?).await?,
+        "sound" => crate::soundboard::delete(&st, None, required(b.item_id, "item_id")?).await?,
         "profile_song" => {
             let user = required(b.user_id, "user_id")?;
             sqlx::query("DELETE FROM profile_songs WHERE user_id = $1").bind(user).execute(&st.db).await?;

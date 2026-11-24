@@ -42,24 +42,50 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-/// An admin (LINKORD_ADMINS): may read the logs and change the music bot's picture.
+/// An admin (LINKORD_ADMINS, Linkord user ids): may read the logs and change the music bot's picture.
 pub async fn is_admin(st: &AppState, user: Id) -> bool {
     if st.cfg.admins.is_empty() {
         return false;
     }
-    let row: Option<(String, String, Option<String>)> =
-        sqlx::query_as("SELECT username, discord_id, discord_username FROM users WHERE id = $1 AND deleted_at IS NULL AND NOT bot")
-            .bind(user)
-            .fetch_optional(&st.db)
-            .await
-            .ok()
-            .flatten();
-    let Some((username, discord_id, discord_username)) = row else { return false };
+    let row: Option<(String,)> = sqlx::query_as("SELECT discord_id FROM users WHERE id = $1 AND deleted_at IS NULL AND NOT bot")
+        .bind(user)
+        .fetch_optional(&st.db)
+        .await
+        .ok()
+        .flatten();
+    let Some((discord_id,)) = row else { return false };
+    admin_matches(&st.cfg.admins, st.cfg.dev_login, user, &discord_id)
+}
+
+/// Only Linkord user ids count: Discord and Linkord usernames can both be taken by someone else after they're
+/// released, and a Linkord id can't be moved to another Discord account. With dev login on, a name also matches the
+/// dev account of that name (tests).
+fn admin_matches(admins: &[String], dev_login: bool, user: Id, discord_id: &str) -> bool {
     let id = user.to_string();
-    // Names are matched against the Discord username: Linkord usernames can be changed, so someone could take an
-    // admin's old one. (Dev-login accounts have no Discord username; they can't sign in when dev login is off.)
-    let name = discord_username.map(|n| n.to_lowercase()).or_else(|| discord_id.starts_with("dev:").then_some(username));
-    st.cfg.admins.iter().any(|a| Some(a) == name.as_ref() || *a == discord_id || *a == id)
+    admins.iter().any(|a| {
+        if a.parse::<u64>().is_ok() {
+            *a == id
+        } else {
+            dev_login && discord_id.strip_prefix("dev:") == Some(a.as_str())
+        }
+    })
+}
+
+#[cfg(test)]
+mod admin_tests {
+    use super::admin_matches;
+    use crate::id::Id;
+
+    #[test]
+    fn only_linkord_ids_match_outside_dev_login() {
+        let admins = vec!["123456789012345678".to_string(), "simon".to_string()];
+        assert!(admin_matches(&admins, false, Id(123456789012345678), "999"));
+        assert!(!admin_matches(&admins, false, Id(1), "123456789012345678"));
+        assert!(!admin_matches(&admins, false, Id(1), "dev:simon"));
+        assert!(admin_matches(&admins, true, Id(1), "dev:simon"));
+        assert!(!admin_matches(&admins, true, Id(1), "simon"));
+        assert!(admin_matches(&["42".to_string()], false, Id(42), "777"));
+    }
 }
 
 /// Same as [`AuthUser`], for admins only.

@@ -1,5 +1,6 @@
-//! Encryption at rest for what people type: message text, link previews, forwarded copies and private notes are
-//! stored as AES-256-GCM ciphertext, so a leaked database (a dump, a backup, the monitor's role) doesn't leak them.
+//! Encryption at rest for what people type: message text, link previews, forwarded copies and private notes (and
+//! linked accounts' tokens) are stored as AES-256-GCM ciphertext, so a leaked database (a dump, a backup, the
+//! monitor's role) doesn't leak them.
 //! The key is <data>/message.key (hex, created on first start; keep a copy off the machine). The server
 //! still reads everything in memory (push, link previews, bots, search), so this doesn't protect against someone
 //! on the machine itself. Names, ids, times and flags stay plaintext (the monitor reads those).
@@ -218,7 +219,7 @@ pub fn spawn_seal_existing(db: PgPool) {
             Ok(0) => {}
             Ok(n) => {
                 tracing::info!(rows = n, "crypt: sealed rows from before encryption");
-                if let Err(e) = sqlx::query("VACUUM (FULL) messages, user_notes").execute(&db).await {
+                if let Err(e) = sqlx::query("VACUUM (FULL) messages, user_notes, connections").execute(&db).await {
                     tracing::warn!(error = %e, "crypt: couldn't rewrite the tables after sealing");
                 }
             }
@@ -277,6 +278,27 @@ async fn seal_existing(db: &PgPool) -> anyhow::Result<u64> {
             .bind(&note)
             .execute(db)
             .await?;
+        done += r.rows_affected();
+    }
+    // Spotify tokens (spotify.rs), stored plain before.
+    let conns: Vec<(Id, String, String, String)> = sqlx::query_as(
+        "SELECT user_id, kind, access_token, refresh_token FROM connections WHERE access_token NOT LIKE 'lk1:%' OR refresh_token NOT LIKE 'lk1:%'",
+    )
+    .fetch_all(db)
+    .await?;
+    for (user, kind, access, refresh) in conns {
+        let s = |t: &String| if t.starts_with(PREFIX) || t.is_empty() { t.clone() } else { seal(t) };
+        let r = sqlx::query(
+            "UPDATE connections SET access_token = $3, refresh_token = $4 WHERE user_id = $1 AND kind = $2 AND access_token = $5 AND refresh_token = $6",
+        )
+        .bind(user)
+        .bind(&kind)
+        .bind(s(&access))
+        .bind(s(&refresh))
+        .bind(&access)
+        .bind(&refresh)
+        .execute(db)
+        .await?;
         done += r.rows_affected();
     }
     Ok(done)

@@ -72,7 +72,7 @@ fn config_checks(st: &AppState, r: &mut Report, live: &Value) {
         r.info(G, "Discord login", "Not configured.");
     }
     if cfg["admins"].as_u64().unwrap_or(0) == 0 {
-        r.warn(G, "Admins", "LINKORD_ADMINS is empty, so nobody can change Kass's picture.", "Add your Discord username to LINKORD_ADMINS in server/.env.");
+        r.warn(G, "Admins", "LINKORD_ADMINS is empty, so nobody can change Kass's picture.", "Add your Linkord user id to LINKORD_ADMINS in server/.env.");
     } else {
         r.pass(G, "Admins", format!("{} configured.", cfg["admins"]));
     }

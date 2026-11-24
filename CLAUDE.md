@@ -173,7 +173,8 @@ own recording mix (so opted-out voices can be left out: users.rec_opt_out), neve
 only, personal key limits respected in league.rs slot(); art from Data Dragon first, CommunityDragon fallback, proxied
 via /api/league/art.
 
-**Admins** (LINKORD_ADMINS in server/.env: Discord usernames/ids, never Linkord usernames) can change Kass's picture.
+**Admins** (LINKORD_ADMINS in server/.env: Linkord user ids only; names match only dev-login accounts, for tests)
+can change the bots' pictures.
 
 **Christmas** (Nov 1–Jan 6): theme (evergreen layers, decorations allowed), snow, hats, Santa, countdown + fireworks,
 music (desktop streams it from the server), festive app icon swap, greeting once per season. Decoration clicks are

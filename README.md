@@ -165,7 +165,7 @@ The main settings; `server/.env.example` documents all of them.
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth app |
 | `LINKORD_DEV_LOGIN` | Passwordless test login. Keep `false` in production |
 | `LINKORD_SIGNUP` | `closed` stops new accounts (existing ones still sign in) |
-| `LINKORD_ADMINS` | Discord usernames or ids that can change the music bot's picture |
+| `LINKORD_ADMINS` | Linkord user ids (comma-separated) that can change the bots' pictures; names are ignored |
 | `LINKORD_UPLOAD_QUOTA_MB` | Upload space per user (default 2048) |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Optional Spotify connection (redirect `<public_url>/api/connections/spotify/callback`) |
 | `LINKORD_DIRECT_BIND` / `LINKORD_DIRECT_HOST` / `CLOUDFLARE_API_TOKEN` | Optional second HTTPS listener that skips Cloudflare (Let's Encrypt via DNS-01) |

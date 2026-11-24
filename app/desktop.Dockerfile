@@ -1,14 +1,17 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 # Windows installer, cross-compiled on Linux with cargo-xwin. Use ./build-windows.sh rather than calling this directly.
 # Cache mounts keep crates, compiled dependencies, the MSVC SDK and the bun cache between builds.
+# Base images are pinned by digest (a tag can be moved to other contents): bump tag and digest together, with
+# `docker buildx imagetools inspect <image:tag>`.
 
 # trixie: Tauri's installer script needs NSIS >= 3.09 (bookworm ships 3.08)
-FROM rust:1-trixie AS base
+FROM rust:1-trixie@sha256:1f65e0abcce9b449f9533df5994f2a62391059196c481a09b8e1b522dd6d75af AS base
 # libayatana-appindicator: the Tauri CLI checks for it whenever the tray feature is on, even for Windows targets.
 RUN apt-get update && apt-get install -y --no-install-recommends nsis lld llvm clang libayatana-appindicator3-dev \
-    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm i -g bun@1
+    && rm -rf /var/lib/apt/lists/*
+# Node (the Tauri CLI, tsc and vite run on it) and bun from their own pinned images, not a `curl | bash` installer.
+COPY --from=node:24-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4 /usr/local/bin/node /usr/local/bin/node
+COPY --from=oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 /usr/local/bin/bun /usr/local/bin/bun
 RUN rustup target add x86_64-pc-windows-msvc && cargo install --locked cargo-xwin
 
 FROM base AS build

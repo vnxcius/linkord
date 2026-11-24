@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -140,14 +141,56 @@ fn log_path(path: &str) -> String {
     path.chars().take(MAX_PATH).collect()
 }
 
-/// A tracing layer that writes redacted JSON lines to the daily file.
+/// Lines waiting for the writer thread; past this, new ones are dropped (and counted) rather than block the caller.
+const QUEUE: usize = 8192;
+
+enum ToWriter {
+    Line(String),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+static WRITER: OnceLock<std::sync::mpsc::SyncSender<ToWriter>> = OnceLock::new();
+static DROPPED: AtomicU64 = AtomicU64::new(0);
+
+/// A tracing layer that redacts each event into a JSON line and hands it to a thread of its own, which writes the
+/// daily file: a slow disk never holds up the async runtime that logged.
 pub struct FileLayer {
-    out: Mutex<DailyFile>,
+    tx: std::sync::mpsc::SyncSender<ToWriter>,
 }
 
 impl FileLayer {
     pub fn new(data_dir: &std::path::Path) -> FileLayer {
-        FileLayer { out: Mutex::new(DailyFile { dir: dir(data_dir), day: String::new(), file: None, written: 0 }) }
+        let (tx, rx) = std::sync::mpsc::sync_channel::<ToWriter>(QUEUE);
+        let mut out = DailyFile { dir: dir(data_dir), day: String::new(), file: None, written: 0 };
+        let spawned = std::thread::Builder::new().name("log-writer".into()).spawn(move || {
+            while let Ok(m) = rx.recv() {
+                let dropped = DROPPED.swap(0, Ordering::Relaxed);
+                if dropped > 0 {
+                    let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    out.write_line(&format!(r#"{{"t":"{at}","level":"WARN","target":"logs","msg":"{dropped} log lines were dropped: the writer fell behind","fields":{{}}}}"#));
+                }
+                match m {
+                    ToWriter::Line(line) => out.write_line(&line),
+                    ToWriter::Flush(done) => {
+                        let _ = done.send(());
+                    }
+                }
+            }
+        });
+        if let Err(e) = spawned {
+            eprintln!("logs: couldn't start the writer thread: {e}");
+        }
+        let _ = WRITER.set(tx.clone());
+        FileLayer { tx }
+    }
+}
+
+/// Waits (briefly) until every line logged so far is written: before the process exits.
+pub fn flush() {
+    let Some(tx) = WRITER.get() else { return };
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    if tx.send(ToWriter::Flush(done_tx)).is_ok() {
+        let _ = done_rx.recv_timeout(Duration::from_secs(2));
     }
 }
 
@@ -182,9 +225,8 @@ impl<S: Subscriber> Layer<S> for FileLayer {
         if !fields.0.is_empty() {
             line["fields"] = Value::Object(fields.0.into_iter().map(|(k, v)| (k, Value::String(redact(&v)))).collect());
         }
-        let line = line.to_string();
-        if let Ok(mut out) = self.out.lock() {
-            out.write_line(&line);
+        if self.tx.try_send(ToWriter::Line(line.to_string())).is_err() {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
         }
     }
 }

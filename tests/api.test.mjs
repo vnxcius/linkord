@@ -705,7 +705,16 @@ test('spotify: connect, "Listening to Spotify" reaches friends, seeks and song c
   const { url } = await ok(dj.token, 'GET', '/connections/spotify/authorize');
   assert.ok(url.startsWith(`${MOCK}/authorize?client_id=test-client`), url);
   const consent = await fetch(url, { redirect: 'manual' });
-  const page = await (await fetch(consent.headers.get('location'))).text();
+  // The callback asks first, naming the Linkord account (a forwarded link would connect to the sender's).
+  const back = consent.headers.get('location');
+  const ask = await (await fetch(back)).text();
+  assert.match(ask, new RegExp(`@${dj.username}`));
+  assert.ok(!ask.includes('Mock Listener'), 'nothing is connected before the click');
+  assert.deepEqual(await ok(dj.token, 'GET', '/users/@me/connections'), []);
+  const q = new URL(back).searchParams;
+  const confirm = () =>
+    fetch(back.split('?')[0], { method: 'POST', body: new URLSearchParams({ state: q.get('state'), code: q.get('code') }) });
+  const page = await (await confirm()).text();
   assert.match(page, /Mock Listener/);
   const conns = await ok(dj.token, 'GET', '/users/@me/connections');
   assert.deepEqual(
@@ -713,8 +722,9 @@ test('spotify: connect, "Listening to Spotify" reaches friends, seeks and song c
     [['spotify', 'Mock Listener', true, true]],
   );
   assert.ok(!JSON.stringify(conns).includes('at-'), 'tokens never leave the server');
-  // A second visit to the callback can't reuse the state.
-  assert.match(await (await fetch(consent.headers.get('location'))).text(), /expired/);
+  // A second visit to the callback, or a second click, can't reuse the state.
+  assert.match(await (await fetch(back)).text(), /expired/);
+  assert.match(await (await confirm()).text(), /expired/);
 
   const djWs = await gateway(dj.token);
   const fanWs = await gateway(fan.token);
@@ -2393,6 +2403,21 @@ test('soundboard: a big upload is kept smaller, its quota given back, and it can
   assert.equal(small.status, 200, JSON.stringify(small.body));
   assert.equal(size(small.body.source), mp3.length, 'left as it was');
 
+  // Deleting gives the quota back, with the files; an emoji too.
+  const stats = async () => (await ok(u.token, 'GET', '/users/@me/stats')).upload_bytes;
+  await ok(u.token, 'DELETE', `/guilds/${g.id}/soundboard/${r.body.id}`);
+  await ok(u.token, 'DELETE', `/guilds/${g.id}/soundboard/${small.body.id}`);
+  assert.equal(await stats(), quotaBefore, 'sounds give their quota back');
+  assert.throws(() => size(small.body.source), 'the files go too');
+  const fd = new FormData();
+  fd.append('name', 'quota_back');
+  fd.append('file', new Blob([png1], { type: 'image/png' }), 'e.png');
+  const e = await ok(u.token, 'POST', `/guilds/${g.id}/emojis`, fd);
+  assert.equal(await stats(), quotaBefore + png1.length);
+  await ok(u.token, 'DELETE', `/guilds/${g.id}/emojis/${e.id}`);
+  assert.equal(await stats(), quotaBefore, 'an emoji gives its quota back');
+  assert.equal((await fetch(`${BASE}/uploads/emojis/${e.id}.png`)).status, 404);
+  assert.equal((await call(u.token, 'DELETE', `/guilds/${g.id}/emojis/${e.id}`)).status, 404);
 });
 
 test('profile song search: finds songs, offers what can be used, and hands back audio that can be uploaded', async () => {
@@ -3020,6 +3045,8 @@ test('REC: a clip uploads in chunks, plays for anyone at its link, counts viewer
   // Anyone with the link: details, the page (no login, Open Graph video, only our own player's script), the file with
   // seeking.
   assert.equal((await call(null, 'GET', `/clips/${clip.slug}`)).body.id, clip.id);
+  // Not by its id: ids are guessable and would hand out the slug of clips never posted anywhere.
+  assert.equal((await call(null, 'GET', `/clips/${clip.id}`)).status, 404);
   const page = await fetch(`${BASE}/clip/${clip.slug}`, { headers: { 'user-agent': 'Mozilla/5.0 Chrome/130', 'cf-connecting-ip': '198.51.100.70' } });
   assert.equal(page.status, 200);
   const html = await page.text();

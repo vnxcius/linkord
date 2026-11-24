@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let names: Vec<&String> = cfg.admins.iter().filter(|a| a.parse::<u64>().is_err()).collect();
     if !names.is_empty() {
-        tracing::warn!("LINKORD_ADMINS has names in it: a Discord username can be taken by someone else after it's released. Use numeric Discord ids.");
+        tracing::warn!("LINKORD_ADMINS has names in it: they're ignored (a username can be taken by someone else after it's released). Use Linkord user ids.");
     }
     if !cfg.discord_enabled() {
         tracing::warn!("DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET not set: Discord login disabled");
@@ -140,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
         id::set_parity(snap.parity ^ 1);
         handover::restore(&st, snap).await;
     }
-    tokio::spawn(music::keep_ytdlp_updated(st.clone()));
+    tokio::spawn(music::check_ytdlp(st.clone()));
     tokio::spawn(auth::sweep(st.clone()));
     tokio::spawn(uploads::backfill_image_sizes(st.clone()));
     tokio::spawn(videos::backfill(st.clone()));
@@ -233,6 +233,7 @@ async fn main() -> anyhow::Result<()> {
     })
     .await;
     handover::finish().await;
+    logs::flush();
     Ok(())
 }
 

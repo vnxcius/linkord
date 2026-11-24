@@ -912,6 +912,9 @@ fn art_path(path: &str) -> bool {
         .is_some_and(|t| TIERS.contains(&t))
 }
 
+/// Pictures remembered as missing (an hour each).
+const MAX_ART_MISSING: usize = 10_000;
+
 fn art_file(st: &AppState, path: &str) -> std::path::PathBuf {
     st.cfg.data_dir.join(ART_DIR).join(path.replace('/', "_"))
 }
@@ -1001,7 +1004,13 @@ async fn fetch_art(st: &AppState, path: &str) -> anyhow::Result<bool> {
         return match failed {
             Some(e) => Err(e),
             None => {
-                st.league.art_missing.insert(path.to_string(), Instant::now());
+                // Anyone can ask for any number (the route has no login): forget old misses, and never keep too many.
+                if st.league.art_missing.len() >= MAX_ART_MISSING {
+                    st.league.art_missing.retain(|_, t| t.elapsed() < Duration::from_secs(3600));
+                }
+                if st.league.art_missing.len() < MAX_ART_MISSING {
+                    st.league.art_missing.insert(path.to_string(), Instant::now());
+                }
                 Ok(false)
             }
         };
