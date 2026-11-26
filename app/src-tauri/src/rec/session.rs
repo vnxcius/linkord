@@ -382,6 +382,11 @@ pub fn stop() {
         let _ = fs::remove_dir_all(&rec.dir);
     } else {
         write_json(&rec.dir.join("session.json"), &rec.meta);
+        // The player's index of the segments, saved now so the VOD opens at once the first time too.
+        let dir = rec.dir.clone();
+        std::thread::spawn(move || {
+            let _ = vod::index(&dir);
+        });
     }
     emit_status();
     enforce_caps();

@@ -351,26 +351,82 @@ pub struct SegmentIndex {
 
 /// What the player needs to play the recording in `dir` (reads only the segments' heads).
 pub fn index(dir: &Path) -> io::Result<Vec<PartIndex>> {
-    let mut out = Vec::new();
-    let mut names: Vec<String> = fs::read_dir(dir)?.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.ends_with("-init.mp4")).collect();
-    names.sort();
-    let parts = parts(dir)?;
-    for (part, init) in parts.iter().zip(names) {
-        let video = part.tracks.iter().find(|t| t.id == VIDEO_TRACK);
-        let Some(Codec::Avc { sps, .. }) = video.map(|t| &t.codec) else { continue };
-        let avc = format!("avc1.{:02x}{:02x}{:02x}", sps.get(1).copied().unwrap_or(0x64), sps.get(2).copied().unwrap_or(0), sps.get(3).copied().unwrap_or(0x2a));
-        let codecs = if part.tracks.iter().any(|t| t.id == MIX_TRACK) { format!("{avc},mp4a.40.2") } else { avc };
-        let ms = |ticks: u64| ticks * 1000 / VIDEO_TIMESCALE as u64;
-        let segments = (0..part.segments.len())
-            .filter_map(|s| {
-                let run = part.run(s, VIDEO_TRACK)?;
-                let end = run.start + run.samples.iter().map(|x| x.duration as u64).sum::<u64>();
-                Some(SegmentIndex { path: part.segments[s].0.display().to_string(), start_ms: ms(run.start), end_ms: ms(end) })
-            })
-            .collect();
-        out.push(PartIndex { init: dir.join(init).display().to_string(), codecs, segments });
+    // One listing gives names and sizes (no file opened); segments the saved index already knows at that size skip
+    // their read. A long VOD's thousands of segments took seconds to open one by one (Windows scans every open).
+    let mut cache: IndexCache = fs::read(dir.join(INDEX_FILE))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .filter(|c: &IndexCache| c.version == INDEX_VERSION)
+        .unwrap_or_default();
+    let mut fresh: std::collections::HashMap<String, CachedSegment> = std::collections::HashMap::new();
+    let mut read_any = false;
+    let mut files: Vec<(String, u64)> = fs::read_dir(dir)?
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let name = e.file_name().into_string().ok()?;
+            ((name.ends_with("-init.mp4") || name.ends_with(".m4s")) && !name.contains("stems")).then(|| (name, e.metadata().map(|m| m.len()).unwrap_or(0)))
+        })
+        .collect();
+    // Each part's init before its segments ("01-000000.m4s" would sort before "01-init.mp4").
+    files.sort_by_key(|(n, _)| (n.split('-').next().unwrap_or("").to_string(), !n.ends_with("-init.mp4"), n.clone()));
+
+    let ms = |ticks: u64| ticks * 1000 / VIDEO_TIMESCALE as u64;
+    let mut out: Vec<PartIndex> = Vec::new();
+    for (name, size) in files {
+        let path = dir.join(&name);
+        if name.ends_with("-init.mp4") {
+            let tracks = mp4::parse_init(&fs::read(&path)?).map_err(io::Error::other)?;
+            let Some(Codec::Avc { sps, .. }) = tracks.iter().find(|t| t.id == VIDEO_TRACK).map(|t| &t.codec) else { continue };
+            let avc = format!("avc1.{:02x}{:02x}{:02x}", sps.get(1).copied().unwrap_or(0x64), sps.get(2).copied().unwrap_or(0), sps.get(3).copied().unwrap_or(0x2a));
+            let codecs = if tracks.iter().any(|t| t.id == MIX_TRACK) { format!("{avc},mp4a.40.2") } else { avc };
+            out.push(PartIndex { init: path.display().to_string(), codecs, segments: Vec::new() });
+            continue;
+        }
+        let Some(part) = out.last_mut() else { continue };
+        let known = cache.segments.remove(&name).filter(|c| c.size == size);
+        let seg = match known {
+            Some(c) => c,
+            None => {
+                // A damaged segment (power cut), or one without video, is skipped, not the whole recording.
+                let Ok(runs) = read_runs(&path) else { continue };
+                let Some(run) = runs.iter().find(|r| r.track_id == VIDEO_TRACK) else { continue };
+                read_any = true;
+                CachedSegment { size, start: run.start, end: run.start + run.samples.iter().map(|x| x.duration as u64).sum::<u64>() }
+            }
+        };
+        part.segments.push(SegmentIndex { path: path.display().to_string(), start_ms: ms(seg.start), end_ms: ms(seg.end) });
+        fresh.insert(name, seg);
+    }
+    // Something new was read, or files went away: save what's there now (written aside, then swapped in).
+    if read_any || !cache.segments.is_empty() {
+        let saved = IndexCache { version: INDEX_VERSION, segments: fresh };
+        if let Ok(bytes) = serde_json::to_vec(&saved) {
+            let tmp = dir.join(format!("{INDEX_FILE}.tmp"));
+            if fs::write(&tmp, bytes).and_then(|_| fs::rename(&tmp, dir.join(INDEX_FILE))).is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
+        }
     }
     Ok(out)
+}
+
+/// Each segment's place on the timeline, saved in the VOD's folder by [index] so the next opening doesn't read every
+/// segment again. Keyed by file name, valid while the file keeps its size.
+const INDEX_FILE: &str = "index.json";
+const INDEX_VERSION: u32 = 1;
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct IndexCache {
+    version: u32,
+    segments: std::collections::HashMap<String, CachedSegment>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy)]
+struct CachedSegment {
+    size: u64,
+    /// Video ticks.
+    start: u64,
+    end: u64,
 }
 
 /// Every sample of `track` in a part: (segment, time, sample).
