@@ -22,14 +22,21 @@ class LinkordApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         session = Session(this)
         session.reporter.install()
-        session.start()
         watchNetwork()
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             private var idle: Job? = null
+            /** The gateway connects once the app is opened, not when the process starts: an FCM message also starts
+             *  it (in the background, for ~10 s), and connecting then showed you online until Android cut the network.
+             *  Notifications, Reply and Mark as read only need REST. */
+            private var started = false
             override fun onStart(owner: LifecycleOwner) {
                 idle?.cancel()
                 session.gateway.setForeground(true)
-                session.gateway.wake()
+                if (started) session.gateway.wake()
+                else {
+                    started = true
+                    session.start()
+                }
                 session.calls.foregroundChanged(true)
             }
 
