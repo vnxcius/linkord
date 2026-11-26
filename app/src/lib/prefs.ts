@@ -70,6 +70,8 @@ export interface Prefs {
   updateBanner: boolean;
   /** Stream/camera debug info (bitrate, codec, audio and capture diagnostics) over the video. */
   streamDebug: boolean;
+  /** Windows app: Linkord gets quieter while another app's call (WhatsApp, Teams...) rings or is on. */
+  duckOtherCalls: boolean;
   /** Soundboard volume (0-1) for everyone's sounds, and per person (0 = muted). */
   soundboardVolume: number;
   soundboardUserVolumes: Record<string, number>;
@@ -195,6 +197,7 @@ const DEFAULTS: Prefs = {
   lastSeenVersion: '',
   updateBanner: true,
   streamDebug: false,
+  duckOtherCalls: true,
   soundboardVolume: 0.8,
   soundboardUserVolumes: {},
   overlay: true,

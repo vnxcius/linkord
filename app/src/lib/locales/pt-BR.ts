@@ -2448,6 +2448,15 @@ export const UI: Record<string, string> = {
   Bluetooth: 'Bluetooth',
   Headphones: 'Fones de ouvido',
   "Couldn't start recording.": 'Não foi possível começar a gravar.',
+  "Couldn't attach that.": 'Não foi possível anexar isso.',
+  'Crop picture': 'Recortar imagem',
+  Freeform: 'Livre',
+  'Reacted with {emoji}': 'Reagiu com {emoji}',
+  'and {n} other': 'e mais {n}',
+  'and {n} others': 'e mais {n}',
+  'Quieter during other calls': 'Mais baixo durante outras chamadas',
+  "When WhatsApp, Teams, Zoom or another calling app rings or is in a call while you're in a call here, Linkord gets quieter until it's over.":
+    'Quando o WhatsApp, Teams, Zoom ou outro app de chamadas toca ou está em uma chamada enquanto você está em uma chamada aqui, o Linkord fica mais baixo até ela acabar.',
   'Hold on a little longer: that was too short to send.': 'Grave um pouco mais: ficou curto demais para enviar.',
   'Search messages': 'Buscar mensagens',
   "Couldn't reach the server. Check your internet connection.":

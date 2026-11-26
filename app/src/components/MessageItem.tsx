@@ -22,7 +22,7 @@ import { toDisplay, toRaw, type Tokens } from '../lib/mentions';
 import { dmName, findEmoji, isBlocked, nameColor, nameOf, state } from '../lib/store';
 import { voiceUi } from '../lib/voice';
 import type { Attachment, Channel, Embed, Forwarded, Message, SharedClip } from '../lib/types';
-import { videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
+import { PLAYER_SANDBOX, videoPlayer, type VideoPlayer as LinkPlayer } from '../lib/video-links';
 import { isPrivate, Kind } from '../lib/types';
 import {
   attempt,
@@ -203,6 +203,128 @@ export function ReactionEmoji(p: { emoji: string }) {
         />
       )}
     </Show>
+  );
+}
+
+/** How many people a reaction's popup lists by name; the rest are counted. */
+const REACTORS_SHOWN = 8;
+
+/** A reaction under a message. Hovering it (a long press on a touch screen) shows who reacted, in a popup of its own
+ *  (pictures and names). */
+function ReactionButton(p: {
+  emoji: string;
+  users: string[];
+  mine: boolean;
+  guildId?: string | null;
+  onClick: () => void;
+}) {
+  let btn!: HTMLButtonElement;
+  let pop: HTMLDivElement | undefined;
+  const [open, setOpen] = createSignal(false);
+  let timer: number | undefined;
+  /** Touch: the press that opened the popup isn't also a click (which would toggle the reaction). */
+  let held = false;
+  const custom = () => p.emoji.match(/^(\w+):(\d+)$/);
+  const names = () => p.users.map((u) => nameOf(u, p.guildId));
+  const show = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => setOpen(true), 250);
+  };
+  const hide = () => {
+    clearTimeout(timer);
+    setOpen(false);
+  };
+  // Above the reaction (below when there's no room), kept inside the window.
+  createEffect(() => {
+    if (!open() || !pop) return;
+    // Placed again when the list changes while it's open.
+    void p.users.length;
+    const r = btn.getBoundingClientRect();
+    const w = pop.offsetWidth;
+    const h = pop.offsetHeight;
+    const x = Math.max(6, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 6));
+    const y = r.top - 8 - h >= 4 ? r.top - 8 - h : Math.min(r.bottom + 8, innerHeight - h - 4);
+    pop.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  });
+  // A touch anywhere else closes it.
+  const away = (e: PointerEvent) => !btn.contains(e.target as Node) && hide();
+  onMount(() => {
+    addEventListener('scroll', hide, true);
+    document.addEventListener('pointerdown', away, true);
+    onCleanup(() => {
+      clearTimeout(timer);
+      removeEventListener('scroll', hide, true);
+      document.removeEventListener('pointerdown', away, true);
+    });
+  });
+  const press = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse') return;
+    held = false;
+    clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      held = true;
+      navigator.vibrate?.(10);
+      setOpen(true);
+    }, 450);
+  };
+  return (
+    <button
+      ref={btn}
+      class="reaction"
+      classList={{ mine: p.mine }}
+      aria-label={`${p.emoji}: ${names().join(', ')}`}
+      onPointerEnter={(e) => e.pointerType === 'mouse' && show()}
+      onPointerLeave={(e) => e.pointerType === 'mouse' && hide()}
+      onPointerDown={press}
+      // The message's own hold-for-menu mustn't start from here.
+      onTouchStart={(e) => e.stopPropagation()}
+      onPointerUp={() => !held && clearTimeout(timer)}
+      onPointerCancel={() => clearTimeout(timer)}
+      onContextMenu={(e) => {
+        // The long press is ours, not the message's menu.
+        if (held || open()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onClick={() => {
+        if (held) return void (held = false);
+        hide();
+        p.onClick();
+      }}
+    >
+      <ReactionEmoji emoji={p.emoji} />
+      <span class="reaction-count">{p.users.length}</span>
+      <Show when={open()}>
+        <Portal>
+          <div ref={pop} class="reaction-pop" role="tooltip">
+            <div class="reaction-pop-head">
+              <span class="reaction-pop-emoji">
+                <ReactionEmoji emoji={p.emoji} />
+              </span>
+              <span class="reaction-pop-title">
+                {t('Reacted with {emoji}', { emoji: custom() ? `:${custom()![1]}:` : p.emoji })}
+              </span>
+            </div>
+            <ul class="reaction-pop-list">
+              <For each={p.users.slice(0, REACTORS_SHOWN)}>
+                {(id) => (
+                  <li>
+                    <Avatar user={state.users[id]} size={20} guildId={p.guildId} />
+                    <span style={{ color: nameColor(p.guildId, id) }}>{nameOf(id, p.guildId)}</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <Show when={p.users.length > REACTORS_SHOWN}>
+              <small class="reaction-pop-more">
+                {plural(p.users.length - REACTORS_SHOWN, 'and {n} other', 'and {n} others')}
+              </small>
+            </Show>
+          </div>
+        </Portal>
+      </Show>
+    </button>
   );
 }
 
@@ -725,15 +847,13 @@ export function MessageItem(p: { message: Message; grouped: boolean; guildId?: s
               <div class="reactions">
                 <For each={m().reactions}>
                   {(r) => (
-                    <button
-                      class="reaction"
-                      classList={{ mine: r.users.includes(me()) }}
-                      title={r.users.map((u) => nameOf(u, p.guildId)).join(', ')}
+                    <ReactionButton
+                      emoji={r.emoji}
+                      users={r.users}
+                      mine={r.users.includes(me())}
+                      guildId={p.guildId}
                       onClick={() => void attempt(() => toggleReaction(m(), r.emoji))}
-                    >
-                      <ReactionEmoji emoji={r.emoji} />
-                      <span class="reaction-count">{r.users.length}</span>
-                    </button>
+                    />
                   )}
                 </For>
               </div>
@@ -1239,6 +1359,7 @@ function VideoLinkEmbed(p: { e: Embed; player: LinkPlayer }) {
               title={p.e.title ?? p.player.provider}
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write; web-share"
               allowfullscreen
+              sandbox={PLAYER_SANDBOX}
               referrerpolicy="strict-origin-when-cross-origin"
             />
           </Show>

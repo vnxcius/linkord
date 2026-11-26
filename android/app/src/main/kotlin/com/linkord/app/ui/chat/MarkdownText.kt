@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -182,7 +184,8 @@ private class Renderer(
     @Composable
     fun Inline(segs: List<Seg>, color: Color, suffix: String?, textStyle: TextStyle) {
         val inline = HashMap<String, InlineTextContent>()
-        val emojiSize = if (textStyle.fontSize > style.fontSize * 1.5f || textStyle.fontSize.value > 30) 1.1.em else 1.3.em
+        // Server emoji: as tall as each other (big enough to make out), as wide as their picture's shape.
+        val emojiSize = if (textStyle.fontSize > style.fontSize * 1.5f || textStyle.fontSize.value > 30) 1.6.em else 2.2.em
         val text = buildAnnotatedString {
             val active = HashMap<Markdown.Style, Int>()
             var spoiler = 0
@@ -230,8 +233,12 @@ private class Renderer(
                     }
                     is Markdown.CustomEmoji -> {
                         val key = "emoji:${s.id}:${inline.size}"
-                        inline[key] = InlineTextContent(Placeholder(emojiSize, emojiSize, PlaceholderVerticalAlign.TextCenter)) {
-                            AsyncImage(s.url, contentDescription = ":${s.name}:", modifier = Modifier.fillMaxSize())
+                        val width = (emojiSize.value * emojiRatio(s.id)).em
+                        inline[key] = InlineTextContent(Placeholder(width, emojiSize, PlaceholderVerticalAlign.TextCenter)) {
+                            AsyncImage(
+                                s.url, contentDescription = ":${s.name}:", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                                onSuccess = { learnEmojiRatio(s.id, it.result.image.width, it.result.image.height) },
+                            )
                         }
                         appendInlineContent(key, ":${s.name}:")
                     }
@@ -287,3 +294,14 @@ fun plainText(content: String, st: State, guildId: String?): String {
     }
 }
 
+/** Width / height of each server emoji's picture, learned as they load (square until then). Slots take that shape, so
+ *  every emoji is as tall as the rest and a wide one isn't shrunk into a square; capped so none overflows a line. */
+private val emojiRatios = mutableStateMapOf<String, Float>()
+
+fun emojiRatio(id: String): Float = emojiRatios[id] ?: 1f
+
+fun learnEmojiRatio(id: String, width: Int, height: Int) {
+    if (width <= 0 || height <= 0) return
+    val r = (width.toFloat() / height).coerceIn(0.25f, 4f)
+    if (emojiRatios[id] != r) emojiRatios[id] = r
+}

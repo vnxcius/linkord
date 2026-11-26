@@ -8,6 +8,7 @@ import workletUrl from './voice-worklets.ts?worker&url';
 import type { StreamAudioStats, WorkerIn, WorkerOut } from './voice-worker';
 import { api, getToken, serverUrl } from './api';
 import { getCamera, getMic, isChosenMic, outputSinkId } from './media-devices';
+import { isTauri } from './platform';
 import { prefs, setPrefs } from './prefs';
 import { sounds } from './sounds';
 import { nameOf, state } from './store';
@@ -192,12 +193,15 @@ export async function joinVoice(channelId: string) {
     }
 
     audio = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+    master = audio.createGain();
+    master.connect(audio.destination);
+    applyDuck();
     await applyOutputDevice();
     await audio.audioWorklet.addModule(workletUrl);
     if (gen !== generation) return;
 
     const playback = new AudioWorkletNode(audio, 'linkord-playback', { numberOfInputs: 0, outputChannelCount: [2] });
-    playback.connect(audio.destination);
+    playback.connect(master);
     const playCh = new MessageChannel();
     playback.port.postMessage({ port: playCh.port1 }, [playCh.port1]);
 
@@ -331,6 +335,41 @@ function onWorker(m: WorkerOut, channelId: string) {
   }
 }
 
+/** Everything heard in a call (voice, streams, the soundboard) goes through this, so it can be lowered as a whole. */
+let master: GainNode | null = null;
+/** How loud Linkord stays while another app's call is on (about -14 dB). */
+const DUCKED = 0.2;
+/** Another app's call is on (Windows app: src-tauri/src/call_duck.rs). */
+let otherCall = false;
+
+function applyDuck() {
+  if (!audio || !master) return;
+  const to = otherCall && prefs.duckOtherCalls ? DUCKED : 1;
+  master.gain.setTargetAtTime(to, audio.currentTime, to < 1 ? 0.15 : 0.4);
+}
+
+// While you're in a call here, the Windows app watches for another app's call (WhatsApp, Teams, Zoom...): ringing or
+// on, Linkord goes down so you can hear it, and back up once it's over.
+if (isTauri && navigator.userAgent.includes('Windows')) {
+  void import('@tauri-apps/api/event').then(({ listen }) =>
+    listen<boolean>('call-duck', (e) => {
+      otherCall = e.payload;
+      applyDuck();
+    }),
+  );
+  createRoot(() => {
+    let watching = false;
+    createEffect(() => {
+      const on = !!voiceUi.channelId && prefs.duckOtherCalls;
+      applyDuck();
+      if (on === watching) return;
+      watching = on;
+      if (!on) otherCall = false;
+      void import('@tauri-apps/api/core').then(({ invoke }) => invoke('call_watch', { on }).catch(() => {}));
+    });
+  });
+}
+
 let mutedHintTimer: number | undefined;
 let lastMutedHint = 0;
 const MUTED_HINT_GAP = 60_000;
@@ -354,6 +393,7 @@ function teardown() {
   micGone = false;
   void audio?.close();
   audio = null;
+  master = null;
   for (const r of remotes.values()) r.decoder.state !== 'closed' && r.decoder.close();
   remotes.clear();
   setTiles([]);
@@ -1225,7 +1265,7 @@ async function playSoundboard(userId: string, sound: Sound) {
     const gain = audio.createGain();
     gain.gain.value = Math.min(2, volume);
     src.buffer = buf;
-    src.connect(gain).connect(audio.destination);
+    src.connect(gain).connect(master ?? audio.destination);
     src.onended = done;
     playingSounds.set(userId, { seq, src });
     src.start();

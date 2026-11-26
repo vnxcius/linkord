@@ -180,7 +180,7 @@ fn read_json<T: for<'a> Deserialize<'a> + Default>(path: &Path) -> T {
 }
 
 /// A path the app sent, accepted only inside the REC folder.
-fn inside(path: &str) -> Result<PathBuf, String> {
+pub fn inside(path: &str) -> Result<PathBuf, String> {
     let root = with(|e| root(&e.config));
     let root = fs::canonicalize(&root).map_err(|_| "no REC folder yet".to_string())?;
     let path = fs::canonicalize(path).map_err(|_| "not found".to_string())?;
@@ -452,7 +452,9 @@ pub fn clip(seconds: Option<u32>, title: Option<String>) -> Result<PathBuf, Stri
 }
 
 /// A clip from a VOD (the editor): `from`..`to` ms.
-pub fn export(vod_dir: &Path, from_ms: u64, to_ms: u64, title: String) -> Result<PathBuf, String> {
+pub fn export(vod_dir: &str, from_ms: u64, to_ms: u64, title: String) -> Result<PathBuf, String> {
+    let vod_dir = inside(vod_dir)?;
+    let vod_dir = vod_dir.as_path();
     let meta: Meta = read_json(&vod_dir.join("session.json"));
     let root = with(|e| root(&e.config));
     let clips = root.join("Clips");

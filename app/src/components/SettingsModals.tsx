@@ -23,6 +23,7 @@ import { Kind } from '../lib/types';
 import { attempt, setUi, toast } from '../lib/ui';
 import { Avatar, GuildIcon } from './Avatar';
 import { ColorPicker } from './ColorPicker';
+import { croppable, CropImage } from './CropImage';
 import * as I from './Icons';
 import { useSubmit } from './Modals';
 import { SoundboardSettings } from './Soundboard';
@@ -799,6 +800,7 @@ function RoleEditor(p: { guildId: string; role: Role; onDeleted: () => void }) {
 function EmojiPage(p: { guildId: string }) {
   const [name, setName] = createSignal('');
   const [file, setFile] = createSignal<File | null>(null);
+  const [cropping, setCropping] = createSignal(false);
   const { busy, error, run } = useSubmit();
   const list = () => state.emojis[p.guildId] ?? [];
   const upload = () =>
@@ -833,6 +835,11 @@ function EmojiPage(p: { guildId: string }) {
             onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)}
           />
         </label>
+        <Show when={file() && croppable(file()!)}>
+          <button class="btn" onClick={() => setCropping(true)}>
+            <I.Edit size={15} /> {t('Crop picture')}
+          </button>
+        </Show>
         <input
           class="inline-input"
           placeholder={t('emoji_name')}
@@ -846,6 +853,19 @@ function EmojiPage(p: { guildId: string }) {
       </div>
       <Show when={error()}>
         <p class="error">{error()}</p>
+      </Show>
+      <Show when={cropping() && file()}>
+        {(f) => (
+          <CropImage
+            file={f()}
+            maxSide={512}
+            onCancel={() => setCropping(false)}
+            onDone={(cut) => {
+              setCropping(false);
+              setFile(cut);
+            }}
+          />
+        )}
       </Show>
       <div class="emoji-admin">
         <For each={list()} fallback={<p class="empty-hint">{t('No custom emoji yet.')}</p>}>

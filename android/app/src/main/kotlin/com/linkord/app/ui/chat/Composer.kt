@@ -26,6 +26,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.content.MediaType
+import androidx.compose.foundation.content.TransferableContent
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -77,7 +85,7 @@ import kotlinx.coroutines.launch
  * The message box. Mentions are typed as "@Name" and sent as <@id> (the web client's lib/mentions.ts); long text
  * goes as message.txt, like Discord.
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Composer(
     channel: Channel,
@@ -92,7 +100,11 @@ fun Composer(
     val c = Linkord.colors
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    var value by remember(channel.id) { mutableStateOf(TextFieldValue(Drafts.get(channel.id))) }
+    // The field keeps its text in a TextFieldState (pasting pictures needs the state-based field); the code below
+    // reads and writes it as a TextFieldValue through `value`.
+    val field = remember(channel.id) { TextFieldState(Drafts.get(channel.id)) }
+    val fieldValue = remember(field) { FieldValue(field) }
+    var value by fieldValue
     val files = remember(channel.id) { mutableStateListOf<Outgoing>() }
     // "@Name" -> user id, for what was picked from the suggestions.
     val picked = remember(channel.id) { HashMap<String, String>() }
@@ -147,6 +159,18 @@ fun Composer(
     // Linkord's own picker (MediaPicker): photos and videos, up to 10, in the order picked.
     var pickingMedia by remember { mutableStateOf(false) }
     val documents = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> files += uris.map { session.actions.describeUri(it) } }
+    // Pictures, GIFs and videos pasted into the box, or sent from the keyboard (its GIFs and stickers), are attached.
+    val editingNow by androidx.compose.runtime.rememberUpdatedState(editing)
+    val receiveMedia: (TransferableContent) -> TransferableContent? = receive@{ content ->
+        if (editingNow != null || !(content.hasMediaType(MediaType.Image) || content.hasMediaType(VIDEO))) return@receive content
+        val clip = content.clipEntry.clipData
+        val fallback = content.clipMetadata.clipDescription?.takeIf { it.mimeTypeCount > 0 }?.getMimeType(0)
+        for (i in 0 until clip.itemCount) {
+            val uri = clip.getItemAt(i).uri ?: continue
+            session.actions.takePasted(uri, fallback) { out -> if (out != null) files += out else session.toast(t("Couldn't attach that.")) }
+        }
+        content.consume { it.uri != null }
+    }
 
     fun send() {
         var text = toWire(value.text.trim(), picked, st, channel)
@@ -311,17 +335,18 @@ fun Composer(
             Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(c.raised).padding(horizontal = 14.dp, vertical = 11.dp)) {
                 if (value.text.isEmpty()) Text(placeholder(channel, st), style = Linkord.type.body, color = c.text3, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 BasicTextField(
-                    value,
-                    onValueChange = {
-                        if (it.text.length > value.text.length && it.text.isNotBlank()) session.actions.sendTyping(channel.id)
-                        value = it
-                        Drafts.set(channel.id, it.text)
+                    field,
+                    // What's typed (not what the code puts in): the typing indicator and the draft.
+                    inputTransformation = InputTransformation {
+                        val now = toString()
+                        if (now.length > originalText.length && now.isNotBlank()) session.actions.sendTyping(channel.id)
+                        Drafts.set(channel.id, now)
                     },
                     textStyle = Linkord.type.body.copy(color = c.text),
                     cursorBrush = SolidColor(c.brand),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    maxLines = 6,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 21.dp).focusRequester(fieldFocus),
+                    lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 6),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 21.dp).focusRequester(fieldFocus).contentReceiver(receiveMedia),
                 )
             }
             Spacer(Modifier.width(4.dp))
@@ -422,6 +447,21 @@ private fun displayMentions(content: String, st: com.linkord.core.State, guildId
         picked[name] = m.groupValues[1]
         name
     }
+
+/** The box's text as a TextFieldValue (what the mention, emoji and command code reads and writes), over the field's
+ *  TextFieldState. */
+private class FieldValue(private val state: TextFieldState) {
+    operator fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>): TextFieldValue = TextFieldValue(state.text.toString(), state.selection)
+
+    operator fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, v: TextFieldValue) {
+        state.edit {
+            replace(0, length, v.text)
+            selection = v.selection
+        }
+    }
+}
+
+private val VIDEO = MediaType("video/*")
 
 /** Unsent text per channel, kept while the app runs. */
 object Drafts {

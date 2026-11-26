@@ -148,10 +148,7 @@ pub fn rec_update(path: String, starred: Option<bool>, title: Option<String>, sh
 #[tauri::command]
 pub async fn rec_export(vod: String, from_ms: u64, to_ms: u64, title: String) -> Result<String, String> {
     #[cfg(windows)]
-    let result = {
-        let dir = std::path::PathBuf::from(vod);
-        blocking(move || session::export(&dir, from_ms, to_ms, title).map(|p| p.display().to_string())).await?
-    };
+    let result = blocking(move || session::export(&vod, from_ms, to_ms, title).map(|p| p.display().to_string())).await?;
     #[cfg(not(windows))]
     let result = {
         let _ = (vod, from_ms, to_ms, title);
@@ -216,7 +213,7 @@ pub async fn rec_vod(dir: String) -> Result<serde_json::Value, String> {
     result
 }
 
-/// Shows a file (or the REC folder) in Explorer.
+/// Shows a file (or the REC folder) in Explorer. Only things inside the REC folder.
 #[tauri::command]
 pub fn rec_reveal(path: Option<String>) -> Result<(), String> {
     #[cfg(windows)]
@@ -225,7 +222,10 @@ pub fn rec_reveal(path: Option<String>) -> Result<(), String> {
         let _ = std::fs::create_dir_all(&folder);
         let mut cmd = std::process::Command::new("explorer.exe");
         match path {
-            Some(p) => cmd.arg(format!("/select,{p}")),
+            Some(p) => {
+                session::inside(&p)?;
+                cmd.arg(format!("/select,{p}"))
+            }
             None => cmd.arg(&folder),
         };
         cmd.spawn().map(|_| ()).map_err(|e| e.to_string())

@@ -10,6 +10,7 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[cfg(windows)]
 mod app_icon;
+mod call_duck;
 mod capture;
 mod games;
 mod keybinds;
@@ -471,6 +472,33 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
     Ok(())
 }
 
+/// The app's own pages: the bundled web app (http(s)://tauri.localhost on Windows, tauri://localhost elsewhere) and,
+/// under `tauri dev`, the dev server.
+fn is_app_url<R: tauri::Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> bool {
+    match (url.scheme(), url.host_str()) {
+        ("http" | "https", Some("tauri.localhost")) | ("tauri", Some("localhost")) => true,
+        _ => tauri::is_dev() && app.config().build.dev_url.as_ref().is_some_and(|dev| dev.origin() == url.origin()),
+    }
+}
+
+/// The app's windows only ever show the app: anything that tries to take a whole window elsewhere (a player frame
+/// navigating the top page, a dropped file) is stopped, and a web page it meant opens in the browser instead. Twitch's
+/// chat window shows Twitch on purpose and is left alone.
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::<R>::new("navigation-guard")
+        .on_navigation(|webview, url| {
+            let app = webview.app_handle();
+            if webview.label() == WATCH_CHAT || is_app_url(app, url) {
+                return true;
+            }
+            if matches!(url.scheme(), "http" | "https") {
+                let _ = app.opener().open_url(url.as_str(), None::<&str>);
+            }
+            false
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
@@ -479,6 +507,7 @@ pub fn run() {
         // A second launch focuses the running window instead of opening another client.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_opener::init())
+        .plugin(navigation_guard())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -540,6 +569,7 @@ pub fn run() {
             league::league_invite,
             league::league_accept,
             league::league_events,
+            call_duck::call_watch,
         ])
         // Every window (main, pop-outs, REC overlay), on every load: WebView2's browser shortcuts off.
         .on_page_load(|webview, _| no_browser_keys(webview))
@@ -619,13 +649,15 @@ fn enable_media(window: &tauri::WebviewWindow) {
 }
 
 /// Windows counterpart: clears any earlier "Block" on the mic/camera prompt for the app's own origin
-/// and allows future requests, so voice never depends on a one-time dialog.
+/// and allows its future requests, so voice never depends on a one-time dialog. Anything else asking (a player
+/// frame) is refused without a prompt.
 #[cfg(windows)]
 fn enable_media(window: &tauri::WebviewWindow) {
-    let _ = window.with_webview(|webview| unsafe {
+    let app = window.app_handle().clone();
+    let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::*;
         use webview2_com::{PermissionRequestedEventHandler, SetPermissionStateCompletedHandler};
-        use windows::core::{Interface, HSTRING};
+        use windows::core::{Interface, HSTRING, PWSTR};
 
         let Ok(core) = webview.controller().CoreWebView2() else { return };
         let mut browser_pid = 0u32;
@@ -648,7 +680,10 @@ fn enable_media(window: &tauri::WebviewWindow) {
                 let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
                 args.PermissionKind(&mut kind)?;
                 if media.contains(&kind) {
-                    args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                    let mut uri = PWSTR::null();
+                    args.Uri(&mut uri)?;
+                    let own = tauri::Url::parse(&webview2_com::take_pwstr(uri)).is_ok_and(|u| is_app_url(&app, &u));
+                    args.SetState(if own { COREWEBVIEW2_PERMISSION_STATE_ALLOW } else { COREWEBVIEW2_PERMISSION_STATE_DENY })?;
                 }
             }
             Ok(())

@@ -2067,6 +2067,16 @@ function VoicePage(p: { onKeybinds: () => void }) {
             checked={prefs.echoCancellation}
             onChange={(v) => set({ echoCancellation: v }, true)}
           />
+          <Show when={isTauri && navigator.userAgent.includes('Windows')}>
+            <SwitchRow
+              label={t('Quieter during other calls')}
+              hint={t(
+                "When WhatsApp, Teams, Zoom or another calling app rings or is in a call while you're in a call here, Linkord gets quieter until it's over.",
+              )}
+              checked={prefs.duckOtherCalls}
+              onChange={(v) => set({ duckOtherCalls: v })}
+            />
+          </Show>
         </div>
       </Section>
 

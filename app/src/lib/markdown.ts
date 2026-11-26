@@ -116,6 +116,11 @@ const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s
 /** Messages made only of a few emoji are shown large, like Discord. */
 export function isJumbo(content: string): boolean {
   const t = content.trim();
-  if (!t || /^[\d#*\s]+$/.test(t) || !EMOJI_ONLY.test(t)) return false;
-  return [...new Intl.Segmenter().segment(t.replace(/\s/g, ''))].length <= 27;
+  // Server emoji count as one emoji each.
+  const custom = t.match(CUSTOM_EMOJI)?.length ?? 0;
+  const rest = t.replace(CUSTOM_EMOJI, '').trim();
+  if (!t || (rest && (/^[\d#*\s]+$/.test(rest) || !EMOJI_ONLY.test(rest)))) return false;
+  return custom + [...new Intl.Segmenter().segment(rest.replace(/\s/g, ''))].length <= 27;
 }
+
+const CUSTOM_EMOJI = /<a?:\w+:\d+>/g;

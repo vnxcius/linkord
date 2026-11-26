@@ -3,6 +3,7 @@
 import { createEffect, onCleanup, onMount, Show } from 'solid-js';
 import { media } from '../lib/api';
 import { t } from '../lib/i18n';
+import { PLAYER_SANDBOX } from '../lib/video-links';
 import { controlWatch, embedSrc, expectedPosition, watches, YouTubeSync } from '../lib/watch';
 import * as I from './Icons';
 
@@ -76,6 +77,7 @@ export function Player(p: { channelId: string; muted: boolean }) {
       src={src}
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       allowfullscreen
+      sandbox={PLAYER_SANDBOX}
     />
   );
 }

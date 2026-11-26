@@ -133,6 +133,11 @@ export const PLAYER_ORIGINS = [
   'https://www.dailymotion.com',
 ];
 
+/** Every site player's frame: it runs and opens its own links in new windows, but can't take the app's page anywhere
+ *  (no top navigation) or open dialogs over it. Presentation is for casting. */
+export const PLAYER_SANDBOX =
+  'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-storage-access-by-user-activation';
+
 /** Hosts of the stream chats shown beside watch together, in the web CSP's frame-src. */
 export const CHAT_ORIGINS = ['https://www.youtube.com', 'https://www.twitch.tv', 'https://kick.com'];
 /** The desktop CSP also needs them, except Twitch's: it opens in a window of its own there (see twitchChatFrames). */

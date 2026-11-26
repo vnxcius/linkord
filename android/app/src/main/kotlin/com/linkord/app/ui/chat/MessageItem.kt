@@ -34,7 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -273,16 +275,26 @@ fun MessageItem(
                     if (origins.none { e.url.startsWith("$it/invite/") }) EmbedCard(e, guildId, onTap, "${m.id}-$i")
                 }
                 if (m.failed) FailedRow(m)
+                // A long press on a reaction shows who reacted (ReactionsSheet.kt).
+                var whoReacted by remember(m.id) { mutableStateOf<String?>(null) }
+                whoReacted?.let { e -> ReactionsSheet(m, guildId, e) { whoReacted = null } }
                 if (m.reactions.isNotEmpty()) FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (r in m.reactions) {
                         val mine = me != null && me in r.users
+                        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
                         Row(
                             Modifier.clip(RoundedCornerShape(8.dp)).background(if (mine) c.brandSoft else c.raised)
                                 .border(1.dp, if (mine) c.brandTint(0.6f) else Color.Transparent, RoundedCornerShape(8.dp))
-                                .clickable { session.actions.toggleReaction(m, r.emoji) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                                .combinedClickable(
+                                    onClick = { session.actions.toggleReaction(m, r.emoji) },
+                                    onLongClick = {
+                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        whoReacted = r.emoji
+                                    },
+                                ).padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ReactionEmoji(r.emoji, 18.dp)
+                            ReactionEmoji(r.emoji, 20.dp)
                             Spacer(Modifier.width(5.dp))
                             Text(r.users.size.toString(), style = Linkord.type.mono.copy(color = if (mine) c.text else c.text2))
                         }
@@ -360,7 +372,13 @@ fun ReactionEmoji(emoji: String, size: androidx.compose.ui.unit.Dp) {
     if (custom != null) {
         val id = custom.groupValues[2]
         val animated = session.store.s.emojis.values.any { l -> l.any { it.id == id && it.animated } }
-        AsyncImage(session.api.emojiUrl(id, animated), ":${custom.groupValues[1]}:", modifier = Modifier.size(size))
+        // As tall as the others, as wide as its picture (learned as it loads, like in messages).
+        AsyncImage(
+            session.api.emojiUrl(id, animated), ":${custom.groupValues[1]}:",
+            modifier = Modifier.height(size).width(size * emojiRatio(id).coerceAtMost(3f)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            onSuccess = { learnEmojiRatio(id, it.result.image.width, it.result.image.height) },
+        )
     } else Text(com.linkord.designsystem.emojiText(emoji), fontSize = with(LocalDensity.current) { (size * 0.9f).toSp() })
 }
 

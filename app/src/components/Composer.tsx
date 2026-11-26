@@ -18,6 +18,7 @@ import { customPick, EmojiPicker } from './EmojiPicker';
 import * as I from './Icons';
 import { inviteChat, leagueCanInvite } from '../lib/league';
 import { createVoiceRecording, RecordingBar } from './VoiceNote';
+import { croppable, CropImage } from './CropImage';
 
 /** One autocomplete row: a member, role, @everyone, emoji, or slash command. */
 interface Suggestion {
@@ -35,6 +36,8 @@ const MAX_FILE = 25 * 1024 * 1024;
 export function Composer(p: { channel: Channel }) {
   const [text, setText] = createSignal('');
   const [files, setFiles] = createSignal<File[]>([]);
+  /** The attached picture open in the cropper (its place in the tray). */
+  const [cropping, setCropping] = createSignal<number | null>(null);
   const [picker, setPicker] = createSignal<'emoji' | null>(null);
   const [mentionIdx, setMentionIdx] = createSignal(0);
   /** A slash command waiting for the bot (yt-dlp can take a few seconds to find a video). */
@@ -411,6 +414,16 @@ export function Composer(p: { channel: Channel }) {
                   <img src={URL.createObjectURL(f())} alt="" />
                 </Show>
                 <span class="file-name">{f().name}</span>
+                <Show when={croppable(f())}>
+                  <button
+                    class="icon-btn tiny upload-edit"
+                    aria-label={t('Crop picture')}
+                    data-tip={t('Crop picture')}
+                    onClick={() => setCropping(i)}
+                  >
+                    <I.Edit size={14} />
+                  </button>
+                </Show>
                 <button
                   class="icon-btn tiny"
                   aria-label={t('Remove')}
@@ -422,6 +435,21 @@ export function Composer(p: { channel: Channel }) {
             )}
           </Index>
         </div>
+      </Show>
+      <Show when={cropping() !== null && files()[cropping()!]}>
+        {(f) => (
+          <CropImage
+            file={f()}
+            onCancel={() => setCropping(null)}
+            onDone={(cut) => {
+              const at = cropping();
+              setCropping(null);
+              if (cut.size > MAX_FILE) return toast(t('{name} is larger than 25 MB', { name: cut.name }));
+              setFiles((l) => l.map((x, j) => (j === at ? cut : x)));
+              input.focus();
+            }}
+          />
+        )}
       </Show>
       <div
         class="composer"

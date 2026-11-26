@@ -262,12 +262,18 @@ object Markdown {
     /** Messages made only of a few emoji are shown large, like Discord. */
     fun isJumbo(content: String): Boolean {
         val t = content.trim()
-        if (t.isEmpty() || Regex("^[\\d#*\\s]+$").matches(t) || !t.codePoints().allMatch(::isEmojiPart)) return false
-        val it = java.text.BreakIterator.getCharacterInstance()
-        val bare = t.replace(Regex("\\s"), "")
-        it.setText(bare)
-        var n = 0
-        while (it.next() != java.text.BreakIterator.DONE) n++
+        if (t.isEmpty()) return false
+        // Server emoji count as one emoji each.
+        val custom = Regex("<a?:\\w+:\\d+>")
+        val rest = t.replace(custom, "").trim()
+        if (rest.isNotEmpty() && (Regex("^[\\d#*\\s]+$").matches(rest) || !rest.codePoints().allMatch(::isEmojiPart))) return false
+        var n = custom.findAll(t).count()
+        val bare = rest.replace(Regex("\\s"), "")
+        if (bare.isNotEmpty()) {
+            val it = java.text.BreakIterator.getCharacterInstance()
+            it.setText(bare)
+            while (it.next() != java.text.BreakIterator.DONE) n++
+        }
         return n <= 27
     }
 }

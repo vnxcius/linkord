@@ -289,6 +289,35 @@ class Actions(private val session: Session) {
         return Outgoing(uri, name, cr.getType(uri) ?: "application/octet-stream", size)
     }
 
+    /**
+     * A picture, GIF or video pasted into the box or sent from the keyboard. The right to read it can end as soon as the
+     * paste is over, so it's opened right here and copied into the cache in the background; [done] gets the attachment
+     * (null if it couldn't be read), on the main thread.
+     */
+    fun takePasted(uri: Uri, fallbackType: String?, done: (Outgoing?) -> Unit) {
+        val cr = session.context.contentResolver
+        val info = runCatching { describeUri(uri) }.getOrNull()
+        val input = runCatching { cr.openInputStream(uri) }.getOrNull()
+        if (info == null || input == null) return done(null)
+        val type = info.type.takeIf { it != "application/octet-stream" } ?: fallbackType ?: info.type
+        scope.launch {
+            val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val dir = java.io.File(session.context.cacheDir, "pasted").apply { mkdirs() }
+                    // Yesterday's pastes were sent (or dropped) long ago.
+                    dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 86_400_000 }?.forEach { it.delete() }
+                    val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(type)
+                    val base = info.name.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "pasted" }
+                    val name = if (base.contains('.') || ext == null) base else "$base.$ext"
+                    val file = java.io.File(dir, "${System.nanoTime()}-$name")
+                    input.use { i -> file.outputStream().use { i.copyTo(it) } }
+                    Outgoing(Uri.fromFile(file), name, type, file.length())
+                }.getOrNull()
+            }
+            done(out)
+        }
+    }
+
     fun dismissMessage(m: Message) {
         m.nonce?.let { failedFiles.remove(it) }
         setBucket(m.channelId) { b -> b.copy(list = b.list.removingAll { it.id == m.id }) }
