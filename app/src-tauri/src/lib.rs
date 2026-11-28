@@ -12,6 +12,8 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 mod app_icon;
 mod call_duck;
 mod capture;
+mod discord;
+mod memory;
 mod games;
 mod keybinds;
 mod league;
@@ -570,6 +572,14 @@ pub fn run() {
             league::league_accept,
             league::league_events,
             call_duck::call_watch,
+            discord::discord_start,
+            discord::discord_show,
+            discord::discord_set_top,
+            discord::discord_stop,
+            discord::discord_snapshot,
+            discord::discord_forget,
+            discord::discord_notification_clicked,
+            memory::app_memory,
         ])
         // Every window (main, pop-outs, REC overlay), on every load: WebView2's browser shortcuts off.
         .on_page_load(|webview, _| no_browser_keys(webview))

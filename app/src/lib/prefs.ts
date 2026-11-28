@@ -101,6 +101,16 @@ export interface Prefs {
   recHotkeysAdded: boolean;
   /** REC's defaults were updated for this device (2 = auto-recording on, only the overlay hotkey set). */
   recDefaults: number;
+  /** Discord inside Linkord (Windows app, lib/discord.ts). */
+  discord: DiscordPrefs;
+}
+
+export interface DiscordPrefs {
+  /** Opt-in: until it's turned on (the switch's introduction or Settings -> Discord), nothing of Discord runs. */
+  enabled: boolean;
+  /** Keep it running while Linkord is in front: Discord's notifications and calls go on. Off: it closes a minute after
+   * you leave it, once it isn't playing sound. */
+  background: boolean;
 }
 
 export interface RecPrefs {
@@ -238,6 +248,7 @@ const DEFAULTS: Prefs = {
   },
   recHotkeysAdded: false,
   recDefaults: 0,
+  discord: { enabled: false, background: true },
 };
 
 const KEY = 'linkord.prefs';
@@ -259,6 +270,7 @@ function load(): Prefs {
     delete saved.pttLabel;
     saved.soundKinds = { ...DEFAULTS.soundKinds, ...saved.soundKinds };
     saved.rec = { ...DEFAULTS.rec, ...saved.rec, league: { ...DEFAULTS.rec.league, ...saved.rec?.league } };
+    saved.discord = { ...DEFAULTS.discord, ...saved.discord };
     return { ...DEFAULTS, ...saved };
   } catch {
     return DEFAULTS;

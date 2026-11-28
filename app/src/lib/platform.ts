@@ -11,9 +11,9 @@ export async function openExternal(url: string) {
 
 let notifyPermission: boolean | undefined;
 
-/** Where a notification leads: clicking it opens that channel (at the message, when there is one), or the friends
- *  list (a friend request). */
-export type NotifyTarget = { channelId: string; messageId?: string } | { friends: true };
+/** Where a notification leads: clicking it opens that channel (at the message, when there is one), the friends
+ *  list (a friend request), or Discord at that notification's chat (lib/discord.ts, its id in discord.rs). */
+export type NotifyTarget = { channelId: string; messageId?: string } | { friends: true } | { discord: number };
 
 let onNotificationClick: ((target: NotifyTarget) => void) | null = null;
 let actionListener: Promise<unknown> | null = null;
@@ -31,7 +31,9 @@ export function setNotificationClickHandler(handler: (target: NotifyTarget) => v
 const isTarget = (x: unknown): x is NotifyTarget =>
   !!x &&
   typeof x === 'object' &&
-  (typeof (x as { channelId?: unknown }).channelId === 'string' || (x as { friends?: unknown }).friends === true);
+  (typeof (x as { channelId?: unknown }).channelId === 'string' ||
+    (x as { friends?: unknown }).friends === true ||
+    typeof (x as { discord?: unknown }).discord === 'number');
 
 export async function notify(title: string, body: string, icon?: string, target?: NotifyTarget) {
   if (isTauri) {

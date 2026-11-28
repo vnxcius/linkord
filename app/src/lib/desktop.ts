@@ -11,10 +11,26 @@ import { Kind } from './types';
 import { prefs } from './prefs';
 import { isChristmas } from './theme';
 import { anyAlert, state, totalMentions } from './store';
+import { closeDiscord, discord, initDiscord, openFromDiscordNotification } from './discord';
 import { voiceUi } from './voice';
 import { initZoom } from './zoom';
 
 export const isWindows = navigator.userAgent.includes('Windows');
+
+/** Bytes of private working set (Task Manager's Memory column), src-tauri/src/memory.rs: the app itself, Linkord's
+ *  pages, Discord's view and the browser engine they share. */
+export interface AppMemory {
+  app: number;
+  pages: number;
+  discord: number;
+  engine: number;
+}
+
+export async function appMemory(): Promise<AppMemory | null> {
+  if (!isTauri || !isWindows) return null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<AppMemory>('app_memory').catch(() => null);
+}
 
 export interface PendingUpdate {
   version: string;
@@ -83,6 +99,9 @@ async function openFromNotification(target: NotifyTarget) {
     await win.unminimize().catch(() => {});
     await win.setFocus().catch(() => {});
   }
+  if ('discord' in target) return openFromDiscordNotification(target.discord);
+  // A Linkord notification while Discord is in front: Linkord comes back first.
+  await closeDiscord(true);
   const { jumpToMessage, openFriends, openVoiceChat, selectChannel } = await import('./actions');
   if ('friends' in target) return openFriends();
   const ch = state.channels[target.channelId];
@@ -139,6 +158,7 @@ export async function initDesktop() {
   void listenFrameMenus();
   if (isWindows) void initOverlay();
   if (isWindows) void import('./rec').then((r) => r.initRec());
+  if (isWindows) void initDiscord();
 
   createRoot(() => {
     createEffect(() => {
@@ -155,7 +175,8 @@ export async function initDesktop() {
     createEffect(() => void invoke('set_start_minimized', { enabled: prefs.startMinimized }).catch(() => {}));
     createEffect(
       on(
-        () => [totalMentions(), anyAlert()] as const,
+        // Discord's badge (lib/discord.ts) counts too, like the Discord app's own taskbar badge.
+        () => [totalMentions() + discord.mentions, anyAlert() || discord.unread] as const,
         async ([count, alert], prev) => {
           if (isWindows) await win.setOverlayIcon(count || alert ? await badgePng(count) : undefined).catch(() => {});
           if ((count > (prev?.[0] ?? 0) || (alert && !prev?.[1])) && !document.hasFocus())

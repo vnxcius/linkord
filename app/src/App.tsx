@@ -34,6 +34,7 @@ import { ProfilePopout } from './components/Profile';
 import { Rail } from './components/Rail';
 import { Dock, GuildBanner, Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
+import { DiscordStage } from './components/Discord';
 import { PickUsername } from './components/Username';
 import { SidebarResize, sidebarWidth } from './components/SidebarResize';
 import { Onboarding } from './components/Onboarding';
@@ -83,6 +84,9 @@ export default function App() {
         </Show>
       </Show>
       <PageHost />
+      <Show when={isTauri}>
+        <DiscordStage />
+      </Show>
       <Show when={launchUpdate()}>{(u) => <LaunchUpdate version={u().version} progress={u().progress} />}</Show>
     </div>
   );

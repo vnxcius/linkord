@@ -114,6 +114,8 @@ app/      SolidJS + Vite web client; app/src-tauri = the Tauri shell
   src/lib/rec*.ts, components/Rec*.tsx, src-tauri/src/rec/   REC
   src-tauri/src/capture/   native Windows capture (Desktop Duplication, Media Foundation H.264, WASAPI loopback)
   src-tauri/src/overlay.rs  in-game voice overlay;  keybinds.rs  global hooks (non-consuming)
+  src-tauri/src/discord.rs, lib/discord.ts   Discord's web app inside the app (Windows, opt-in): a raw WebView2 controller
+                   on the main window's environment, nothing injected; the switch's motion plays on a still of it
 monitor/  dashboard on :7710 (own login, own SQLite, read-only Postgres): see Monitor
 android/  native Android app (Kotlin + Compose): see Android
 deploy/   docker-compose.yml (Postgres, server slots a/b, monitor), Dockerfiles, install scripts, builder.sh, ci/

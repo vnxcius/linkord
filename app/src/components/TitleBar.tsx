@@ -2,13 +2,21 @@ import { Show } from 'solid-js';
 import { t } from '../lib/i18n';
 import { isTauri, windowControl } from '../lib/platform';
 import { state } from '../lib/store';
+import { discord } from '../lib/discord';
+import { DiscordBackButton } from './Discord';
 import { Close, Emblem, Maximize, Minimize } from './Icons';
 
 /** The title bar: the Triforce and name on the left, where you are in the middle. On the desktop app it is also the window
  *  chrome (the native title bar is disabled); on the web it's only shown on wide screens. */
 export function TitleBar() {
   const place = () =>
-    !state.ready ? '' : state.view === '@me' ? t('Direct Messages') : (state.guilds[state.view]?.name ?? 'Linkord');
+    discord.mode === 'discord'
+      ? 'Discord'
+      : !state.ready
+        ? ''
+        : state.view === '@me'
+          ? t('Direct Messages')
+          : (state.guilds[state.view]?.name ?? 'Linkord');
   return (
     <div class="titlebar" classList={{ web: !isTauri }} data-tauri-drag-region>
       <span class="titlebar-side" data-tauri-drag-region>
@@ -16,6 +24,7 @@ export function TitleBar() {
           <Emblem size={15} />
           <span data-tauri-drag-region>{import.meta.env.DEV ? 'Linkord Dev' : 'Linkord'}</span>
         </span>
+        <DiscordBackButton />
         <Show when={state.connection === 'reconnecting'}>
           <span class="titlebar-status">{t('Reconnecting…')}</span>
         </Show>

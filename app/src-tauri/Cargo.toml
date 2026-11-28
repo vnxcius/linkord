@@ -78,6 +78,8 @@ windows = { version = "0.62", features = [
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant",
   "Win32_System_Threading",
+  # Memory per process, like Task Manager (memory.rs).
+  "Win32_System_ProcessStatus",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_Security",
   "Win32_System_SystemInformation",

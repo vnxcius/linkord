@@ -66,6 +66,7 @@ import { watches } from '../lib/watch';
 
 const WATCH_SITES = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick', clip: 'REC' } as const;
 import * as I from './Icons';
+import { DiscordButton } from './Discord';
 import { UserVolumeSlider } from './VolumeControl';
 import { comboLabel } from '../lib/keys';
 import { currentGame, toggleGameStream } from '../lib/games';
@@ -1373,6 +1374,7 @@ function UserPanel() {
         </div>
         <span class="grow" />
         <div class="me-places">
+          <DiscordButton />
           <RecButton />
           <button
             class="icon-btn"

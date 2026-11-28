@@ -1,8 +1,9 @@
 // DM and group DM calls: the "<friend> is calling" card with Discord's ringtone, and the ringing you hear
 // while you wait for someone to pick up.
-import { createMemo, For, onCleanup, Show } from 'solid-js';
+import { createEffect, createMemo, For, onCleanup, Show } from 'solid-js';
 import { api, media } from '../lib/api';
 import { selectChannel } from '../lib/actions';
+import { closeDiscord } from '../lib/discord';
 import { t } from '../lib/i18n';
 import { notify } from '../lib/platform';
 import { sounds } from '../lib/sounds';
@@ -86,6 +87,10 @@ function OutgoingRing() {
 
 export function Calls() {
   const ringingUs = createMemo(incoming);
+  // A Linkord call ringing while Discord is in front: Linkord comes back so you can answer.
+  createEffect(() => {
+    if (ringingUs()) void closeDiscord(true);
+  });
   const waiting = () => {
     const ch = voiceUi.channelId;
     if (!ch || voiceUi.connecting || !state.calls[ch]?.length) return false;

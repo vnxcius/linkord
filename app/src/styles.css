@@ -505,6 +505,29 @@ input, textarea, select { font: inherit; color: inherit; }
 /* REC while it records: "● REC 12:34", the recording red (a status: dot + word + time). */
 /* REC while it records: the strip at the top of the panel, and a small dot on the REC button. */
 .rec-btn { position: relative; }
+/* Discord inside Linkord (lib/discord.ts): the switch beside REC with Discord's badge (the server list's: a count for
+   mentions, red with a dot for other unreads), the way back in the title bar, and the stage under Discord's view (its
+   picture while the switch plays, the introduction while Discord is off). */
+.discord-btn { position: relative; }
+.badge.switch-badge { position: absolute; right: -4px; top: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; box-shadow: 0 0 0 3px var(--bg-2); pointer-events: none; }
+.badge.switch-badge.rail-alert { width: 14px; min-width: 14px; height: 14px; right: -3px; top: -4px; padding: 0; }
+.titlebar-switch { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 6px; border-radius: 8px; color: var(--text-2); font: 500 12px var(--font); letter-spacing: 0; animation: fade .2s ease-out; }
+.titlebar-switch:hover { background: var(--bg-hover); color: var(--text); }
+.titlebar-switch .badge.switch-badge { position: static; box-shadow: none; }
+.discord-stage { position: fixed; top: var(--titlebar-h); left: 0; right: 0; bottom: 0; z-index: 90; display: grid; place-items: center; overflow: hidden; background: var(--bg-1); transform-origin: 50% 100%; }
+.discord-shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; user-select: none; }
+.discord-opening { display: grid; justify-items: center; gap: 12px; color: var(--text-3); }
+.discord-opening p { margin: 0; }
+.discord-intro { max-width: 480px; padding: 0 24px; display: grid; gap: 14px; color: var(--text); }
+.discord-intro h1 { margin: 4px 0 0; font: 400 34px/1.1 var(--font-display); text-wrap: balance; }
+.discord-intro p { margin: 0; line-height: 1.55; }
+.discord-intro ul, .set-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.discord-intro-actions { display: flex; gap: 8px; margin-top: 6px; }
+/* Settings -> Desktop App -> Memory: one row per part, the total under a hairline. */
+.mem-row { display: flex; align-items: center; gap: 16px; }
+.mem-row .set-row-text { flex: 1; min-width: 0; }
+.mem-value { font: 500 13px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.mem-row.total { padding-top: 12px; border-top: 1px solid var(--line); }
 .rec-btn.recording::after { content: ''; position: absolute; top: 5px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--bg-2); }
 .rec-strip { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 8px; background: rgb(229 72 77 / .1); color: var(--text); font-size: 12px; text-align: left; }
 .rec-strip:hover { background: rgb(229 72 77 / .16); }

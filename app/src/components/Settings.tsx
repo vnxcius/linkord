@@ -19,7 +19,16 @@ import {
 import { api, apiBlob, media } from '../lib/api';
 import { describeDevice } from '../lib/device';
 import { logout, logoutEverywhere } from '../lib/actions';
-import { autostartEnabled, checkForUpdates, setAutostart, update, updating } from '../lib/desktop';
+import {
+  appMemory,
+  autostartEnabled,
+  checkForUpdates,
+  isWindows,
+  setAutostart,
+  update,
+  updating,
+  type AppMemory,
+} from '../lib/desktop';
 import { normalizePath } from '../lib/game-match';
 import {
   currentGame,
@@ -76,6 +85,7 @@ import { StevePage } from './StevePage';
 import { RELEASE_NAME, showChristmas, showRelease, startTour } from './Onboarding';
 import { parseBirthday } from './Birthday';
 import { brandOf } from '../lib/brand-icons';
+import { disableDiscord, discordAvailable, enableDiscord, forgetDiscord, setDiscordBackground } from '../lib/discord';
 import { linkHost, type ProfileLink, type ProfileSong, SongPlayer } from './ProfileWidgets';
 import { type Draft, SoundEditor } from './Soundboard';
 
@@ -96,6 +106,7 @@ type Page =
   | 'language'
   | 'appearance'
   | 'favorite-games'
+  | 'discord'
   | 'app';
 
 interface Connection {
@@ -143,6 +154,9 @@ const NAV: { group: string; pages: [Page, string, (p: { size?: number }) => JSX.
       ['notifications', msg('Notifications'), I.Bell],
       ['appearance', msg('Appearance'), I.Appearance],
       ['language', msg('Language'), I.Language],
+      ...(discordAvailable
+        ? [['discord', 'Discord', DiscordMark] as [Page, string, (p: { size?: number }) => JSX.Element]]
+        : []),
       ...(isTauri
         ? [['app', msg('Desktop App'), I.AppIcon] as [Page, string, (p: { size?: number }) => JSX.Element]]
         : []),
@@ -167,6 +181,7 @@ const TITLES: Record<Page, string> = {
   language: msg('Language'),
   appearance: msg('Appearance'),
   'favorite-games': msg('Favorite Games'),
+  discord: 'Discord',
   app: msg('Desktop App'),
 };
 
@@ -186,6 +201,7 @@ export function Settings(p: { tab?: string }) {
     language: 'language',
     appearance: 'appearance',
     'favorite-games': 'favorite-games',
+    discord: 'discord',
     app: 'app',
   };
   const [page, setPage] = createSignal<Page>(legacy[p.tab ?? ''] ?? 'account');
@@ -316,6 +332,9 @@ export function Settings(p: { tab?: string }) {
             </Match>
             <Match when={page() === 'sessions'}>
               <SessionsPage />
+            </Match>
+            <Match when={page() === 'discord'}>
+              <DiscordPage />
             </Match>
             <Match when={page() === 'app'}>
               <AppPage />
@@ -2798,7 +2817,134 @@ function LanguagePage() {
   );
 }
 
+// ---------- Discord (Windows app, lib/discord.ts) ----------
+
+function DiscordMark(p: { size?: number }) {
+  return <I.SiteIcon url="https://discord.com" size={p.size} />;
+}
+
+function DiscordPage() {
+  return (
+    <>
+      <Section
+        title={t('Discord in Linkord')}
+        description={t(
+          "Discord's own web app inside Linkord, so the Discord app can stay closed. Switch with the Discord button beside REC, or Ctrl+Alt+D.",
+        )}
+      >
+        <div class="set-card">
+          <SwitchRow
+            label={t('Turn on Discord')}
+            hint={t(
+              "Off, nothing of Discord runs. Turning it off keeps you signed in for next time. What notifies you is set in Discord's own settings.",
+            )}
+            checked={prefs.discord.enabled}
+            onChange={(v) => void (v ? enableDiscord() : disableDiscord())}
+          />
+          <Show when={prefs.discord.enabled}>
+            <SwitchRow
+              label={t('Keep Discord running in the background')}
+              hint={
+                prefs.discord.background
+                  ? t("Discord's notifications and calls go on while Linkord is in front.")
+                  : t(
+                      "Discord closes a minute after you switch back to Linkord, once it isn't playing sound. No Discord notifications while it's closed.",
+                    )
+              }
+              checked={prefs.discord.background}
+              onChange={setDiscordBackground}
+            />
+          </Show>
+        </div>
+      </Section>
+      <Section
+        title={t('Remove Discord')}
+        description={t(
+          "Signs you out of Discord on this computer, removes what it kept here and turns it off. Linkord's own data stays.",
+        )}
+      >
+        <button
+          class="btn danger-ghost"
+          onClick={() =>
+            setUi('modal', {
+              type: 'confirm',
+              title: t('Remove Discord'),
+              body: t(
+                "Signs you out of Discord on this computer, removes what it kept here and turns it off. Linkord's own data stays.",
+              ),
+              action: t('Remove'),
+              run: forgetDiscord,
+            })
+          }
+        >
+          {t('Remove Discord')}
+        </button>
+      </Section>
+      <Section title={t('What needs the Discord app')}>
+        <ul class="set-list">
+          <li>{t('Push to talk while another app is in front: Discord only hears keys while it has the keyboard.')}</li>
+          <li>{t("Showing the game you're playing on Discord, and games' own Discord features.")}</li>
+          <li>{t("Discord's in-game overlay.")}</li>
+        </ul>
+      </Section>
+    </>
+  );
+}
+
 // ---------- Desktop app ----------
+
+/** Task Manager shows "Linkord" as the shell alone and the browser engine under "Microsoft Edge WebView2": the whole of
+ *  it here, live while the page is open. */
+function MemoryUse() {
+  const [use, setUse] = createSignal<AppMemory | null>(null);
+  const load = () => void appMemory().then((u) => u && setUse(u));
+  load();
+  const timer = setInterval(load, 2000);
+  onCleanup(() => clearInterval(timer));
+  const size = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(2)} GB` : `${Math.round(b / 1024 ** 2)} MB`);
+  const Row = (p: { label: string; hint?: string; bytes: number; total?: boolean }) => (
+    <div class="mem-row" classList={{ total: p.total }}>
+      <span class="set-row-text">
+        <strong>{p.label}</strong>
+        <Show when={p.hint}>
+          <small>{p.hint}</small>
+        </Show>
+      </span>
+      <span class="mem-value">{size(p.bytes)}</span>
+    </div>
+  );
+  return (
+    <Section
+      title={t('Memory')}
+      description={t(
+        "Measured like Task Manager's Memory column. Task Manager lists the browser engine Linkord runs on as Microsoft Edge WebView2, apart from Linkord.",
+      )}
+    >
+      <div class="set-card">
+        <Show when={use()} fallback={<p class="muted small">{t('Measuring…')}</p>}>
+          {(u) => (
+            <>
+              <Row label="Linkord" hint={t('The app and its windows')} bytes={u().app + u().pages} />
+              <Show when={u().discord}>
+                <Row
+                  label="Discord"
+                  hint={t("Discord's page, also while it's in the background")}
+                  bytes={u().discord}
+                />
+              </Show>
+              <Row
+                label={t('Browser engine')}
+                hint={t('Shared by everything above: graphics, network and sound')}
+                bytes={u().engine}
+              />
+              <Row label={t('Total')} bytes={u().app + u().pages + u().discord + u().engine} total />
+            </>
+          )}
+        </Show>
+      </div>
+    </Section>
+  );
+}
 
 function AppPage() {
   const [autostart, { mutate }] = createResource(autostartEnabled);
@@ -2831,6 +2977,9 @@ function AppPage() {
           </Show>
         </div>
       </Section>
+      <Show when={isWindows}>
+        <MemoryUse />
+      </Show>
       <Show when={nativeKeybinds}>
         <Section title={t('Game overlay')}>
           <div class="set-card">

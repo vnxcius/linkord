@@ -560,6 +560,14 @@ export const UI: Record<string, string> = {
   'Uploading… {pct}%': 'Enviando… {pct}%',
   'Finishing…': 'Finalizando…',
   'Measuring…': 'Calculando…',
+  Memory: 'Memória',
+  "Measured like Task Manager's Memory column. Task Manager lists the browser engine Linkord runs on as Microsoft Edge WebView2, apart from Linkord.":
+    'Medido como a coluna Memória do Gerenciador de Tarefas. Lá, o motor de navegador em que o Linkord roda aparece como Microsoft Edge WebView2, separado do Linkord.',
+  'The app and its windows': 'O app e suas janelas',
+  "Discord's page, also while it's in the background": 'A página do Discord, também em segundo plano',
+  'Browser engine': 'Motor de navegador',
+  'Shared by everything above: graphics, network and sound': 'Compartilhado por tudo acima: gráficos, rede e som',
+  Total: 'Total',
   'Will be sent as {size} (original {original})': 'Será enviada com {size} (original: {original})',
   'Animated nameplates must be under {size}.': 'Plaquinhas animadas precisam ter menos de {size}.',
   'Animated nameplates are saved as they are: no cropping, zoom or rotation.':
@@ -1287,6 +1295,40 @@ export const UI: Record<string, string> = {
   'View full profile': 'Ver perfil completo',
   'View profile': 'Ver perfil',
   'REC (recording)': 'REC (gravando)',
+  'Discord (Ctrl+Alt+D)': 'Discord (Ctrl+Alt+D)',
+  'Back to Linkord (Ctrl+Alt+D)': 'Voltar ao Linkord (Ctrl+Alt+D)',
+  'Opening Discord…': 'Abrindo o Discord…',
+  'Discord, inside Linkord': 'O Discord, dentro do Linkord',
+  'Sign in once and Discord opens right here, so the Discord app can stay closed. It runs on the browser engine Linkord already uses, so it takes less memory than the Discord app.':
+    'Entre uma vez e o Discord abre aqui mesmo, então o app do Discord pode ficar fechado. Ele roda no motor de navegador que o Linkord já usa, então ocupa menos memória que o app do Discord.',
+  "Messages, calls, video and screen sharing, with Discord's own notifications and settings.":
+    'Mensagens, chamadas, vídeo e compartilhamento de tela, com as notificações e configurações do próprio Discord.',
+  'Switch with this button or Ctrl+Alt+D. Discord keeps running in the background; you can change that in Settings.':
+    'Alterne com este botão ou Ctrl+Alt+D. O Discord continua rodando em segundo plano; dá para mudar isso nas Configurações.',
+  "Push to talk works only while Discord is in front, and your games don't show as your activity there. Those need the Discord app.":
+    'Pressionar para falar só funciona com o Discord na frente, e seus jogos não aparecem como sua atividade lá. Para isso, só com o app do Discord.',
+  'Turn on Discord': 'Ativar o Discord',
+  'Discord in Linkord': 'Discord no Linkord',
+  "Discord's own web app inside Linkord, so the Discord app can stay closed. Switch with the Discord button beside REC, or Ctrl+Alt+D.":
+    'O app web do próprio Discord dentro do Linkord, então o app do Discord pode ficar fechado. Alterne com o botão do Discord ao lado do REC, ou Ctrl+Alt+D.',
+  "Off, nothing of Discord runs. Turning it off keeps you signed in for next time. What notifies you is set in Discord's own settings.":
+    'Desativado, nada do Discord roda. Desativar mantém você conectado para a próxima vez. O que te notifica se ajusta nas configurações do próprio Discord.',
+  'Keep Discord running in the background': 'Manter o Discord rodando em segundo plano',
+  "Discord's notifications and calls go on while Linkord is in front.":
+    'As notificações e chamadas do Discord continuam enquanto o Linkord está na frente.',
+  "Discord closes a minute after you switch back to Linkord, once it isn't playing sound. No Discord notifications while it's closed.":
+    'O Discord fecha um minuto depois que você volta ao Linkord, quando não estiver tocando som. Sem notificações do Discord enquanto estiver fechado.',
+  'Remove Discord': 'Remover o Discord',
+  "Signs you out of Discord on this computer, removes what it kept here and turns it off. Linkord's own data stays.":
+    'Desconecta você do Discord neste computador, apaga o que ele guardou aqui e o desativa. Os dados do Linkord continuam.',
+  'What needs the Discord app': 'O que precisa do app do Discord',
+  'Push to talk while another app is in front: Discord only hears keys while it has the keyboard.':
+    'Pressionar para falar com outro app na frente: o Discord só ouve as teclas quando está com o teclado.',
+  "Showing the game you're playing on Discord, and games' own Discord features.":
+    'Mostrar no Discord o jogo que você está jogando, e os recursos de Discord dos próprios jogos.',
+  "Discord's in-game overlay.": 'O overlay do Discord nos jogos.',
+  "Couldn't remove all of Discord's data. Try again.":
+    'Não foi possível apagar todos os dados do Discord. Tente de novo.',
   'No roles': 'Sem cargos',
   'About Me': 'Sobre mim',
   '{n} Mutual Server': '{n} servidor em comum',
